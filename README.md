@@ -23,7 +23,8 @@ Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor 
 | Avaliação de pretensão salarial (`evaluate_salary`), com prioridade da faixa publicada na vaga | pronto |
 | Busca de vagas: registro de buscas (evita repetir em 24 h) | pronto |
 | Busca de vagas: aderência da vaga ao currículo (`score_job_match`) | pronto |
-| Busca de vagas: lista `a_aplicar` | em andamento (#39, #40) |
+| Busca de vagas: status `a_aplicar` com busca de origem e aderência | pronto |
+| Busca de vagas: lista de trabalho ordenada por aderência | em andamento (#40, depende de #7) |
 | Skill "candidaturas" (fluxo completo) | planejado (#11) |
 
 Specs e tickets: [issues do repositório](https://github.com/barbieriht/mcp-vagas/issues).
@@ -132,14 +133,14 @@ O PDF sai em `VAGAS_RESUME_OUT`, com nome no formato `Nome_Sobrenome_Resume_Empr
 - *"Ficou faltando o CPF; registre como pendente."* (status `pendente_usuario` com `pending`)
 - *"Passei para a entrevista técnica."* / *"Mostre o histórico da candidatura 3."* (`update_application`, `get_history`)
 
-Status possíveis: `aplicada`, `pendente_usuario`, `rh`, `tecnica`, `gestor`, `proposta`, `recusada`, `desistiu`, `descartada`.
+Status possíveis: `a_aplicar` (vaga encontrada e triada, aguardando candidatura), `aplicada`, `pendente_usuario`, `rh`, `tecnica`, `gestor`, `proposta`, `recusada`, `desistiu`, `descartada`.
 
 ## Tools
 
 | Tool | O que faz |
 |---|---|
 | `find_application` | procura por URL e/ou empresa ("Itaú S.A." = "itau"); chamar antes de aplicar |
-| `add_application` | registra candidatura (`aplicada`, `pendente_usuario` ou `descartada`); duplicata devolve a existente |
+| `add_application` | registra vaga (`a_aplicar`, `aplicada`, `pendente_usuario` ou `descartada`), com busca de origem e aderência; duplicata devolve a existente |
 | `update_application` | muda etapa, pendência, nota ou currículo vinculado |
 | `get_history` | candidatura, linha do tempo e currículos vinculados |
 | `extract_resume_text` | extrai o texto do PDF do currículo (caminho Windows ou WSL) |

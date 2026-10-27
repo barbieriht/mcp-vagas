@@ -6,9 +6,10 @@ import sys
 from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.server.mcpserver import MCPServer
+from pydantic import BaseModel, ConfigDict, Field
 from mcp.server.mcpserver.exceptions import ToolError
 
 from vagas.db import connect
@@ -22,6 +23,14 @@ from vagas.resume_tailor import TailoredSelection
 from vagas.job_search import JobSearchStore
 from vagas.salary import SalaryPoint, SalaryStore
 from vagas.resume_repo import ResumeStore, default_draft_path
+
+
+class MatchTerms(BaseModel):
+    """Termos da vaga presentes e ausentes no currículo, como devolvidos por score_job_match."""
+
+    model_config = ConfigDict(extra="forbid")
+    matched: list[str]
+    missing: list[str]
 
 
 def build_server(
@@ -61,6 +70,9 @@ def build_server(
         - nenhum registro: seguir com a triagem e a candidatura;
         - registro com status "pendente_usuario": retomar a candidatura a partir do que
           está descrito em "pending" (não criar outro registro);
+        - registro com status "a_aplicar": vaga já encontrada e triada, na lista de trabalho:
+          seguir com a candidatura e, ao final, atualizar o registro com update_application
+          (não criar outro registro);
         - registro com qualquer outro status (inclusive "descartada", com "discard_reason"):
           parar e informar o status atual ao usuário.
 
@@ -89,10 +101,15 @@ def build_server(
         pending: str | None = None,
         discard_reason: str | None = None,
         resume_id: int | None = None,
+        search_id: int | None = None,
+        match_score: Annotated[int, Field(ge=0, le=100)] | None = None,
+        match_terms: MatchTerms | None = None,
     ) -> dict[str, Any]:
-        """Registra uma vaga: candidatura enviada, incompleta ou descartada na triagem.
+        """Registra uma vaga: encontrada e triada, candidatura enviada, incompleta ou descartada.
 
         status:
+        - "a_aplicar": vaga encontrada numa busca e aprovada na triagem, aguardando candidatura
+          (lista de trabalho). NUNCA registre como "aplicada" uma vaga só encontrada;
         - "aplicada": SOMENTE se a candidatura foi de fato submetida;
         - "pendente_usuario": candidatura incompleta; "pending" é obrigatório e descreve
           o que falta o usuário fazer (ex.: "CPF", "criar conta", "responder pergunta X");
@@ -106,6 +123,8 @@ def build_server(
         description: texto da vaga (requisitos, responsabilidades), para consulta futura.
         salary_expectation: pretensão informada no formulário, em texto livre.
         resume_id: currículo personalizado enviado (create_tailored_resume); fica vinculado.
+        search_id: busca de origem (save_job_search), para vagas encontradas em buscas.
+        match_score / match_terms: aderência ao currículo, como devolvida por score_job_match.
         """
         with repo() as r:
             return r.add_application(
@@ -113,6 +132,8 @@ def build_server(
                 work_mode=work_mode, location=location,
                 salary_expectation=salary_expectation, description=description,
                 status=status, pending=pending, discard_reason=discard_reason, resume_id=resume_id,
+                search_id=search_id, match_score=match_score,
+                match_terms=match_terms.model_dump() if match_terms is not None else None,
             )
 
     @server.tool()

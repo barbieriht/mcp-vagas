@@ -141,6 +141,12 @@ MIGRATIONS = [
     );
     CREATE INDEX job_searches_key ON job_searches (query_norm, source, location_norm);
     """,
+    # v9: origem (busca) e aderência ao currículo das vagas encontradas
+    """
+    ALTER TABLE applications ADD COLUMN search_id INTEGER REFERENCES job_searches (id);
+    ALTER TABLE applications ADD COLUMN match_score INTEGER;
+    ALTER TABLE applications ADD COLUMN match_terms TEXT;
+    """,
 ]
 LATEST_VERSION = len(MIGRATIONS)
 
