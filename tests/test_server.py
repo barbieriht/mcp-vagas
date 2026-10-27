@@ -241,3 +241,29 @@ async def test_tailored_resume_via_mcp(db_path, tmp_path):
     assert rejected.is_error and "45%" in rejected.content[0].text
     assert [r["id"] for r in listed["resumes"]] == [created["id"]]
     assert fetched["resolved"]["experience"][0]["company"] == "Acme Analytics"
+
+
+async def test_resume_link_via_mcp(db_path, tmp_path):
+    from resume_fixture import fictitious_resume
+    from vagas.server import build_server
+
+    server = build_server(db_path, resume_out=tmp_path / "out")
+    selection = {"label": "Nubank", "sections": [{"section": "experience"}]}
+    async with Client(server) as client:
+        await client.call_tool("save_master_draft", {"resume": fictitious_resume()})
+        await client.call_tool("approve_master", {})
+        app = payload(await client.call_tool("add_application", {
+            "company": "Nubank", "role": "DS", "source": "linkedin",
+            "status": "pendente_usuario", "pending": "CPF",
+        }))["application"]
+        resume = payload(await client.call_tool("create_tailored_resume", {
+            "selection": selection, "application_id": app["id"],
+        }))
+        other = payload(await client.call_tool("create_tailored_resume", {"selection": selection}))
+        updated = await client.call_tool("update_application", {"id": app["id"], "resume_id": 999})
+        history = payload(await client.call_tool("get_history", {"id": app["id"]}))
+        filtered = payload(await client.call_tool("list_resumes", {"application_id": app["id"]}))
+
+    assert updated.is_error and "999" in updated.content[0].text
+    assert [r["id"] for r in history["resumes"]] == [resume["id"]]
+    assert [r["id"] for r in filtered["resumes"]] == [resume["id"]] != [other["id"]]
