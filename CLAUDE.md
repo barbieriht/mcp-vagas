@@ -1,5 +1,26 @@
 # mcp-vagas
 
+Servidor MCP local (stdio) em Python + SQLite para registrar e deduplicar candidaturas a vagas, e a Skill "candidaturas" que o usa. Specs e tickets nas GitHub Issues (#1 servidor, #10 currículos, #11 Skill).
+
+## Comandos
+
+- Setup: `uv venv -p 3.12 .venv && uv pip install --python .venv/bin/python -e ".[dev]"`
+- Testes: `.venv/bin/pytest -q`
+- Inspector: `.venv/bin/mcp dev src/vagas/server.py`
+- Servidor: `.venv/bin/python -m vagas.server` (banco em `$VAGAS_DB`, padrão `~/.local/share/vagas/vagas.db`)
+
+## Convenções
+
+- Nunca escrever no stdout (`print` incluso) no código do servidor: no stdio o stdout é o canal do protocolo. Logging só em stderr.
+- `repo.py` não importa nada de MCP; `server.py` só valida/converte e chama o repo. Regra de negócio fica no repo.
+- Erros de uso: levantar `VagasError` com mensagem legível em português dizendo o que corrigir. O servidor converte em `ToolError`; outras exceções chegam ao cliente como mensagem genérica (comportamento do `mcp` 2.x).
+- Valores de status, fonte e modalidade vêm de `models.py` (fonte única); tools usam os `Literal` para o enum aparecer no schema.
+- Mudança de schema = nova entrada em `MIGRATIONS` (`db.py`), nunca editar uma migração já aplicada. O backup antes de migrar é automático.
+- Docstrings das tools são lidas pelo modelo: explícitas sobre quando chamar e o que retorna.
+- TDD: testes antes da implementação. Testar pelo comportamento externo em dois seams: `Repo` contra banco temporário e cliente MCP em memória (`mcp.Client(server)`). Nada de dados pessoais em fixtures.
+- Dependências: só `mcp` (e `pytest` em dev) até a spec #10 liberar `pypdf`, `PyYAML` e `typst`.
+- `skill/candidaturas/perfil.md` tem dados pessoais e fica fora do git; manter `perfil.example.md` com a mesma estrutura.
+
 ## Agent skills
 
 ### Issue tracker
