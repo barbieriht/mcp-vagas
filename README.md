@@ -15,10 +15,10 @@ Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor 
 
 | Funcionalidade | Situação |
 |---|---|
-| Registrar, deduplicar por URL, atualizar e ver histórico de candidaturas | pronto |
+| Registrar, deduplicar por URL, buscar por empresa normalizada, atualizar e ver histórico | pronto |
 | Currículo geral: extração do PDF, rascunho YAML, revisão e aprovação | pronto |
 | Currículos personalizados com validação anti-invenção + PDF (Typst) | pronto |
-| Busca por empresa normalizada, normalização de URL por plataforma, listagens, CSV | em andamento (#3, #4, #7, #8) |
+| Normalização de URL por plataforma, listagens, CSV | em andamento (#3, #7, #8) |
 | Estimativas salariais com cache e avaliação de pretensão | planejado (#23) |
 | Skill "candidaturas" (fluxo completo) | planejado (#11) |
 
@@ -121,7 +121,7 @@ O PDF sai em `VAGAS_RESUME_OUT`, com nome no formato `Nome_Sobrenome_Resume_Empr
 
 ### 3. Registrar e acompanhar candidaturas
 
-- *"Antes de aplicar, veja se já me candidatei a <url>."* (`find_application`)
+- *"Antes de aplicar, veja se já me candidatei a <url> ou a outra vaga da empresa."* (`find_application`)
 - *"Registre a candidatura no Nubank, Data Scientist, pelo LinkedIn, com o currículo que você gerou."* (`add_application` com `resume_id`)
 - *"Ficou faltando o CPF; registre como pendente."* (status `pendente_usuario` com `pending`)
 - *"Passei para a entrevista técnica."* / *"Mostre o histórico da candidatura 3."* (`update_application`, `get_history`)
@@ -132,7 +132,7 @@ Status possíveis: `aplicada`, `pendente_usuario`, `rh`, `tecnica`, `gestor`, `p
 
 | Tool | O que faz |
 |---|---|
-| `find_application` | procura candidatura pela URL (chamar antes de aplicar) |
+| `find_application` | procura por URL e/ou empresa ("Itaú S.A." = "itau"); chamar antes de aplicar |
 | `add_application` | registra candidatura (`aplicada`, `pendente_usuario` ou `descartada`); duplicata devolve a existente |
 | `update_application` | muda etapa, pendência, nota ou currículo vinculado |
 | `get_history` | candidatura, linha do tempo e currículos vinculados |
