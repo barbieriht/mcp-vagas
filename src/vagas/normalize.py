@@ -7,6 +7,12 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 _COMPANY_SUFFIXES = {"ltda", "sa", "inc", "llc", "ltd", "me", "eireli"}
 
 
+def normalize_text(text: str) -> str:
+    """Minúsculas, sem acentos e com espaços colapsados ("  Pythón  Remoto" -> "python remoto")."""
+    ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+    return " ".join(ascii_text.lower().split())
+
+
 def normalize_company(name: str) -> str:
     """Minúsculas, sem acentos e pontuação, sem sufixo societário no fim ("Itaú Unibanco S.A." -> "itau unibanco")."""
     ascii_name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower()
