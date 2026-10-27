@@ -12,11 +12,12 @@ import yaml
 from pydantic import ValidationError
 
 from vagas.db import default_db_path
-from vagas.repo import VagasError, _utcnow
+from vagas.repo import VagasError, _require_text, _utcnow
 from vagas.resume_extract import extract_pages, review_draft, wsl_path
 from vagas.resume_model import MasterResume, describe_errors
 from vagas.resume_render import render_resume
 from vagas.resume_tailor import TailoredSelection, resolve
+from vagas.resume_validate import match_terms, strings, term_set
 
 
 def default_draft_path(db_path: Path | str | None = None) -> Path:
@@ -161,6 +162,19 @@ class ResumeStore:
                  json.dumps(resolved, ensure_ascii=False), rendered["path"], rendered["pages"], self.now()),
             )
         return {"id": cursor.lastrowid, **rendered}
+
+    def score_job_match(self, description: str) -> dict[str, Any]:
+        """Aderência da vaga ao currículo geral: termos técnicos da descrição presentes e ausentes."""
+        description = _require_text("description", description)
+        master = self.get_master_resume()["resume"]
+        vocabulary = term_set(term for group in master.get("skills", []) for term in group["terms"])
+        matched, missing = match_terms(description, term_set(strings(master)), vocabulary)
+        total = len(matched) + len(missing)
+        if total == 0:
+            return {"score": None, "matched": [], "missing": [],
+                    "note": "A descrição não tem termos técnicos reconhecíveis (tecnologias, siglas, nomes "
+                            "próprios); avalie a aderência pela leitura da vaga."}
+        return {"score": round(100 * len(matched) / total), "matched": matched, "missing": missing, "note": None}
 
     def list_resumes(self, application_id: int | None = None) -> list[dict[str, Any]]:
         rows = self.conn.execute(
