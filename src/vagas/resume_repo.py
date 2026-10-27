@@ -115,8 +115,14 @@ class ResumeStore:
             "resume": json.loads(row["content"]),
         }
 
-    def create_tailored_resume(self, selection: Any, out_dir: Path | str | None) -> dict[str, Any]:
+    def create_tailored_resume(
+        self, selection: Any, out_dir: Path | str | None, application_id: int | None = None,
+    ) -> dict[str, Any]:
         """Valida a seleção contra o currículo geral, gera o PDF e registra. Nada é gravado se falhar."""
+        if application_id is not None and not self.conn.execute(
+            "SELECT 1 FROM applications WHERE id = ?", (application_id,)
+        ).fetchone():
+            raise VagasError(f"Candidatura {application_id} não existe.")
         if not isinstance(selection, TailoredSelection):
             try:
                 selection = TailoredSelection.model_validate(selection)
@@ -128,21 +134,24 @@ class ResumeStore:
         with self.conn:
             cursor = self.conn.execute(
                 """
-                INSERT INTO resumes (master_resume_id, label, selection, resolved, pdf_path, pages, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO resumes (
+                    master_resume_id, application_id, label, selection, resolved, pdf_path, pages, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (master["version_id"], selection.label,
+                (master["version_id"], application_id, selection.label,
                  json.dumps(selection.model_dump(exclude_none=True), ensure_ascii=False),
                  json.dumps(resolved, ensure_ascii=False), rendered["path"], rendered["pages"], self.now()),
             )
         return {"id": cursor.lastrowid, **rendered}
 
-    def list_resumes(self) -> list[dict[str, Any]]:
+    def list_resumes(self, application_id: int | None = None) -> list[dict[str, Any]]:
         rows = self.conn.execute(
             """
             SELECT id, label, pdf_path, pages, master_resume_id, application_id, created_at
-            FROM resumes ORDER BY created_at DESC, id DESC
-            """
+            FROM resumes WHERE ? IS NULL OR application_id = ?
+            ORDER BY created_at DESC, id DESC
+            """,
+            (application_id, application_id),
         )
         return [dict(row) for row in rows]
 

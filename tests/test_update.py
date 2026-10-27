@@ -129,7 +129,7 @@ def test_discard_reason_without_moving_to_discarded_is_rejected(repo):
 def test_update_without_changes_is_rejected(repo):
     app = add(repo)
 
-    with pytest.raises(VagasError, match="status, note ou pending"):
+    with pytest.raises(VagasError, match="Nada a atualizar"):
         repo.update_application(app["id"])
 
 

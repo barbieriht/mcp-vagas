@@ -47,6 +47,7 @@ class Repo:
         status: str = "aplicada",
         pending: str | None = None,
         discard_reason: str | None = None,
+        resume_id: int | None = None,
     ) -> dict[str, Any]:
         company = _require_text("company", company)
         role = _require_text("role", role)
@@ -59,6 +60,8 @@ class Repo:
             discard_reason = _require_text("discard_reason", discard_reason)
         elif discard_reason is not None:
             raise VagasError("'discard_reason' só pode ser informado com status 'descartada'.")
+        if resume_id is not None:
+            self._check_resume(resume_id, application_id=None)
 
         url_canonical = canonical_url(url)
         if url_canonical is not None:
@@ -84,6 +87,8 @@ class Repo:
                 "INSERT INTO events (application_id, at, from_status, to_status) VALUES (?, ?, NULL, ?)",
                 (cursor.lastrowid, now, status),
             )
+            if resume_id is not None:
+                self._link_resume(resume_id, cursor.lastrowid)
         return {"created": True, "application": self.get(cursor.lastrowid)}
 
     def update_application(
@@ -93,14 +98,17 @@ class Repo:
         note: str | None = None,
         pending: str | None = None,
         discard_reason: str | None = None,
+        resume_id: int | None = None,
     ) -> dict[str, Any]:
-        """Muda status, pendência e/ou anota. pending="" limpa a pendência.
+        """Muda status, pendência, currículo vinculado e/ou anota. pending="" limpa a pendência.
 
         Mudança de status ou nota gravam evento; só mudar a pendência não grava.
         """
         current = self.get(application_id)
-        if status is None and note is None and pending is None and discard_reason is None:
-            raise VagasError("Nada a atualizar: informe status, note ou pending.")
+        if all(v is None for v in (status, note, pending, discard_reason, resume_id)):
+            raise VagasError("Nada a atualizar: informe status, note, pending ou resume_id.")
+        if resume_id is not None:
+            self._check_resume(resume_id, application_id)
         _require_choice("status", status, STATUSES)
         if status is not None and status == current["status"]:
             raise VagasError(f"A candidatura {application_id} já está com status {status!r}.")
@@ -132,10 +140,37 @@ class Repo:
                     "INSERT INTO events (application_id, at, from_status, to_status, note) VALUES (?, ?, ?, ?, ?)",
                     (application_id, now, current["status"], new_status, note),
                 )
+            if resume_id is not None:
+                self._link_resume(resume_id, application_id)
         return self.get(application_id)
 
     def get_history(self, application_id: int) -> dict[str, Any]:
-        return {"application": self.get(application_id), "events": self.events(application_id)}
+        resumes = self.conn.execute(
+            """
+            SELECT id, label, pdf_path, created_at FROM resumes
+            WHERE application_id = ? ORDER BY created_at, id
+            """,
+            (application_id,),
+        )
+        return {
+            "application": self.get(application_id),
+            "events": self.events(application_id),
+            "resumes": [dict(row) for row in resumes],
+        }
+
+    def _check_resume(self, resume_id: int, application_id: int | None) -> None:
+        row = self.conn.execute("SELECT application_id FROM resumes WHERE id = ?", (resume_id,)).fetchone()
+        if row is None:
+            raise VagasError(f"Currículo personalizado {resume_id} não existe.")
+        linked = row["application_id"]
+        if linked is not None and linked != application_id:
+            raise VagasError(
+                f"Currículo personalizado {resume_id} já está vinculado à candidatura {linked}; "
+                "gere outro currículo para esta vaga."
+            )
+
+    def _link_resume(self, resume_id: int, application_id: int) -> None:
+        self.conn.execute("UPDATE resumes SET application_id = ? WHERE id = ?", (application_id, resume_id))
 
     def find_application(self, url: str | None = None) -> list[dict[str, Any]]:
         url_canonical = canonical_url(url)

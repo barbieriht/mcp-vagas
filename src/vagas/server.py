@@ -74,6 +74,7 @@ def build_server(
         status: InitialStatus = "aplicada",
         pending: str | None = None,
         discard_reason: str | None = None,
+        resume_id: int | None = None,
     ) -> dict[str, Any]:
         """Registra uma vaga: candidatura enviada, incompleta ou descartada na triagem.
 
@@ -90,13 +91,14 @@ def build_server(
 
         description: texto da vaga (requisitos, responsabilidades), para consulta futura.
         salary_expectation: pretensão informada no formulário, em texto livre.
+        resume_id: currículo personalizado enviado (create_tailored_resume); fica vinculado.
         """
         with repo() as r:
             return r.add_application(
                 company=company, role=role, source=source, url=url, seniority=seniority,
                 work_mode=work_mode, location=location,
                 salary_expectation=salary_expectation, description=description,
-                status=status, pending=pending, discard_reason=discard_reason,
+                status=status, pending=pending, discard_reason=discard_reason, resume_id=resume_id,
             )
 
     @server.tool()
@@ -106,6 +108,7 @@ def build_server(
         note: str | None = None,
         pending: str | None = None,
         discard_reason: str | None = None,
+        resume_id: int | None = None,
     ) -> dict[str, Any]:
         """Atualiza uma candidatura existente: etapa do processo, pendência e/ou anotação.
 
@@ -116,6 +119,7 @@ def build_server(
         - note: contexto livre (ex.: nome do recrutador, feedback). Fica no histórico.
         - pending: o que falta o usuário fazer, em qualquer etapa; "" limpa a pendência.
         - discard_reason: motivo, somente ao mudar o status para "descartada".
+        - resume_id: vincula o currículo personalizado enviado nesta candidatura.
 
         Mudança de status e nota ficam registradas como eventos (ver get_history).
         Retorna a candidatura atualizada.
@@ -123,6 +127,7 @@ def build_server(
         with repo() as r:
             return r.update_application(
                 id, status=status, note=note, pending=pending, discard_reason=discard_reason,
+                resume_id=resume_id,
             )
 
     @server.tool()
@@ -131,7 +136,8 @@ def build_server(
 
         Formato: {"application": {...}, "events": [{at, from_status, to_status, note}, ...]}.
         O primeiro evento é a criação (from_status nulo). Eventos com from_status igual a
-        to_status são anotações sem mudança de etapa. Útil antes de uma entrevista.
+        to_status são anotações sem mudança de etapa. "resumes" lista os currículos
+        personalizados vinculados (id, label, pdf_path, created_at). Útil antes de uma entrevista.
         """
         with repo() as r:
             return r.get_history(id)
@@ -186,7 +192,7 @@ def build_server(
             return render_resume(master, resume_out or default_output_dir(), label=label)
 
     @server.tool()
-    def create_tailored_resume(selection: TailoredSelection) -> dict[str, Any]:
+    def create_tailored_resume(selection: TailoredSelection, application_id: int | None = None) -> dict[str, Any]:
         """Gera um currículo personalizado para uma vaga a partir do currículo geral aprovado.
 
         Escolha seções, itens e parágrafos (IDs de get_master_resume) e a ordem em que aparecem.
@@ -200,16 +206,19 @@ def build_server(
         corrija a seleção ou o texto; NUNCA tente contornar a validação nem exagerar
         responsabilidades (ex.: "contributed" não vira "led").
 
+        application_id: candidatura à qual o currículo fica vinculado (opcional; também pode ser
+        vinculado depois com add_application/update_application e resume_id).
         Retorna {"id", "path", "pages", "warnings"}; o PDF vai para VAGAS_RESUME_OUT.
         """
         with resumes() as s:
-            return s.create_tailored_resume(selection, resume_out or default_output_dir())
+            return s.create_tailored_resume(selection, resume_out or default_output_dir(), application_id)
 
     @server.tool()
-    def list_resumes() -> dict[str, Any]:
-        """Lista os currículos personalizados gerados, mais recentes primeiro: {"resumes": [...]}."""
+    def list_resumes(application_id: int | None = None) -> dict[str, Any]:
+        """Lista os currículos personalizados gerados, mais recentes primeiro: {"resumes": [...]}.
+        Com application_id, só os vinculados àquela candidatura."""
         with resumes() as s:
-            return {"resumes": s.list_resumes()}
+            return {"resumes": s.list_resumes(application_id)}
 
     @server.tool()
     def get_resume(id: int) -> dict[str, Any]:
