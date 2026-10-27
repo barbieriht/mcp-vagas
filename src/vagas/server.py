@@ -12,7 +12,9 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from vagas.db import connect
-from vagas.models import Currency, InitialStatus, RoleKey, Seniority, Source, Status, WorkMode
+from vagas.models import (
+    Contract, Currency, InitialStatus, RoleKey, SalaryMode, Seniority, Source, Status, WorkMode,
+)
 from vagas.repo import Repo, VagasError
 from vagas.resume_model import MasterResume
 from vagas.resume_render import default_output_dir, render_resume
@@ -290,6 +292,37 @@ def build_server(
         """
         with salaries() as s:
             return s.save_salary_estimate(role_key, seniority, currency, points, company=company, note=note)
+
+    @server.tool()
+    def evaluate_salary(
+        role_key: RoleKey,
+        seniority: Seniority,
+        currency: Currency,
+        contract: Contract,
+        my_min: float,
+        my_max: float | None = None,
+        mode: SalaryMode = "minimo",
+        pj_multiplier: float | None = None,
+        company: str | None = None,
+    ) -> dict[str, Any]:
+        """Triagem salarial de uma vaga e valor de pretensão a informar no formulário.
+
+        Use a política do perfil.md: my_min/my_max = faixa MENSAL em CLT da modalidade da vaga,
+        mode ("minimo": aplicar se a mediana >= mínimo; "faixa": só se estiver dentro da faixa) e
+        pj_multiplier. contract = regime da vaga (desconhecido é tratado como CLT); para vaga PJ a
+        faixa é multiplicada e o valor sai em PJ. Base: dados frescos da empresa, senão de mercado.
+
+        decision: "aplicar" (use value_to_inform no campo de pretensão), "nao_aplicar" (registre a
+        vaga como descartada usando reason como motivo) ou "pesquisar" (pesquise salários e chame
+        save_salary_estimate antes). needs_research=true sugere pesquisar também a empresa.
+        Retorna {decision, value_to_inform, basis, contract, median, range, sources, confidence,
+        needs_research, reason}.
+        """
+        with salaries() as s:
+            return s.evaluate_salary(
+                role_key, seniority, currency, contract, my_min, my_max=my_max, mode=mode,
+                pj_multiplier=pj_multiplier, company=company,
+            )
 
     return server
 

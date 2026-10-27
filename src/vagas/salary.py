@@ -5,6 +5,7 @@ empresa ou de mercado (empresa nula), e tem zero ou mais pontos (salary_points).
 pontos registra "nada encontrado" e conta como fresca, para não ser repetida antes da validade.
 """
 
+import math
 import os
 import sqlite3
 import statistics
@@ -14,7 +15,7 @@ from typing import Any
 
 from pydantic import Field, ValidationError, model_validator
 
-from vagas.models import CURRENCIES, ROLE_KEYS, SENIORITIES, Contract, Period
+from vagas.models import CONTRACTS, CURRENCIES, ROLE_KEYS, SALARY_MODES, SENIORITIES, Contract, Period
 from vagas.normalize import normalize_company
 from vagas.repo import VagasError, _require_choice, _utcnow
 from vagas.resume_model import Text, _Model, describe_errors
@@ -64,6 +65,19 @@ def _point_value(point: dict[str, Any]) -> float:
 
 def _confidence(sources: int) -> str | None:
     return {0: None, 1: "baixa", 2: "media"}.get(sources, "alta")
+
+
+def _round_within(value: float, lo: float, hi: float | None) -> int:
+    """Limita a [lo, hi] e arredonda para a centena sem sair do intervalo (nunca abaixo de lo)."""
+    value = max(value, lo)
+    if hi is not None:
+        value = min(value, hi)
+    rounded = round(value / 100) * 100
+    if rounded < lo:
+        rounded = math.ceil(lo / 100) * 100
+    elif hi is not None and rounded > hi and math.floor(hi / 100) * 100 >= lo:
+        rounded = math.floor(hi / 100) * 100
+    return int(rounded)
 
 
 def _ttl_days() -> int:
@@ -160,6 +174,96 @@ class SalaryStore:
                 "points": points,
             })
         return searches
+
+    def evaluate_salary(
+        self,
+        role_key: str,
+        seniority: str,
+        currency: str,
+        contract: str,
+        my_min: float,
+        my_max: float | None = None,
+        mode: str = "minimo",
+        pj_multiplier: float | None = None,
+        company: str | None = None,
+    ) -> dict[str, Any]:
+        """Decide se a vaga passa na triagem salarial e qual valor informar, no regime da vaga.
+
+        my_min/my_max são mensais em CLT; numa vaga PJ são multiplicados por pj_multiplier.
+        Base: dados frescos da empresa -> de mercado -> pesquisa de mercado fresca sem dados
+        (aplicar com o mínimo) -> nada fresco (pesquisar).
+        """
+        _require_choice("mode", mode, SALARY_MODES)
+        _require_choice("contract", contract, CONTRACTS)
+        if my_min < 0:
+            raise VagasError("'my_min' não pode ser negativo.")
+        if my_max is not None and my_max < my_min:
+            raise VagasError(f"'my_max' ({my_max}) menor que 'my_min' ({my_min}).")
+        if mode == "faixa" and my_max is None:
+            raise VagasError("O modo 'faixa' exige 'my_max'.")
+        if pj_multiplier is not None and pj_multiplier <= 0:
+            raise VagasError("'pj_multiplier' deve ser maior que zero.")
+
+        job = "clt" if contract == "desconhecido" else contract
+        found = self.find_salary_estimate(role_key, seniority, currency, company=company)
+        has_company = self._company(company)[1] is not None
+        fresh = {scope: [p for p in found["points"] if p["scope"] == scope and p["fresh"]]
+                 for scope in ("company", "market")}
+        needs_company = has_company and not found["fresh_company"]
+
+        def factor() -> float:
+            if pj_multiplier is None:
+                raise VagasError("Informe 'pj_multiplier' (do perfil.md): é necessário para converter entre CLT e PJ.")
+            return pj_multiplier
+
+        lo = my_min * (factor() if job == "pj" else 1)
+        hi = None if my_max is None else my_max * (factor() if job == "pj" else 1)
+
+        def fmt(v: float) -> str:
+            return f"{currency} {v:,.0f}".replace(",", ".")
+
+        result: dict[str, Any] = {
+            "decision": None, "value_to_inform": None, "basis": None, "contract": job, "median": None,
+            "range": None, "sources": 0, "confidence": None, "needs_research": needs_company, "reason": "",
+        }
+
+        if has_company and fresh["company"]:
+            basis, points = "empresa", fresh["company"]
+            result["needs_research"] = False
+        elif fresh["market"]:
+            basis, points = "mercado", fresh["market"]
+        elif found["fresh_market"]:
+            value = _round_within(lo, lo, hi)
+            return {**result, "decision": "aplicar", "basis": "sem_dados", "value_to_inform": value,
+                    "reason": f"Pesquisa recente não encontrou salários para este cargo; aplicar informando "
+                              f"seu mínimo, {fmt(value)} ({job.upper()})."}
+        else:
+            return {**result, "decision": "pesquisar", "needs_research": True,
+                    "reason": "Sem dados frescos de salário: pesquise (empresa e mercado) e registre com "
+                              "save_salary_estimate antes de avaliar."}
+
+        values = []
+        for p in points:
+            value, regime = p["monthly_value"], p["contract"]
+            if regime not in ("desconhecido", job):
+                value = value * factor() if job == "pj" else value / factor()
+            values.append(value)
+        median = round(statistics.median(values), 2)
+        sources = len({p["source"].strip().lower() for p in points})
+        result.update(basis=basis, median=median, range=[round(min(values), 2), round(max(values), 2)],
+                      sources=sources, confidence=_confidence(sources))
+
+        where = "da empresa" if basis == "empresa" else "de mercado"
+        if median < lo:
+            return {**result, "decision": "nao_aplicar",
+                    "reason": f"Mediana {where} {fmt(median)} abaixo do seu mínimo {fmt(lo)} ({job.upper()})."}
+        if mode == "faixa" and median > hi:
+            return {**result, "decision": "nao_aplicar",
+                    "reason": f"Mediana {where} {fmt(median)} acima da sua faixa, máximo {fmt(hi)} ({job.upper()})."}
+        value = _round_within(median, lo, hi)
+        return {**result, "decision": "aplicar", "value_to_inform": value,
+                "reason": f"Mediana {where} {fmt(median)} compatível com seu mínimo {fmt(lo)} ({job.upper()}); "
+                          f"informar {fmt(value)}."}
 
     @staticmethod
     def _summary(searches: list[dict[str, Any]]) -> dict[str, Any]:
