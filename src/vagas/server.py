@@ -12,11 +12,12 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from vagas.db import connect
-from vagas.models import InitialStatus, Source, Status, WorkMode
+from vagas.models import Currency, InitialStatus, RoleKey, Seniority, Source, Status, WorkMode
 from vagas.repo import Repo, VagasError
 from vagas.resume_model import MasterResume
 from vagas.resume_render import default_output_dir, render_resume
 from vagas.resume_tailor import TailoredSelection
+from vagas.salary import SalaryPoint, SalaryStore
 from vagas.resume_repo import ResumeStore, default_draft_path
 
 
@@ -41,6 +42,9 @@ def build_server(
 
     def resumes():
         return store(lambda conn: ResumeStore(conn, draft_path or default_draft_path(db_path)))
+
+    def salaries():
+        return store(SalaryStore)
 
     @server.tool()
     def find_application(url: str | None = None, company: str | None = None) -> dict[str, Any]:
@@ -245,6 +249,47 @@ def build_server(
         versão do currículo geral de origem, caminho do PDF e páginas."""
         with resumes() as s:
             return s.get_resume(id)
+
+    @server.tool()
+    def find_salary_estimate(
+        role_key: RoleKey, seniority: Seniority, currency: Currency, company: str | None = None,
+    ) -> dict[str, Any]:
+        """Consulta o cache de salários para família de cargo + senioridade + moeda.
+
+        SEMPRE consultar antes de pesquisar salários na web. Pesquise e registre
+        (save_salary_estimate) só o que não estiver fresco: fresh_company=false (com company
+        informada) e/ou fresh_market=false. Dados ficam frescos por 90 dias (configurável).
+        role_key agrupa grafias ("Cientista de Dados" e "Data Scientist" = data_scientist).
+
+        Retorna {"company", "market", "fresh_company", "fresh_market", "points"}. "company" e
+        "market" são resumos dos dados frescos (mediana mensal, min, max, nº de fontes,
+        confidence baixa/media/alta, nothing_found) ou null. Valores mensais na base de cada
+        ponto (CLT ou PJ); a conversão de regime é feita na avaliação.
+        """
+        with salaries() as s:
+            return s.find_salary_estimate(role_key, seniority, currency, company=company)
+
+    @server.tool()
+    def save_salary_estimate(
+        role_key: RoleKey,
+        seniority: Seniority,
+        currency: Currency,
+        points: list[SalaryPoint],
+        company: str | None = None,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        """Registra o resultado de uma pesquisa de salários na web.
+
+        Um ponto por dado encontrado, com fonte e URL, período (hora/mes/ano), regime
+        (clt/pj/desconhecido) e ao menos um entre min_value, avg_value e max_value, exatamente
+        como a fonte informa (a conversão para mensal é automática). NUNCA invente valores nem
+        estime por conta própria: se não encontrou nada, registre points=[] (com note dizendo onde
+        procurou), o que evita repetir a pesquisa antes da validade.
+        Sem company: dados de mercado para o cargo e senioridade. Moedas nunca são convertidas.
+        Retorna {"search_id", "points"}.
+        """
+        with salaries() as s:
+            return s.save_salary_estimate(role_key, seniority, currency, points, company=company, note=note)
 
     return server
 

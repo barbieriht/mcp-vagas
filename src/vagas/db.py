@@ -95,6 +95,34 @@ MIGRATIONS = [
     """,
     # v5: recalcula company_norm com a normalização completa (acentos, pontuação, sufixos)
     _renormalize_companies,
+    # v6: cache de estimativas salariais
+    """
+    CREATE TABLE salary_searches (
+        id INTEGER PRIMARY KEY,
+        company TEXT,
+        company_norm TEXT,
+        role_key TEXT NOT NULL,
+        seniority TEXT NOT NULL,
+        currency TEXT NOT NULL,
+        searched_at TEXT NOT NULL,
+        note TEXT
+    );
+    CREATE INDEX salary_searches_key ON salary_searches (role_key, seniority, currency, company_norm);
+
+    CREATE TABLE salary_points (
+        id INTEGER PRIMARY KEY,
+        search_id INTEGER NOT NULL REFERENCES salary_searches (id),
+        source TEXT NOT NULL,
+        source_url TEXT,
+        contract TEXT NOT NULL,
+        period TEXT NOT NULL,
+        min_value REAL,
+        avg_value REAL,
+        max_value REAL,
+        application_id INTEGER REFERENCES applications (id)
+    );
+    CREATE INDEX salary_points_search_id ON salary_points (search_id);
+    """,
 ]
 LATEST_VERSION = len(MIGRATIONS)
 

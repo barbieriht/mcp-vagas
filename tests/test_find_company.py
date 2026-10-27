@@ -3,7 +3,7 @@ import sqlite3
 
 import pytest
 
-from vagas.db import LATEST_VERSION, connect
+from vagas.db import MIGRATIONS, _renormalize_companies, connect
 from vagas.repo import Repo, VagasError
 
 
@@ -77,14 +77,17 @@ def test_blank_company_counts_as_missing(repo):
 
 def test_existing_rows_are_renormalized_by_migration(tmp_path):
     path = tmp_path / "old.db"
-    conn = connect(path)
-    conn.execute(
+    before = MIGRATIONS.index(_renormalize_companies)
+    old = sqlite3.connect(path)
+    for step in MIGRATIONS[:before]:
+        old.executescript(step)
+    old.execute(
         "INSERT INTO applications (company, company_norm, role, source, status, created_at, updated_at) "
         "VALUES ('Nubank S.A.', 'nubank s.a.', 'DS', 'linkedin', 'aplicada', 'x', 'x')"
     )
-    conn.execute(f"PRAGMA user_version = {LATEST_VERSION - 1}")
-    conn.commit()
-    conn.close()
+    old.execute(f"PRAGMA user_version = {before}")
+    old.commit()
+    old.close()
 
     conn = connect(path)
 
