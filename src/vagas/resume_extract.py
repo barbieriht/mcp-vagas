@@ -24,6 +24,7 @@ _WHOLE_FIELDS = {
     "basics": ("name", "headline", "email", "phone", "location"),
     "education": ("institution", "degree", "field", "start", "end"),
     "experience": ("company", "context", "title", "location", "start", "end"),
+    "volunteering": ("organization", "role", "location", "start", "end"),
     "projects": ("name", "link", "start", "end"),
     "publications": ("title", "venue", "authors", "link", "year"),
 }
@@ -88,7 +89,7 @@ def review_draft(draft: dict[str, Any], reference: str) -> list[dict[str, str]]:
         check_whole("basics.links", link)
     check_long("summary", draft.get("summary"))
 
-    for section in ("education", "experience", "projects", "publications"):
+    for section in ("education", "experience", "volunteering", "projects", "publications"):
         for item in draft.get(section, []):
             item_id = item.get("id", section)
             for field in _WHOLE_FIELDS[section]:
@@ -105,7 +106,7 @@ def review_draft(draft: dict[str, Any], reference: str) -> list[dict[str, str]]:
     for group in draft.get("certifications", []):
         check_whole(f"{group['id']}.label", group.get("label"))
         for cert in group.get("items", []):
-            for field in ("name", "provider", "year"):
+            for field in ("name", "provider", "year", "link"):
                 check_whole(f"{cert['id']}.{field}", cert.get(field))
     for i, language in enumerate(draft.get("languages", [])):
         for field in ("name", "level", "note"):

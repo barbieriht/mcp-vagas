@@ -47,6 +47,16 @@ class Experience(_Model):
     paragraphs: list[Paragraph] = Field(min_length=1)
 
 
+class Volunteering(_Model):
+    id: Id
+    organization: Text
+    role: Text
+    location: Text | None = None
+    start: Text | None = None
+    end: Text | None = None
+    paragraphs: list[Paragraph] = []
+
+
 class Project(_Model):
     id: Id
     name: Text
@@ -76,6 +86,7 @@ class Certification(_Model):
     name: Text
     provider: Text | None = None
     year: int | None = None
+    link: Text | None = Field(None, description="URL da credencial, quando houver")
 
 
 class CertificationGroup(_Model):
@@ -98,6 +109,7 @@ class MasterResume(_Model):
     summary: Text | None = None
     education: list[Education] = []
     experience: list[Experience] = []
+    volunteering: list[Volunteering] = []
     projects: list[Project] = []
     publications: list[Publication] = []
     skills: list[SkillGroup] = []
@@ -118,7 +130,8 @@ class MasterResume(_Model):
 
 
 def _ids(resume: MasterResume):
-    for section in ("education", "experience", "projects", "publications", "skills", "certifications"):
+    for section in ("education", "experience", "volunteering", "projects", "publications", "skills",
+                    "certifications"):
         for i, item in enumerate(getattr(resume, section)):
             yield f"{section}.{i}.id", item.id
             for j, paragraph in enumerate(getattr(item, "paragraphs", [])):

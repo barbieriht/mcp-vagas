@@ -9,11 +9,13 @@ from vagas.repo import VagasError
 from vagas.resume_model import Id, Text, _Model
 from vagas.resume_validate import number_set, strings, term_set, unknown_numbers, unknown_terms
 
-Section = Literal["education", "experience", "projects", "publications", "skills", "certifications", "languages"]
+Section = Literal[
+    "education", "experience", "volunteering", "projects", "publications", "skills", "certifications", "languages",
+]
 DEFAULT_ORDER: tuple[str, ...] = (
-    "education", "experience", "projects", "publications", "skills", "certifications", "languages",
+    "education", "experience", "volunteering", "projects", "publications", "skills", "certifications", "languages",
 )
-_WITH_PARAGRAPHS = {"experience", "projects"}
+_WITH_PARAGRAPHS = {"experience", "volunteering", "projects"}
 
 
 class ParagraphPick(_Model):
@@ -27,7 +29,7 @@ class ParagraphPick(_Model):
 class ItemPick(_Model):
     id: Id
     paragraphs: list[ParagraphPick] | None = Field(
-        None, description="Só experience/projects. Parágrafos e ordem; ausente = todos, como estão.",
+        None, description="Só experience/volunteering/projects. Parágrafos e ordem; ausente = todos, como estão.",
     )
     terms: list[Text] | None = Field(None, description="Só skills. Subconjunto e ordem dos termos do grupo.")
     items: list[Id] | None = Field(None, description="Só certifications. IDs das certificações do grupo.")
@@ -41,8 +43,8 @@ class SectionPick(_Model):
 
 
 class TailoredSelection(_Model):
-    """Seleção sobre o currículo geral. Campos factuais (empresa, cargo, datas, local, instituição,
-    grau, certificação, idioma) não são aceitos: vêm sempre do currículo geral."""
+    """Seleção sobre o currículo geral. Campos factuais (empresa, organização, cargo, papel, datas,
+    local, instituição, grau, certificação, idioma) não são aceitos: vêm sempre do currículo geral."""
 
     label: Text | None = Field(None, description="Empresa ou rótulo usado no nome do arquivo")
     headline: Text | None = Field(None, description="Headline reescrita; ausente = a do currículo geral")
