@@ -279,6 +279,7 @@ def build_server(
         points: list[SalaryPoint],
         company: str | None = None,
         note: str | None = None,
+        application_id: int | None = None,
     ) -> dict[str, Any]:
         """Registra o resultado de uma pesquisa de salários na web.
 
@@ -288,10 +289,13 @@ def build_server(
         estime por conta própria: se não encontrou nada, registre points=[] (com note dizendo onde
         procurou), o que evita repetir a pesquisa antes da validade.
         Sem company: dados de mercado para o cargo e senioridade. Moedas nunca são convertidas.
+        Faixa salarial publicada na própria vaga: registre com source "vaga" e application_id da
+        candidatura (e company); ela passa a ter prioridade na avaliação dessa vaga e não expira.
         Retorna {"search_id", "points"}.
         """
         with salaries() as s:
-            return s.save_salary_estimate(role_key, seniority, currency, points, company=company, note=note)
+            return s.save_salary_estimate(role_key, seniority, currency, points, company=company, note=note,
+                                          application_id=application_id)
 
     @server.tool()
     def evaluate_salary(
@@ -304,13 +308,16 @@ def build_server(
         mode: SalaryMode = "minimo",
         pj_multiplier: float | None = None,
         company: str | None = None,
+        application_id: int | None = None,
     ) -> dict[str, Any]:
         """Triagem salarial de uma vaga e valor de pretensão a informar no formulário.
 
         Use a política do perfil.md: my_min/my_max = faixa MENSAL em CLT da modalidade da vaga,
         mode ("minimo": aplicar se a mediana >= mínimo; "faixa": só se estiver dentro da faixa) e
         pj_multiplier. contract = regime da vaga (desconhecido é tratado como CLT); para vaga PJ a
-        faixa é multiplicada e o valor sai em PJ. Base: dados frescos da empresa, senão de mercado.
+        faixa é multiplicada e o valor sai em PJ. Base: faixa publicada na vaga (application_id),
+        senão dados frescos da empresa, senão de mercado. Com application_id, a avaliação fica
+        gravada na candidatura (salary_evaluation, visível em get_history).
 
         decision: "aplicar" (use value_to_inform no campo de pretensão), "nao_aplicar" (registre a
         vaga como descartada usando reason como motivo) ou "pesquisar" (pesquise salários e chame
@@ -321,7 +328,7 @@ def build_server(
         with salaries() as s:
             return s.evaluate_salary(
                 role_key, seniority, currency, contract, my_min, my_max=my_max, mode=mode,
-                pj_multiplier=pj_multiplier, company=company,
+                pj_multiplier=pj_multiplier, company=company, application_id=application_id,
             )
 
     return server

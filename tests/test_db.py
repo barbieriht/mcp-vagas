@@ -18,7 +18,7 @@ def test_new_database_gets_latest_schema(db_path):
     assert columns(conn, "applications") == {
         "id", "company", "company_norm", "role", "url", "url_canonical", "source",
         "seniority", "work_mode", "location", "salary_expectation", "description",
-        "status", "pending", "discard_reason", "created_at", "updated_at",
+        "status", "pending", "discard_reason", "created_at", "updated_at", "salary_evaluation",
     }
     assert columns(conn, "events") == {
         "id", "application_id", "at", "from_status", "to_status", "note",

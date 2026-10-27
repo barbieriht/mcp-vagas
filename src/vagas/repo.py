@@ -1,5 +1,6 @@
 """Operações de dados das candidaturas. Não depende de MCP."""
 
+import json
 import sqlite3
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -26,6 +27,13 @@ def _require_text(field: str, value: str | None) -> str:
 def _require_choice(field: str, value: str | None, choices: tuple[str, ...]) -> None:
     if value is not None and value not in choices:
         raise VagasError(f"'{field}' inválido: {value!r}. Valores aceitos: {', '.join(choices)}.")
+
+
+def _application(row: sqlite3.Row) -> dict[str, Any]:
+    application = dict(row)
+    if application.get("salary_evaluation"):
+        application["salary_evaluation"] = json.loads(application["salary_evaluation"])
+    return application
 
 
 class Repo:
@@ -187,13 +195,13 @@ class Repo:
             """,
             (url_canonical, company_norm),
         )
-        return [dict(row) for row in rows]
+        return [_application(row) for row in rows]
 
     def get(self, application_id: int) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM applications WHERE id = ?", (application_id,)).fetchone()
         if row is None:
             raise VagasError(f"Candidatura {application_id} não existe.")
-        return dict(row)
+        return _application(row)
 
     def events(self, application_id: int) -> list[dict[str, Any]]:
         rows = self.conn.execute(
@@ -205,4 +213,4 @@ class Repo:
         row = self.conn.execute(
             "SELECT * FROM applications WHERE url_canonical = ?", (url_canonical,)
         ).fetchone()
-        return dict(row) if row else None
+        return _application(row) if row else None

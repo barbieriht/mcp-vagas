@@ -123,6 +123,8 @@ MIGRATIONS = [
     );
     CREATE INDEX salary_points_search_id ON salary_points (search_id);
     """,
+    # v7: última avaliação salarial usada na candidatura (JSON)
+    "ALTER TABLE applications ADD COLUMN salary_evaluation TEXT",
 ]
 LATEST_VERSION = len(MIGRATIONS)
 
