@@ -161,3 +161,33 @@ async def test_update_and_history_via_mcp(server):
     assert history["events"][-1]["note"] == "CPF enviado"
     assert missing.is_error and "999" in missing.content[0].text
     assert "tecnica" in json.dumps(tools["update_application"].input_schema)
+
+
+async def test_master_resume_lifecycle_via_mcp(server, db_path):
+    from resume_fixture import fictitious_resume
+
+    async with Client(server) as client:
+        tools = await tools_by_name(client)
+        before = await client.call_tool("get_master_resume", {})
+        saved = payload(await client.call_tool("save_master_draft", {"resume": fictitious_resume()}))
+        approved = payload(await client.call_tool("approve_master", {}))
+        master = payload(await client.call_tool("get_master_resume", {}))
+
+    assert "explicitamente" in tools["approve_master"].description
+    assert "experience" in json.dumps(tools["save_master_draft"].input_schema)
+    assert before.is_error and "save_master_draft" in before.content[0].text
+    assert saved["path"] == str(db_path.parent / "curriculo.yaml")
+    assert master["version_id"] == approved["version_id"]
+    assert master["resume"]["basics"]["name"] == "Fulana de Tal"
+
+
+async def test_invalid_master_draft_is_a_readable_error_via_mcp(server):
+    from resume_fixture import fictitious_resume
+
+    resume = fictitious_resume()
+    resume["experience"][1]["paragraphs"][0]["id"] = "exp-acme-tech-lead-p1"
+    async with Client(server) as client:
+        result = await client.call_tool("save_master_draft", {"resume": resume})
+
+    assert result.is_error
+    assert "exp-acme-tech-lead-p1" in result.content[0].text

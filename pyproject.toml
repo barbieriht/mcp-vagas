@@ -3,7 +3,7 @@ name = "vagas"
 version = "0.1.0"
 description = "Servidor MCP local para registrar e deduplicar candidaturas a vagas"
 requires-python = ">=3.12"
-dependencies = ["mcp==2.3.0"]
+dependencies = ["mcp==2.3.0", "pydantic==2.14.1", "PyYAML==6.0.3"]
 
 [project.optional-dependencies]
 dev = ["pytest==9.1.1", "mcp[cli]==2.3.0"]

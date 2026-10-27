@@ -1,6 +1,7 @@
 """Tools MCP finas sobre o repo. Nunca escrever no stdout: no stdio ele é o canal do protocolo."""
 
 import logging
+import sqlite3
 import sys
 from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
@@ -13,19 +14,27 @@ from mcp.server.mcpserver.exceptions import ToolError
 from vagas.db import connect
 from vagas.models import InitialStatus, Source, Status, WorkMode
 from vagas.repo import Repo, VagasError
+from vagas.resume_model import MasterResume
+from vagas.resume_repo import ResumeStore, default_draft_path
 
 
-def build_server(db_path: Path | str | None = None) -> MCPServer:
+def build_server(db_path: Path | str | None = None, draft_path: Path | str | None = None) -> MCPServer:
     server = MCPServer("vagas")
 
     @contextmanager
-    def repo() -> Iterator[Repo]:
+    def store(factory: Callable[[sqlite3.Connection], Any]) -> Iterator[Any]:
         try:
             with closing(connect(db_path)) as conn:
-                yield Repo(conn)
+                yield factory(conn)
         except VagasError as exc:
             # Exceções comuns chegam ao cliente como mensagem genérica; ToolError preserva o texto.
             raise ToolError(str(exc)) from exc
+
+    def repo():
+        return store(Repo)
+
+    def resumes():
+        return store(lambda conn: ResumeStore(conn, draft_path or default_draft_path(db_path)))
 
     @server.tool()
     def find_application(url: str | None = None) -> dict[str, Any]:
@@ -120,6 +129,43 @@ def build_server(db_path: Path | str | None = None) -> MCPServer:
         """
         with repo() as r:
             return r.get_history(id)
+
+    @server.tool()
+    def save_master_draft(resume: MasterResume, overwrite: bool = False) -> dict[str, Any]:
+        """Grava o rascunho do currículo geral (em inglês) num arquivo YAML para o usuário revisar.
+
+        Use para criar o currículo geral a partir do currículo atual do usuário ou para propor
+        alterações nele. Nunca invente informação: tudo deve vir do currículo ou do usuário.
+        IDs: slugs únicos (minúsculas, dígitos, hífens) que distinguem funções na mesma empresa,
+        ex.: "exp-acme-analyst" e seus parágrafos "exp-acme-analyst-p1", "exp-acme-analyst-p2".
+        Cada experiência tem "paragraphs" (a unidade de conteúdo), não bullets.
+
+        Recusa sobrescrever um rascunho com edições do usuário ainda não aprovadas; overwrite=true
+        só com a concordância dele. Retorna {"path"}: peça ao usuário para revisar e editar o arquivo.
+        """
+        with resumes() as s:
+            return s.save_master_draft(resume, overwrite=overwrite)
+
+    @server.tool()
+    def approve_master() -> dict[str, Any]:
+        """Promove o rascunho atual (inclusive edições feitas à mão) a currículo geral aprovado.
+
+        Chamar SOMENTE quando o usuário disser explicitamente que revisou o rascunho e o aprova.
+        Revalida o arquivo antes de aprovar. Aprovar conteúdo idêntico a uma versão existente não
+        cria versão nova. Retorna {"created", "version_id", "content_hash"}.
+        """
+        with resumes() as s:
+            return s.approve_master()
+
+    @server.tool()
+    def get_master_resume() -> dict[str, Any]:
+        """Retorna o currículo geral aprovado mais recente: {"version_id", "approved_at", "resume"}.
+
+        É a única fonte da verdade sobre experiência, formação, skills e idiomas do usuário,
+        para escolher o que destacar numa vaga ou responder formulários.
+        """
+        with resumes() as s:
+            return s.get_master_resume()
 
     return server
 
