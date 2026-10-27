@@ -143,6 +143,18 @@ def build_server(
             return r.get_history(id)
 
     @server.tool()
+    def extract_resume_text(pdf_path: str) -> dict[str, Any]:
+        """Extrai o texto do PDF do currículo do usuário (aceita caminho do Windows ou do WSL).
+
+        Primeiro passo para criar o currículo geral: leia o texto devolvido (e, se puder, o próprio
+        PDF), monte a estrutura e chame save_master_draft. O texto fica guardado como referência:
+        save_master_draft passa a devolver "review", a lista do que não foi encontrado no PDF.
+        Retorna {"path", "page_count", "pages"}.
+        """
+        with resumes() as s:
+            return s.extract_resume_text(pdf_path)
+
+    @server.tool()
     def save_master_draft(resume: MasterResume, overwrite: bool = False) -> dict[str, Any]:
         """Grava o rascunho do currículo geral (em inglês) num arquivo YAML para o usuário revisar.
 
@@ -153,7 +165,10 @@ def build_server(
         Cada experiência tem "paragraphs" (a unidade de conteúdo), não bullets.
 
         Recusa sobrescrever um rascunho com edições do usuário ainda não aprovadas; overwrite=true
-        só com a concordância dele. Retorna {"path"}: peça ao usuário para revisar e editar o arquivo.
+        só com a concordância dele. Retorna {"path", "reference", "review"}: peça ao usuário para
+        revisar e editar o arquivo. Se houver PDF de referência (extract_resume_text), "review" lista
+        números, datas, nomes e termos do rascunho não encontrados no PDF: mostre-os ao usuário e
+        corrija o que for erro de extração; não aprove sem que ele os confira.
         """
         with resumes() as s:
             return s.save_master_draft(resume, overwrite=overwrite)

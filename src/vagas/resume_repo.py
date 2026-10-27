@@ -13,6 +13,7 @@ from pydantic import ValidationError
 
 from vagas.db import default_db_path
 from vagas.repo import VagasError, _utcnow
+from vagas.resume_extract import extract_pages, review_draft, wsl_path
 from vagas.resume_model import MasterResume, describe_errors
 from vagas.resume_render import render_resume
 from vagas.resume_tailor import TailoredSelection, resolve
@@ -82,7 +83,24 @@ class ResumeStore:
                 "INSERT OR REPLACE INTO master_draft (id, file_hash, written_at) VALUES (1, ?, ?)",
                 (_text_hash(text), self.now()),
             )
-        return {"path": str(self.draft_path)}
+        source = self.conn.execute(
+            "SELECT path, pages FROM resume_sources ORDER BY extracted_at DESC, id DESC LIMIT 1"
+        ).fetchone()
+        if source is None:
+            return {"path": str(self.draft_path), "reference": None, "review": None}
+        review = review_draft(data, "\n".join(json.loads(source["pages"])))
+        return {"path": str(self.draft_path), "reference": source["path"], "review": review}
+
+    def extract_resume_text(self, pdf_path: str | Path) -> dict[str, Any]:
+        """Extrai o texto do PDF e o guarda como referência para revisar os próximos rascunhos."""
+        path = wsl_path(pdf_path)
+        pages = extract_pages(path)
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO resume_sources (path, pages, extracted_at) VALUES (?, ?, ?)",
+                (str(path), json.dumps(pages, ensure_ascii=False), self.now()),
+            )
+        return {"path": str(path), "page_count": len(pages), "pages": pages}
 
     def approve_master(self) -> dict[str, Any]:
         data = _validate(self._read_draft()).as_data()
