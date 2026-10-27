@@ -17,7 +17,7 @@ Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor 
 |---|---|
 | Registrar, deduplicar por URL, buscar por empresa normalizada, atualizar e ver histórico | pronto |
 | Currículo geral: extração do PDF, rascunho YAML, revisão e aprovação | pronto |
-| Currículo geral também a partir do LinkedIn (revisão contra todas as fontes), seção Volunteering e link de certificação | pronto; fluxo na Skill em andamento (#49) |
+| Currículo geral também a partir do LinkedIn (revisão contra todas as fontes), seção Volunteering e link de certificação | pronto |
 | Currículos personalizados com validação anti-invenção + PDF (Typst) | pronto |
 | Normalização de URL por plataforma, listagens, CSV | em andamento (#3, #7, #8) |
 | Estimativas salariais: cache de pesquisas (90 dias) | pronto |
@@ -135,6 +135,7 @@ A Skill diz ao Claude quando e em que ordem usar as tools. É ela que garante, p
 | `SKILL.md` | escolha do fluxo e **triagem** (duplicata, critérios, aderência, salário) | sim |
 | `candidatar.md` | candidatura: currículo personalizado, formulário, bloqueios, revisão antes do envio | sim |
 | `buscar.md` | busca de vagas a partir do currículo | sim |
+| `curriculo.md` | montar ou atualizar o currículo geral a partir do PDF e do LinkedIn | sim |
 | `perfil.md` | dados para formulários (contato, respostas padrão) | não (use `perfil.example.md`) |
 | `politica-salarial.md` | faixas CLT por modalidade, modo e multiplicador PJ | não (use `politica-salarial.example.md`) |
 
@@ -165,6 +166,10 @@ A Skill descreve ações no navegador ("abra a vaga", "anexe o PDF") sem depende
 Com a Skill instalada, basta pedir em linguagem natural ("busque vagas para mim", "candidate-se a esta vaga: <link>"). Sem ela, peça cada passo explicitamente, como nos exemplos abaixo.
 
 ### 1. Criar o currículo geral (uma vez)
+
+Com a Skill, peça: *"Monte meu currículo geral a partir do PDF C:\Users\<usuário>\Downloads\Curriculo.pdf e do meu LinkedIn https://www.linkedin.com/in/<perfil>/"*. O Claude lê o PDF, abre o seu perfil no navegador (logado), rola cada seção de detalhes até o fim, registra as fontes, pergunta sobre divergências e monta o rascunho. Ler o LinkedIn exige uma ferramenta de navegador no cliente.
+
+Sem a Skill, os passos são:
 
 1. *"Extraia meu currículo de C:\Users\<usuário>\Downloads\Curriculo.pdf e monte o currículo geral."*
    - O Claude chama `extract_resume_text` e depois `save_master_draft`.
