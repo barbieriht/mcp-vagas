@@ -3,7 +3,7 @@
 import json
 import sqlite3
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from vagas.models import INITIAL_STATUSES, SOURCES, STATUSES, WORK_MODES
@@ -35,6 +35,17 @@ def _application(row: sqlite3.Row) -> dict[str, Any]:
         if application.get(field):
             application[field] = json.loads(application[field])
     return application
+
+
+def _iso_instant(field: str, value: str) -> str:
+    """Data ou data e hora ISO, como instante UTC comparável com created_at."""
+    try:
+        moment = datetime.fromisoformat(value.strip())
+    except ValueError as exc:
+        raise VagasError(f"'{field}' deve ser uma data ISO (ex.: 2026-10-01), recebido {value!r}.") from exc
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(timezone.utc).isoformat(timespec="seconds")
 
 
 def _check_match_terms(match_terms: dict[str, Any] | None) -> None:
@@ -222,6 +233,53 @@ class Repo:
             (url_canonical, company_norm),
         )
         return [_application(row) for row in rows]
+
+    def list_applications(
+        self,
+        status: str | None = None,
+        only_pending: bool = False,
+        source: str | None = None,
+        since: str | None = None,
+        stale_days: int | None = None,
+    ) -> dict[str, Any]:
+        """Candidaturas com os filtros combinados (E), mais recentes primeiro.
+
+        stale_days=N: só "aplicada" cujo último evento é mais antigo que N dias (sem resposta).
+        """
+        _require_choice("status", status, STATUSES)
+        _require_choice("source", source, SOURCES)
+        conditions, params = [], []
+        if status is not None:
+            conditions.append("a.status = ?")
+            params.append(status)
+        if only_pending:
+            conditions.append("a.pending IS NOT NULL")
+        if source is not None:
+            conditions.append("a.source = ?")
+            params.append(source)
+        if since is not None:
+            conditions.append("a.created_at >= ?")
+            params.append(_iso_instant("since", since))
+        if stale_days is not None:
+            if stale_days < 0:
+                raise VagasError("'stale_days' não pode ser negativo.")
+            threshold = datetime.fromisoformat(self.now()) - timedelta(days=stale_days)
+            conditions.append("a.status = 'aplicada' AND last_event_at < ?")
+            params.append(threshold.isoformat(timespec="seconds"))
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        rows = self.conn.execute(
+            f"""
+            SELECT * FROM (
+                SELECT a.*, (SELECT MAX(e.at) FROM events e WHERE e.application_id = a.id) AS last_event_at
+                FROM applications a
+            ) a
+            {where}
+            ORDER BY a.created_at DESC, a.id DESC
+            """,
+            params,
+        )
+        applications = [_application(row) for row in rows]
+        return {"applications": applications, "count": len(applications)}
 
     def get(self, application_id: int) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM applications WHERE id = ?", (application_id,)).fetchone()

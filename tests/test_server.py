@@ -430,3 +430,20 @@ async def test_resume_sources_via_mcp(server, tmp_path):
     assert saved_source["sections"] == {"about": 45}
     assert [s["kind"] for s in draft["sources"]] == ["pdf", "linkedin"] and draft["review"] == []
     assert bad.is_error and "recommendations" in bad.content[0].text
+
+
+async def test_list_applications_via_mcp(server):
+    async with Client(server) as client:
+        tools = await tools_by_name(client)
+        for company, status, extra in [("Nubank", "aplicada", {}), ("Itau", "pendente_usuario", {"pending": "CPF"})]:
+            await client.call_tool("add_application", {
+                "company": company, "role": "DS", "source": "linkedin", "status": status, **extra})
+        everything = payload(await client.call_tool("list_applications", {}))
+        pending = payload(await client.call_tool("list_applications", {"only_pending": True}))
+        bad = await client.call_tool("list_applications", {"since": "ontem"})
+
+    schema = json.dumps(tools["list_applications"].input_schema)
+    assert "stale_days" in schema and "a_aplicar" in schema
+    assert everything["count"] == 2
+    assert [a["company"] for a in pending["applications"]] == ["Itau"]
+    assert bad.is_error and "since" in bad.content[0].text

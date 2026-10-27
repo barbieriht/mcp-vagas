@@ -19,13 +19,14 @@ Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor 
 | Currículo geral: extração do PDF, rascunho YAML, revisão e aprovação | pronto |
 | Currículo geral também a partir do LinkedIn (revisão contra todas as fontes), seção Volunteering e link de certificação | pronto |
 | Currículos personalizados com validação anti-invenção + PDF (Typst) | pronto |
-| Normalização de URL por plataforma, listagens, CSV | em andamento (#3, #7, #8) |
+| Listagens com filtros (status, pendências, fonte, data, sem resposta há N dias) | pronto |
+| Normalização de URL por plataforma, exportação CSV | em andamento (#3, #8) |
 | Estimativas salariais: cache de pesquisas (90 dias) | pronto |
 | Avaliação de pretensão salarial (`evaluate_salary`), com prioridade da faixa publicada na vaga | pronto |
 | Busca de vagas: registro de buscas (evita repetir em 24 h) | pronto |
 | Busca de vagas: aderência da vaga ao currículo (`score_job_match`) | pronto |
 | Busca de vagas: status `a_aplicar` com busca de origem e aderência | pronto |
-| Busca de vagas: lista de trabalho ordenada por aderência | em andamento (#40, depende de #7) |
+| Busca de vagas: lista de trabalho ordenada por aderência | em andamento (#40) |
 | Skill "candidaturas" (triagem, candidatura, busca de vagas) | pronto; validação real nos clientes em andamento (#19) |
 
 Specs e tickets: [issues do repositório](https://github.com/barbieriht/mcp-vagas/issues).
@@ -198,6 +199,7 @@ O PDF sai em `VAGAS_RESUME_OUT`, com nome no formato `Nome_Sobrenome_Resume_Empr
 - *"Registre a candidatura no Nubank, Data Scientist, pelo LinkedIn, com o currículo que você gerou."* (`add_application` com `resume_id`)
 - *"Ficou faltando o CPF; registre como pendente."* (status `pendente_usuario` com `pending`)
 - *"Passei para a entrevista técnica."* / *"Mostre o histórico da candidatura 3."* (`update_application`, `get_history`)
+- *"O que está pendente comigo?"* / *"Quais candidaturas estão sem resposta há mais de 30 dias?"* (`list_applications`)
 
 Status possíveis: `a_aplicar` (vaga encontrada e triada, aguardando candidatura), `aplicada`, `pendente_usuario`, `rh`, `tecnica`, `gestor`, `proposta`, `recusada`, `desistiu`, `descartada`.
 
@@ -208,6 +210,7 @@ Status possíveis: `a_aplicar` (vaga encontrada e triada, aguardando candidatura
 | `find_application` | procura por URL e/ou empresa ("Itaú S.A." = "itau"); chamar antes de aplicar |
 | `add_application` | registra vaga (`a_aplicar`, `aplicada`, `pendente_usuario` ou `descartada`), com busca de origem e aderência; duplicata devolve a existente |
 | `update_application` | muda etapa, pendência, nota ou currículo vinculado |
+| `list_applications` | lista candidaturas com filtros combináveis: status, pendências, fonte, data de criação e sem resposta há N dias |
 | `get_history` | candidatura, linha do tempo e currículos vinculados |
 | `extract_resume_text` | extrai o texto do PDF do currículo (caminho Windows ou WSL) |
 | `save_resume_source` | registra o texto das seções do seu perfil do LinkedIn como fonte do currículo |
