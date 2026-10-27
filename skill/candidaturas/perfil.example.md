@@ -19,12 +19,10 @@ Este arquivo guarda só o que não está no currículo ou respostas padrão de f
   - Se o campo pedir anos de experiência: <PREENCHER: quantos anos você quer declarar>
 - Experiência CLT: nenhuma (apenas PJ e estágio)
 - Área de atuação/estudo: escolher a opção ligada a inteligência artificial, se houver
-- Diversidade: "Prefiro não responder"
+- Diversidade (respostas usadas nos formulários; "Prefiro não responder" também é válido):
+  - Sexo: <...>
+  - Identidade de gênero: <...>
+  - Orientação sexual: <...>
+  - Raça/etnia: <...>
 - Parentes na empresa: não
 - Cargo público: nunca ocupou
-
-## Pretensão salarial
-- Remoto nacional: <PREENCHER faixa, ex.: R$ X – R$ Y/mês>
-- Híbrido/presencial SP e região: <PREENCHER faixa>
-- Internacional: <PREENCHER faixa>
-- Campo de valor único: usar o mínimo da faixa da modalidade da vaga.

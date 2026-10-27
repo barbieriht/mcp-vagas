@@ -7,7 +7,7 @@ Servidor MCP local para organizar candidaturas a vagas com o Claude. O Claude us
 - manter um **currículo geral** estruturado, criado a partir do seu PDF e revisado por você;
 - gerar **currículos personalizados** em PDF para cada vaga, sem inventar informação.
 
-Uma Skill de candidaturas, que vai orquestrar o fluxo completo, está em desenvolvimento.
+A Skill "candidaturas" (pasta `skill/candidaturas`) orquestra tudo isso: triagem, candidatura e busca de vagas.
 
 Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor na nuvem.
 
@@ -25,7 +25,7 @@ Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor 
 | Busca de vagas: aderência da vaga ao currículo (`score_job_match`) | pronto |
 | Busca de vagas: status `a_aplicar` com busca de origem e aderência | pronto |
 | Busca de vagas: lista de trabalho ordenada por aderência | em andamento (#40, depende de #7) |
-| Skill "candidaturas" (fluxo completo) | planejado (#11) |
+| Skill "candidaturas" (triagem, candidatura, busca de vagas) | pronto; validação real nos clientes em andamento (#19) |
 
 Specs e tickets: [issues do repositório](https://github.com/barbieriht/mcp-vagas/issues).
 
@@ -99,9 +99,43 @@ No `claude_desktop_config.json`, a configuração abaixo roda o servidor dentro 
 
 Os dois clientes podem usar o mesmo banco ao mesmo tempo, porque o SQLite roda em modo WAL.
 
+## Skill "candidaturas"
+
+A Skill diz ao Claude quando e em que ordem usar as tools. É ela que garante, por exemplo, que a deduplicação aconteça antes de abrir um formulário e que o Claude pare antes de enviar.
+
+| Arquivo | Conteúdo | Versionado |
+|---|---|---|
+| `SKILL.md` | escolha do fluxo e **triagem** (duplicata, critérios, aderência, salário) | sim |
+| `candidatar.md` | candidatura: currículo personalizado, formulário, bloqueios, revisão antes do envio | sim |
+| `buscar.md` | busca de vagas a partir do currículo | sim |
+| `perfil.md` | dados para formulários (contato, respostas padrão) | não (use `perfil.example.md`) |
+| `politica-salarial.md` | faixas CLT por modalidade, modo e multiplicador PJ | não (use `politica-salarial.example.md`) |
+
+Antes de usar, crie e preencha os dois arquivos pessoais:
+
+```bash
+cd ~/projects/mcp-vagas/skill/candidaturas
+cp -n perfil.example.md perfil.md
+cp -n politica-salarial.example.md politica-salarial.md
+```
+
+**Claude Code:** instale com um symlink. Assim existe uma cópia só, sempre igual ao repositório:
+
+```bash
+ln -s ~/projects/mcp-vagas/skill/candidaturas ~/.claude/skills/candidaturas
+```
+
+**Claude Desktop/Cowork:** compacte a pasta, incluindo os seus `perfil.md` e `politica-salarial.md`, e envie o zip em Configurações → Skills. Isso faz uma cópia, então repita o envio a cada mudança na Skill ou nos seus dados.
+
+```bash
+cd ~/projects/mcp-vagas/skill && zip -r /mnt/c/Users/<usuário>/Downloads/candidaturas.zip candidaturas
+```
+
+A Skill descreve ações no navegador ("abra a vaga", "anexe o PDF") sem depender de uma ferramenta específica. O cliente precisa ter alguma, como o Claude in Chrome no Desktop ou um MCP de navegador no Claude Code.
+
 ## Como usar
 
-O Claude escolhe as tools sozinho a partir do pedido. Até a Skill ficar pronta, peça cada passo explicitamente.
+Com a Skill instalada, basta pedir em linguagem natural ("busque vagas para mim", "candidate-se a esta vaga: <link>"). Sem ela, peça cada passo explicitamente, como nos exemplos abaixo.
 
 ### 1. Criar o currículo geral (uma vez)
 
