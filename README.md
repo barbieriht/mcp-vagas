@@ -20,7 +20,7 @@ Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor 
 | Currículos personalizados com validação anti-invenção + PDF (Typst) | pronto |
 | Normalização de URL por plataforma, listagens, CSV | em andamento (#3, #7, #8) |
 | Estimativas salariais: cache de pesquisas (90 dias) | pronto |
-| Avaliação de pretensão salarial (`evaluate_salary`) | pronto; faixa publicada na vaga em andamento (#26) |
+| Avaliação de pretensão salarial (`evaluate_salary`), com prioridade da faixa publicada na vaga | pronto |
 | Busca de vagas a partir do currículo, lista `a_aplicar` | planejado (#35) |
 | Skill "candidaturas" (fluxo completo) | planejado (#11) |
 

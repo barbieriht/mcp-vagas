@@ -5,6 +5,7 @@ empresa ou de mercado (empresa nula), e tem zero ou mais pontos (salary_points).
 pontos registra "nada encontrado" e conta como fresca, para não ser repetida antes da validade.
 """
 
+import json
 import math
 import os
 import sqlite3
@@ -99,12 +100,18 @@ class SalaryStore:
         points: list[Any],
         company: str | None = None,
         note: str | None = None,
+        application_id: int | None = None,
     ) -> dict[str, Any]:
         self._check_key(role_key, seniority, currency)
         try:
             validated = [p if isinstance(p, SalaryPoint) else SalaryPoint.model_validate(p) for p in points]
         except ValidationError as exc:
             raise VagasError(describe_errors(exc, "Dados salariais inválidos")) from exc
+        if application_id is not None:
+            self._require_application(application_id)
+            if any(p.source.strip().lower() != "vaga" for p in validated):
+                raise VagasError("Pontos vinculados a uma candidatura devem ter source 'vaga' "
+                                 "(faixa publicada na própria vaga).")
         company, company_norm = self._company(company)
         with self.conn:
             cursor = self.conn.execute(
@@ -117,11 +124,11 @@ class SalaryStore:
             self.conn.executemany(
                 """
                 INSERT INTO salary_points (search_id, source, source_url, contract, period,
-                                           min_value, avg_value, max_value)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                           min_value, avg_value, max_value, application_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [(cursor.lastrowid, p.source, p.source_url, p.contract, p.period,
-                  p.min_value, p.avg_value, p.max_value) for p in validated],
+                  p.min_value, p.avg_value, p.max_value, application_id) for p in validated],
             )
         return {"search_id": cursor.lastrowid, "points": len(validated)}
 
@@ -186,13 +193,31 @@ class SalaryStore:
         mode: str = "minimo",
         pj_multiplier: float | None = None,
         company: str | None = None,
+        application_id: int | None = None,
     ) -> dict[str, Any]:
         """Decide se a vaga passa na triagem salarial e qual valor informar, no regime da vaga.
 
         my_min/my_max são mensais em CLT; numa vaga PJ são multiplicados por pj_multiplier.
-        Base: dados frescos da empresa -> de mercado -> pesquisa de mercado fresca sem dados
-        (aplicar com o mínimo) -> nada fresco (pesquisar).
+        Base: faixa publicada na vaga (application_id) -> dados frescos da empresa -> de mercado ->
+        pesquisa de mercado fresca sem dados (aplicar com o mínimo) -> nada fresco (pesquisar).
+        Com application_id, a avaliação fica gravada na candidatura.
         """
+        if application_id is not None:
+            self._require_application(application_id)
+        result = self._evaluate(role_key, seniority, currency, contract, my_min, my_max, mode,
+                                pj_multiplier, company, application_id)
+        if application_id is not None:
+            record = {**result, "evaluated_at": self.now(),
+                      "policy": {"mode": mode, "my_min": my_min, "my_max": my_max, "pj_multiplier": pj_multiplier}}
+            with self.conn:
+                self.conn.execute(
+                    "UPDATE applications SET salary_evaluation = ? WHERE id = ?",
+                    (json.dumps(record, ensure_ascii=False), application_id),
+                )
+        return result
+
+    def _evaluate(self, role_key, seniority, currency, contract, my_min, my_max, mode, pj_multiplier,
+                  company, application_id) -> dict[str, Any]:
         _require_choice("mode", mode, SALARY_MODES)
         _require_choice("contract", contract, CONTRACTS)
         if my_min < 0:
@@ -209,23 +234,47 @@ class SalaryStore:
         has_company = self._company(company)[1] is not None
         fresh = {scope: [p for p in found["points"] if p["scope"] == scope and p["fresh"]]
                  for scope in ("company", "market")}
-        needs_company = has_company and not found["fresh_company"]
 
         def factor() -> float:
             if pj_multiplier is None:
                 raise VagasError("Informe 'pj_multiplier' (do perfil.md): é necessário para converter entre CLT e PJ.")
             return pj_multiplier
 
-        lo = my_min * (factor() if job == "pj" else 1)
-        hi = None if my_max is None else my_max * (factor() if job == "pj" else 1)
+        def to_job(value: float, regime: str) -> float:
+            if regime not in ("desconhecido", job):
+                value = value * factor() if job == "pj" else value / factor()
+            return round(value, 2)
 
         def fmt(v: float) -> str:
             return f"{currency} {v:,.0f}".replace(",", ".")
 
+        lo = my_min * (factor() if job == "pj" else 1)
+        hi = None if my_max is None else my_max * (factor() if job == "pj" else 1)
         result: dict[str, Any] = {
             "decision": None, "value_to_inform": None, "basis": None, "contract": job, "median": None,
-            "range": None, "sources": 0, "confidence": None, "needs_research": needs_company, "reason": "",
+            "range": None, "sources": 0, "confidence": None,
+            "needs_research": has_company and not found["fresh_company"], "reason": "",
         }
+
+        published = self._published_range(application_id, currency) if application_id is not None else None
+        if published is not None:
+            raw = [published[k] for k in ("min_value", "avg_value", "max_value") if published[k] is not None]
+            vmin, vmax = (to_job(monthly(v, published["period"], published["contract"], currency), published["contract"])
+                          for v in (min(raw), max(raw)))
+            result.update(basis="vaga", median=round((vmin + vmax) / 2, 2), range=[vmin, vmax], sources=1,
+                          confidence="alta", needs_research=False)
+            if vmax < lo:
+                return {**result, "decision": "nao_aplicar",
+                        "reason": f"Teto da faixa publicada na vaga {fmt(vmax)} abaixo do seu mínimo {fmt(lo)} "
+                                  f"({job.upper()})."}
+            if mode == "faixa" and vmin > hi:
+                return {**result, "decision": "nao_aplicar",
+                        "reason": f"Piso da faixa publicada na vaga {fmt(vmin)} acima da sua faixa, máximo "
+                                  f"{fmt(hi)} ({job.upper()})."}
+            value = _round_within(result["median"], lo, vmax if hi is None else min(vmax, hi))
+            return {**result, "decision": "aplicar", "value_to_inform": value,
+                    "reason": f"Faixa publicada na vaga {fmt(vmin)}–{fmt(vmax)} ({job.upper()}) compatível com seu "
+                              f"mínimo {fmt(lo)}; informar {fmt(value)}."}
 
         if has_company and fresh["company"]:
             basis, points = "empresa", fresh["company"]
@@ -242,15 +291,10 @@ class SalaryStore:
                     "reason": "Sem dados frescos de salário: pesquise (empresa e mercado) e registre com "
                               "save_salary_estimate antes de avaliar."}
 
-        values = []
-        for p in points:
-            value, regime = p["monthly_value"], p["contract"]
-            if regime not in ("desconhecido", job):
-                value = value * factor() if job == "pj" else value / factor()
-            values.append(value)
+        values = [to_job(p["monthly_value"], p["contract"]) for p in points]
         median = round(statistics.median(values), 2)
         sources = len({p["source"].strip().lower() for p in points})
-        result.update(basis=basis, median=median, range=[round(min(values), 2), round(max(values), 2)],
+        result.update(basis=basis, median=median, range=[min(values), max(values)],
                       sources=sources, confidence=_confidence(sources))
 
         where = "da empresa" if basis == "empresa" else "de mercado"
@@ -264,6 +308,22 @@ class SalaryStore:
         return {**result, "decision": "aplicar", "value_to_inform": value,
                 "reason": f"Mediana {where} {fmt(median)} compatível com seu mínimo {fmt(lo)} ({job.upper()}); "
                           f"informar {fmt(value)}."}
+
+    def _published_range(self, application_id: int, currency: str) -> dict[str, Any] | None:
+        row = self.conn.execute(
+            """
+            SELECT p.period, p.contract, p.min_value, p.avg_value, p.max_value
+            FROM salary_points p JOIN salary_searches s ON s.id = p.search_id
+            WHERE p.application_id = ? AND s.currency = ?
+            ORDER BY s.searched_at DESC, p.id DESC LIMIT 1
+            """,
+            (application_id, currency),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def _require_application(self, application_id: int) -> None:
+        if not self.conn.execute("SELECT 1 FROM applications WHERE id = ?", (application_id,)).fetchone():
+            raise VagasError(f"Candidatura {application_id} não existe.")
 
     @staticmethod
     def _summary(searches: list[dict[str, Any]]) -> dict[str, Any]:

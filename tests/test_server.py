@@ -338,3 +338,19 @@ async def test_evaluate_salary_via_mcp(server):
     assert before["decision"] == "pesquisar"
     assert (after["decision"], after["value_to_inform"], after["contract"]) == ("aplicar", 16800, "pj")
     assert bad.is_error and "my_max" in bad.content[0].text
+
+
+async def test_published_range_via_mcp(server):
+    key = {"role_key": "data_scientist", "seniority": "pleno", "currency": "BRL"}
+    async with Client(server) as client:
+        app = payload(await client.call_tool("add_application", {
+            "company": "Nubank", "role": "DS", "source": "linkedin"}))["application"]
+        await client.call_tool("save_salary_estimate", {**key, "company": "Nubank", "application_id": app["id"],
+            "points": [{"source": "vaga", "period": "mes", "contract": "clt",
+                        "min_value": 11000, "max_value": 15000}]})
+        result = payload(await client.call_tool("evaluate_salary", {
+            **key, "contract": "clt", "my_min": 10000, "company": "Nubank", "application_id": app["id"]}))
+        history = payload(await client.call_tool("get_history", {"id": app["id"]}))
+
+    assert (result["basis"], result["value_to_inform"]) == ("vaga", 13000)
+    assert history["application"]["salary_evaluation"]["value_to_inform"] == 13000
