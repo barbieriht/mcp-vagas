@@ -14,7 +14,8 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from vagas.db import connect
 from vagas.models import (
-    Contract, Currency, InitialStatus, RoleKey, SalaryMode, Seniority, Source, Status, WorkMode,
+    Contract, Currency, InitialStatus, LinkedInSection, ResumeSourceKind, RoleKey, SalaryMode, Seniority,
+    Source, Status, WorkMode,
 )
 from vagas.repo import Repo, VagasError
 from vagas.resume_model import MasterResume
@@ -190,6 +191,21 @@ def build_server(
             return s.extract_resume_text(pdf_path)
 
     @server.tool()
+    def save_resume_source(kind: ResumeSourceKind, url: str, sections: dict[LinkedInSection, str]) -> dict[str, Any]:
+        """Registra o texto do perfil do LinkedIn do usuário como fonte do currículo geral, ao lado do PDF.
+
+        Leia SOMENTE o perfil do próprio usuário, logado com a conta dele, no ritmo de uma pessoa.
+        Para cada seção (about, experience, education, certifications, volunteering), abra a página de
+        detalhes ("Show all", ex.: /details/certifications/), role até o fim até a lista parar de
+        carregar e confira a contagem de itens que a página mostra; então copie o texto da seção
+        inteira. Passe url = endereço do perfil. Depois, monte o rascunho com save_master_draft: o
+        relatório de revisão passa a conferir o rascunho contra o PDF e o LinkedIn juntos.
+        Retorna {"source_id", "sections": {seção: nº de caracteres}}.
+        """
+        with resumes() as s:
+            return s.save_resume_source(kind, url, sections)
+
+    @server.tool()
     def save_master_draft(resume: MasterResume, overwrite: bool = False) -> dict[str, Any]:
         """Grava o rascunho do currículo geral (em inglês) num arquivo YAML para o usuário revisar.
 
@@ -200,10 +216,11 @@ def build_server(
         Cada experiência tem "paragraphs" (a unidade de conteúdo), não bullets.
 
         Recusa sobrescrever um rascunho com edições do usuário ainda não aprovadas; overwrite=true
-        só com a concordância dele. Retorna {"path", "reference", "review"}: peça ao usuário para
-        revisar e editar o arquivo. Se houver PDF de referência (extract_resume_text), "review" lista
-        números, datas, nomes e termos do rascunho não encontrados no PDF: mostre-os ao usuário e
-        corrija o que for erro de extração; não aprove sem que ele os confira.
+        só com a concordância dele. Retorna {"path", "sources", "review"}: peça ao usuário para
+        revisar e editar o arquivo. Com fontes registradas (PDF via extract_resume_text, LinkedIn via
+        save_resume_source), "review" lista números, datas, nomes e termos do rascunho que não estão
+        em NENHUMA fonte: mostre-os ao usuário e corrija o que for erro de extração; peça que ele os
+        confira antes de aprovar.
         """
         with resumes() as s:
             return s.save_master_draft(resume, overwrite=overwrite)

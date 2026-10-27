@@ -406,3 +406,27 @@ async def test_a_aplicar_via_mcp(server):
     assert (app["status"], app["match_terms"]["missing"]) == ("a_aplicar", ["Spark"])
     assert (applied["status"], applied["match_score"]) == ("aplicada", 75)
     assert bad.is_error and "match_score" in bad.content[0].text
+
+
+async def test_resume_sources_via_mcp(server, tmp_path):
+    from resume_fixture import fictitious_resume
+    from vagas.resume_render import render_resume
+
+    pdf = render_resume(fictitious_resume(), tmp_path / "pdf")["path"]
+    resume = fictitious_resume()
+    resume["summary"] = "Data scientist working with LLM applications."
+    async with Client(server) as client:
+        tools = await tools_by_name(client)
+        await client.call_tool("extract_resume_text", {"pdf_path": pdf})
+        saved_source = payload(await client.call_tool("save_resume_source", {
+            "kind": "linkedin", "url": "https://www.linkedin.com/in/fulana/",
+            "sections": {"about": "Data scientist working with LLM applications."}}))
+        draft = payload(await client.call_tool("save_master_draft", {"resume": resume}))
+        bad = await client.call_tool("save_resume_source", {
+            "kind": "linkedin", "url": "https://x", "sections": {"recommendations": "x"}})
+
+    description = tools["save_resume_source"].description.lower()
+    assert "rol" in description and "detalhes" in description
+    assert saved_source["sections"] == {"about": 45}
+    assert [s["kind"] for s in draft["sources"]] == ["pdf", "linkedin"] and draft["review"] == []
+    assert bad.is_error and "recommendations" in bad.content[0].text
