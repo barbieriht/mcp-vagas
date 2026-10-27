@@ -77,7 +77,7 @@ def test_faithful_draft_has_empty_review(store, fictitious_pdf):
     result = store.save_master_draft(fictitious_resume())
 
     assert result["review"] == []
-    assert result["reference"] == fictitious_pdf
+    assert result["sources"] == [{"kind": "pdf", "path": fictitious_pdf}]
 
 
 def test_invented_content_is_reported_with_item_id(store, fictitious_pdf):

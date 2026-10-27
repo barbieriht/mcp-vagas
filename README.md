@@ -17,6 +17,7 @@ Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor 
 |---|---|
 | Registrar, deduplicar por URL, buscar por empresa normalizada, atualizar e ver histórico | pronto |
 | Currículo geral: extração do PDF, rascunho YAML, revisão e aprovação | pronto |
+| Currículo geral também a partir do LinkedIn (revisão contra todas as fontes) | fonte e revisão prontas; seção Volunteering e fluxo na Skill em andamento (#48, #49) |
 | Currículos personalizados com validação anti-invenção + PDF (Typst) | pronto |
 | Normalização de URL por plataforma, listagens, CSV | em andamento (#3, #7, #8) |
 | Estimativas salariais: cache de pesquisas (90 dias) | pronto |
@@ -178,7 +179,8 @@ Status possíveis: `a_aplicar` (vaga encontrada e triada, aguardando candidatura
 | `update_application` | muda etapa, pendência, nota ou currículo vinculado |
 | `get_history` | candidatura, linha do tempo e currículos vinculados |
 | `extract_resume_text` | extrai o texto do PDF do currículo (caminho Windows ou WSL) |
-| `save_master_draft` | grava o rascunho YAML do currículo geral, com relatório de revisão |
+| `save_resume_source` | registra o texto das seções do seu perfil do LinkedIn como fonte do currículo |
+| `save_master_draft` | grava o rascunho YAML do currículo geral, com relatório de revisão contra todas as fontes |
 | `approve_master` | aprova o rascunho (só com aprovação explícita do usuário) |
 | `get_master_resume` | devolve o currículo geral aprovado |
 | `render_master_resume` | gera o PDF do currículo geral completo |

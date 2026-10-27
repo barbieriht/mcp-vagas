@@ -12,7 +12,8 @@ import yaml
 from pydantic import ValidationError
 
 from vagas.db import default_db_path
-from vagas.repo import VagasError, _require_text, _utcnow
+from vagas.models import LINKEDIN_SECTIONS, RESUME_SOURCE_KINDS
+from vagas.repo import VagasError, _require_choice, _require_text, _utcnow
 from vagas.resume_extract import extract_pages, review_draft, wsl_path
 from vagas.resume_model import MasterResume, describe_errors
 from vagas.resume_render import render_resume
@@ -53,6 +54,10 @@ def _text_hash(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+def _source_text(content: list[str] | dict[str, str]) -> str:
+    return "\n".join(content.values() if isinstance(content, dict) else content)
+
+
 def _validate(data: Any) -> MasterResume:
     if isinstance(data, MasterResume):
         return data
@@ -84,13 +89,45 @@ class ResumeStore:
                 "INSERT OR REPLACE INTO master_draft (id, file_hash, written_at) VALUES (1, ?, ?)",
                 (_text_hash(text), self.now()),
             )
-        source = self.conn.execute(
-            "SELECT path, pages FROM resume_sources ORDER BY extracted_at DESC, id DESC LIMIT 1"
-        ).fetchone()
-        if source is None:
-            return {"path": str(self.draft_path), "reference": None, "review": None}
-        review = review_draft(data, "\n".join(json.loads(source["pages"])))
-        return {"path": str(self.draft_path), "reference": source["path"], "review": review}
+        sources = self._latest_sources()
+        if not sources:
+            return {"path": str(self.draft_path), "sources": [], "review": None}
+        reference = "\n".join(_source_text(json.loads(s["content"])) for s in sources)
+        return {
+            "path": str(self.draft_path),
+            "sources": [{"kind": s["kind"], "path": s["path"]} for s in sources],
+            "review": review_draft(data, reference),
+        }
+
+    def save_resume_source(self, kind: str, url: str, sections: dict[str, str]) -> dict[str, Any]:
+        """Registra o texto de seções de um perfil (hoje, LinkedIn) como fonte do currículo geral."""
+        _require_choice("kind", kind, RESUME_SOURCE_KINDS)
+        url = _require_text("url", url)
+        if not sections:
+            raise VagasError(f"Informe 'sections' com ao menos uma seção: {', '.join(LINKEDIN_SECTIONS)}.")
+        cleaned = {}
+        for name, text in sections.items():
+            _require_choice("sections", name, LINKEDIN_SECTIONS)
+            cleaned[name] = _require_text(f"sections.{name}", text)
+        with self.conn:
+            cursor = self.conn.execute(
+                "INSERT INTO resume_sources (kind, path, content, extracted_at) VALUES (?, ?, ?, ?)",
+                (kind, url, json.dumps(cleaned, ensure_ascii=False), self.now()),
+            )
+        return {"source_id": cursor.lastrowid, "sections": {name: len(text) for name, text in cleaned.items()}}
+
+    def _latest_sources(self) -> list[sqlite3.Row]:
+        """Fonte mais recente de cada tipo, PDF primeiro."""
+        sources = []
+        for kind in ("pdf", *RESUME_SOURCE_KINDS):
+            row = self.conn.execute(
+                "SELECT kind, path, content FROM resume_sources WHERE kind = ? "
+                "ORDER BY extracted_at DESC, id DESC LIMIT 1",
+                (kind,),
+            ).fetchone()
+            if row:
+                sources.append(row)
+        return sources
 
     def extract_resume_text(self, pdf_path: str | Path) -> dict[str, Any]:
         """Extrai o texto do PDF e o guarda como referência para revisar os próximos rascunhos."""
@@ -98,7 +135,7 @@ class ResumeStore:
         pages = extract_pages(path)
         with self.conn:
             self.conn.execute(
-                "INSERT INTO resume_sources (path, pages, extracted_at) VALUES (?, ?, ?)",
+                "INSERT INTO resume_sources (kind, path, content, extracted_at) VALUES ('pdf', ?, ?, ?)",
                 (str(path), json.dumps(pages, ensure_ascii=False), self.now()),
             )
         return {"path": str(path), "page_count": len(pages), "pages": pages}

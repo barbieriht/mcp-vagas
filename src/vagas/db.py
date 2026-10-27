@@ -147,6 +147,11 @@ MIGRATIONS = [
     ALTER TABLE applications ADD COLUMN match_score INTEGER;
     ALTER TABLE applications ADD COLUMN match_terms TEXT;
     """,
+    # v10: fontes do currículo de vários tipos (PDF, LinkedIn); content guarda páginas ou seções (JSON)
+    """
+    ALTER TABLE resume_sources RENAME COLUMN pages TO content;
+    ALTER TABLE resume_sources ADD COLUMN kind TEXT NOT NULL DEFAULT 'pdf';
+    """,
 ]
 LATEST_VERSION = len(MIGRATIONS)
 

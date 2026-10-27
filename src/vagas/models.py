@@ -18,6 +18,10 @@ Period = Literal["hora", "mes", "ano"]
 Contract = Literal["clt", "pj", "desconhecido"]
 SalaryMode = Literal["minimo", "faixa"]
 
+# Fontes do currículo geral
+ResumeSourceKind = Literal["linkedin"]
+LinkedInSection = Literal["about", "experience", "education", "certifications", "volunteering"]
+
 STATUSES: tuple[str, ...] = get_args(Status)
 INITIAL_STATUSES: tuple[str, ...] = get_args(InitialStatus)
 SOURCES: tuple[str, ...] = get_args(Source)
@@ -27,3 +31,5 @@ SENIORITIES: tuple[str, ...] = get_args(Seniority)
 CURRENCIES: tuple[str, ...] = get_args(Currency)
 CONTRACTS: tuple[str, ...] = get_args(Contract)
 SALARY_MODES: tuple[str, ...] = get_args(SalaryMode)
+RESUME_SOURCE_KINDS: tuple[str, ...] = get_args(ResumeSourceKind)
+LINKEDIN_SECTIONS: tuple[str, ...] = get_args(LinkedInSection)
