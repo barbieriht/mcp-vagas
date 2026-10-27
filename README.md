@@ -26,7 +26,7 @@ Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor 
 | Busca de vagas: registro de buscas (evita repetir em 24 h) | pronto |
 | Busca de vagas: aderência da vaga ao currículo (`score_job_match`) | pronto |
 | Busca de vagas: status `a_aplicar` com busca de origem e aderência | pronto |
-| Busca de vagas: lista de trabalho ordenada por aderência | em andamento (#40) |
+| Busca de vagas: lista de trabalho (`a_aplicar`) ordenada por aderência | pronto |
 | Skill "candidaturas" (triagem, candidatura, busca de vagas) | pronto; validação real nos clientes em andamento (#19) |
 
 Specs e tickets: [issues do repositório](https://github.com/barbieriht/mcp-vagas/issues).
@@ -199,6 +199,7 @@ O PDF sai em `VAGAS_RESUME_OUT`, com nome no formato `Nome_Sobrenome_Resume_Empr
 - *"Registre a candidatura no Nubank, Data Scientist, pelo LinkedIn, com o currículo que você gerou."* (`add_application` com `resume_id`)
 - *"Ficou faltando o CPF; registre como pendente."* (status `pendente_usuario` com `pending`)
 - *"Passei para a entrevista técnica."* / *"Mostre o histórico da candidatura 3."* (`update_application`, `get_history`)
+- *"Mostre minha lista de vagas a aplicar."* (ordenada pela aderência ao currículo)
 - *"O que está pendente comigo?"* / *"Quais candidaturas estão sem resposta há mais de 30 dias?"* (`list_applications`)
 
 Status possíveis: `a_aplicar` (vaga encontrada e triada, aguardando candidatura), `aplicada`, `pendente_usuario`, `rh`, `tecnica`, `gestor`, `proposta`, `recusada`, `desistiu`, `descartada`.

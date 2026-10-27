@@ -447,3 +447,15 @@ async def test_list_applications_via_mcp(server):
     assert everything["count"] == 2
     assert [a["company"] for a in pending["applications"]] == ["Itau"]
     assert bad.is_error and "since" in bad.content[0].text
+
+
+async def test_work_list_via_mcp(server):
+    async with Client(server) as client:
+        tools = await tools_by_name(client)
+        for company, score in [("Low", 30), ("High", 95)]:
+            await client.call_tool("add_application", {
+                "company": company, "role": "DS", "source": "linkedin", "status": "a_aplicar", "match_score": score})
+        work = payload(await client.call_tool("list_applications", {"status": "a_aplicar"}))
+
+    assert "aderência" in tools["list_applications"].description
+    assert [a["company"] for a in work["applications"]] == ["High", "Low"]

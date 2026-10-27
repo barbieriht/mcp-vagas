@@ -176,7 +176,8 @@ def build_server(
     ) -> dict[str, Any]:
         """Lista candidaturas, mais recentes primeiro; os filtros se combinam.
 
-        - status: uma etapa (ex.: "a_aplicar" para a lista de trabalho, "descartada", "tecnica");
+        - status: uma etapa (ex.: "descartada", "tecnica"). Com "a_aplicar" (lista de trabalho), a
+          ordem é pela aderência ao currículo (match_score, maior primeiro; sem nota por último);
         - only_pending: só as que têm pendência do usuário (campo pending);
         - source: plataforma;
         - since: criadas a partir desta data ISO (ex.: "2026-10-01");
