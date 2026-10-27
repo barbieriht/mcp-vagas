@@ -77,8 +77,10 @@ def build_server(
         - registro com qualquer outro status (inclusive "descartada", com "discard_reason"):
           parar e informar o status atual ao usuário.
 
-        Passe os dois quando souber. A URL é comparada em forma normalizada (sem fragmento e sem
-        parâmetros utm_*). A empresa ignora maiúsculas, acentos, pontuação e sufixos societários
+        Passe os dois quando souber. A URL é comparada em forma normalizada: no LinkedIn, Gupy,
+        Indeed e Glassdoor, pelo identificador da vaga (links de busca, coleções, slugs e
+        subdomínios de país caem na mesma vaga); nos demais sites, sem fragmento nem parâmetros
+        de rastreamento. A empresa ignora maiúsculas, acentos, pontuação e sufixos societários
         ("Itaú Unibanco S.A." = "itau unibanco") e devolve TODAS as vagas daquela empresa: decida
         se alguma é a mesma vaga publicada em outra plataforma (mesmo cargo e senioridade) e, na
         dúvida, pergunte ao usuário.
