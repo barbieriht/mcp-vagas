@@ -11,7 +11,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from vagas.db import connect
-from vagas.models import InitialStatus, Source, WorkMode
+from vagas.models import InitialStatus, Source, Status, WorkMode
 from vagas.repo import Repo, VagasError
 
 
@@ -83,6 +83,43 @@ def build_server(db_path: Path | str | None = None) -> MCPServer:
                 salary_expectation=salary_expectation, description=description,
                 status=status, pending=pending, discard_reason=discard_reason,
             )
+
+    @server.tool()
+    def update_application(
+        id: int,
+        status: Status | None = None,
+        note: str | None = None,
+        pending: str | None = None,
+        discard_reason: str | None = None,
+    ) -> dict[str, Any]:
+        """Atualiza uma candidatura existente: etapa do processo, pendência e/ou anotação.
+
+        - status: nova etapa. Qualquer transição entre status válidos é permitida, exceto
+          para o mesmo status. Ao concluir uma candidatura pendente, usar status "aplicada"
+          SOMENTE depois de submetida, e pending="" para limpar a pendência.
+          "pendente_usuario" exige uma pendência; "descartada" exige discard_reason.
+        - note: contexto livre (ex.: nome do recrutador, feedback). Fica no histórico.
+        - pending: o que falta o usuário fazer, em qualquer etapa; "" limpa a pendência.
+        - discard_reason: motivo, somente ao mudar o status para "descartada".
+
+        Mudança de status e nota ficam registradas como eventos (ver get_history).
+        Retorna a candidatura atualizada.
+        """
+        with repo() as r:
+            return r.update_application(
+                id, status=status, note=note, pending=pending, discard_reason=discard_reason,
+            )
+
+    @server.tool()
+    def get_history(id: int) -> dict[str, Any]:
+        """Retorna a candidatura e a linha do tempo completa, em ordem cronológica.
+
+        Formato: {"application": {...}, "events": [{at, from_status, to_status, note}, ...]}.
+        O primeiro evento é a criação (from_status nulo). Eventos com from_status igual a
+        to_status são anotações sem mudança de etapa. Útil antes de uma entrevista.
+        """
+        with repo() as r:
+            return r.get_history(id)
 
     return server
 

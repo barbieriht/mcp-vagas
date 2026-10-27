@@ -139,3 +139,25 @@ async def test_pending_and_discarded_via_mcp(server):
     assert pending["application"]["pending"] == "CPF"
     assert found["matches"][0]["discard_reason"] == "Empresa ignorada"
     assert missing.is_error and "pending" in missing.content[0].text
+
+
+async def test_update_and_history_via_mcp(server):
+    async with Client(server) as client:
+        app = payload(await client.call_tool("add_application", {
+            "company": "Nubank", "role": "DS", "source": "linkedin",
+            "status": "pendente_usuario", "pending": "CPF",
+        }))["application"]
+        updated = payload(await client.call_tool("update_application", {
+            "id": app["id"], "status": "aplicada", "pending": "", "note": "CPF enviado",
+        }))
+        same = await client.call_tool("update_application", {"id": app["id"], "status": "aplicada"})
+        history = payload(await client.call_tool("get_history", {"id": app["id"]}))
+        missing = await client.call_tool("get_history", {"id": 999})
+        tools = await tools_by_name(client)
+
+    assert (updated["status"], updated["pending"]) == ("aplicada", None)
+    assert same.is_error and "já está" in same.content[0].text
+    assert [e["to_status"] for e in history["events"]] == ["pendente_usuario", "aplicada"]
+    assert history["events"][-1]["note"] == "CPF enviado"
+    assert missing.is_error and "999" in missing.content[0].text
+    assert "tecnica" in json.dumps(tools["update_application"].input_schema)
