@@ -6,7 +6,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from vagas.normalize import normalize_company
+from vagas.normalize import canonical_url, normalize_company
 
 log = logging.getLogger(__name__)
 
@@ -17,6 +17,26 @@ def _renormalize_companies(conn: sqlite3.Connection) -> None:
         "UPDATE applications SET company_norm = ? WHERE id = ?",
         [(normalize_company(row[1]), row[0]) for row in rows],
     )
+
+def _recanonicalize_urls(conn: sqlite3.Connection) -> None:
+    """Recalcula url_canonical com as regras por plataforma. Se duas candidaturas passam a ter a
+    mesma forma canônica, a mais antiga fica com ela e a outra mantém a forma anterior."""
+    rows = conn.execute(
+        "SELECT id, url, url_canonical FROM applications WHERE url IS NOT NULL ORDER BY id"
+    ).fetchall()
+    taken = {row[2] for row in rows if row[2]}
+    for application_id, url, old in rows:
+        new = canonical_url(url)
+        if new == old:
+            continue
+        if new in taken:
+            log.warning("Candidatura %d: URL %s coincide com outra já registrada; mantida a forma anterior",
+                        application_id, new)
+            continue
+        conn.execute("UPDATE applications SET url_canonical = ? WHERE id = ?", (new, application_id))
+        taken.discard(old)
+        taken.add(new)
+
 
 # Cada passo é SQL ou uma função (para transformar dados com código Python).
 MIGRATIONS = [
@@ -152,6 +172,8 @@ MIGRATIONS = [
     ALTER TABLE resume_sources RENAME COLUMN pages TO content;
     ALTER TABLE resume_sources ADD COLUMN kind TEXT NOT NULL DEFAULT 'pdf';
     """,
+    # v11: url_canonical com as regras por plataforma (LinkedIn, Gupy, Indeed, Glassdoor)
+    _recanonicalize_urls,
 ]
 LATEST_VERSION = len(MIGRATIONS)
 

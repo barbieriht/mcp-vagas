@@ -27,15 +27,48 @@ def normalize_company(name: str) -> str:
     return " ".join(tokens)
 
 
+_TRACKING_PARAMS = {"trk", "refid", "trackingid"}
+
+
 def canonical_url(url: str | None) -> str | None:
-    """Forma comparável da URL: https, host minúsculo, sem fragmento nem parâmetros utm_*."""
+    """Forma comparável da URL de uma vaga.
+
+    LinkedIn, Gupy, Indeed e Glassdoor são reduzidos ao identificador da vaga, para que links de
+    busca, coleções, slugs, subdomínios de país e parâmetros de origem caiam na mesma forma. Outros
+    sites: https, host minúsculo sem "www.", sem fragmento, sem barra final e sem parâmetros de
+    rastreamento (utm_*, trk, refId, trackingId).
+    """
     if url is None or not url.strip():
         return None
-    parts = urlsplit(url.strip())
-    query = sorted(
-        (key, value)
-        for key, value in parse_qsl(parts.query, keep_blank_values=True)
-        if not key.lower().startswith("utm_")
-    )
+    raw = url.strip()
+    if "://" not in raw:
+        raw = "https://" + raw
+    parts = urlsplit(raw)
+    host = parts.netloc.lower().removeprefix("www.")
     path = parts.path.rstrip("/")
-    return urlunsplit(("https", parts.netloc.lower(), path, urlencode(query), ""))
+    params = parse_qsl(parts.query, keep_blank_values=True)
+    platform = _platform_url(host, path, {key.lower(): value for key, value in params})
+    if platform is not None:
+        return platform
+    query = sorted(
+        (key, value) for key, value in params
+        if not key.lower().startswith("utm_") and key.lower() not in _TRACKING_PARAMS
+    )
+    return urlunsplit(("https", host, path, urlencode(query), ""))
+
+
+def _platform_url(host: str, path: str, query: dict[str, str]) -> str | None:
+    if host == "linkedin.com" or host.endswith(".linkedin.com"):
+        match = re.search(r"/jobs/view/(?:[^/]*-)?(\d+)$", path)
+        job = match.group(1) if match else query.get("currentjobid", "")
+        return f"https://linkedin.com/jobs/view/{job}" if job.isdigit() else None
+    if host.endswith(".gupy.io"):
+        match = re.fullmatch(r"/jobs/(\d+)", path)
+        return f"https://{host}/jobs/{match.group(1)}" if match else None
+    if host == "indeed.com" or host.endswith(".indeed.com"):
+        job = query.get("jk") or query.get("vjk")
+        return f"https://indeed.com/viewjob?jk={job}" if job else None
+    if re.fullmatch(r"(?:[\w-]+\.)?glassdoor\.[a-z.]+", host):
+        job = query.get("jl") or query.get("joblistingid")
+        return f"https://glassdoor.com/job-listing?jl={job}" if job else None
+    return None

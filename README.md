@@ -20,7 +20,8 @@ Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor 
 | Currículo geral também a partir do LinkedIn (revisão contra todas as fontes), seção Volunteering e link de certificação | pronto |
 | Currículos personalizados com validação anti-invenção + PDF (Typst) | pronto |
 | Listagens com filtros (status, pendências, fonte, data, sem resposta há N dias) | pronto |
-| Normalização de URL por plataforma, exportação CSV | em andamento (#3, #8) |
+| Normalização de URL por plataforma (LinkedIn, Gupy, Indeed, Glassdoor) | pronto |
+| Exportação CSV | em andamento (#8) |
 | Estimativas salariais: cache de pesquisas (90 dias) | pronto |
 | Avaliação de pretensão salarial (`evaluate_salary`), com prioridade da faixa publicada na vaga | pronto |
 | Busca de vagas: registro de buscas (evita repetir em 24 h) | pronto |
@@ -208,7 +209,7 @@ Status possíveis: `a_aplicar` (vaga encontrada e triada, aguardando candidatura
 
 | Tool | O que faz |
 |---|---|
-| `find_application` | procura por URL e/ou empresa ("Itaú S.A." = "itau"); chamar antes de aplicar |
+| `find_application` | procura por URL (variantes de link da mesma vaga contam como uma) e/ou empresa ("Itaú S.A." = "itau"); chamar antes de aplicar |
 | `add_application` | registra vaga (`a_aplicar`, `aplicada`, `pendente_usuario` ou `descartada`), com busca de origem e aderência; duplicata devolve a existente |
 | `update_application` | muda etapa, pendência, nota ou currículo vinculado |
 | `list_applications` | lista candidaturas com filtros combináveis: status, pendências, fonte, data de criação e sem resposta há N dias |
