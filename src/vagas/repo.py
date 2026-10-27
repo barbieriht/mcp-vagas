@@ -5,7 +5,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 
-from vagas.models import SOURCES, WORK_MODES
+from vagas.models import INITIAL_STATUSES, SOURCES, WORK_MODES
 from vagas.normalize import canonical_url, normalize_company
 
 
@@ -17,7 +17,7 @@ def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def _require_text(field: str, value: str) -> str:
+def _require_text(field: str, value: str | None) -> str:
     if not value or not value.strip():
         raise VagasError(f"'{field}' é obrigatório e não pode ser vazio.")
     return value.strip()
@@ -44,11 +44,21 @@ class Repo:
         location: str | None = None,
         salary_expectation: str | None = None,
         description: str | None = None,
+        status: str = "aplicada",
+        pending: str | None = None,
+        discard_reason: str | None = None,
     ) -> dict[str, Any]:
         company = _require_text("company", company)
         role = _require_text("role", role)
         _require_choice("source", source, SOURCES)
         _require_choice("work_mode", work_mode, WORK_MODES)
+        _require_choice("status", status, INITIAL_STATUSES)
+        if status == "pendente_usuario":
+            pending = _require_text("pending", pending)
+        if status == "descartada":
+            discard_reason = _require_text("discard_reason", discard_reason)
+        elif discard_reason is not None:
+            raise VagasError("'discard_reason' só pode ser informado com status 'descartada'.")
 
         url_canonical = canonical_url(url)
         if url_canonical is not None:
@@ -57,19 +67,18 @@ class Repo:
                 return {"created": False, "application": existing}
 
         now = self.now()
-        status = "aplicada"
         with self.conn:
             cursor = self.conn.execute(
                 """
                 INSERT INTO applications (
                     company, company_norm, role, url, url_canonical, source, seniority,
-                    work_mode, location, salary_expectation, description, status,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    work_mode, location, salary_expectation, description, status, pending,
+                    discard_reason, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (company, normalize_company(company), role, url, url_canonical, source,
                  seniority, work_mode, location, salary_expectation, description, status,
-                 now, now),
+                 pending, discard_reason, now, now),
             )
             self.conn.execute(
                 "INSERT INTO events (application_id, at, from_status, to_status) VALUES (?, ?, NULL, ?)",

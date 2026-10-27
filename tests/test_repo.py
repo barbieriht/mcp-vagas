@@ -88,3 +88,46 @@ def test_application_without_url_is_allowed_and_never_deduplicated(repo):
 def test_invalid_input_is_rejected_with_readable_message(repo, overrides, message):
     with pytest.raises(VagasError, match=message):
         add(repo, **overrides)
+
+
+def test_pending_application_requires_and_stores_pending(repo):
+    app = add(repo, status="pendente_usuario", pending="CPF e criar conta")["application"]
+
+    assert app["status"] == "pendente_usuario"
+    assert app["pending"] == "CPF e criar conta"
+    assert [e["to_status"] for e in repo.events(app["id"])] == ["pendente_usuario"]
+
+
+def test_pending_application_without_pending_is_rejected(repo):
+    with pytest.raises(VagasError, match="pending"):
+        add(repo, status="pendente_usuario", pending="  ")
+
+
+def test_discarded_application_requires_and_stores_reason(repo):
+    app = add(repo, company="CI&T", status="descartada", discard_reason="Empresa ignorada")["application"]
+
+    assert app["status"] == "descartada"
+    assert app["discard_reason"] == "Empresa ignorada"
+    assert repo.find_application(url=LINKEDIN) == [app]
+
+
+def test_discarded_application_without_reason_is_rejected(repo):
+    with pytest.raises(VagasError, match="discard_reason"):
+        add(repo, status="descartada")
+
+
+def test_discard_reason_only_makes_sense_for_discarded(repo):
+    with pytest.raises(VagasError, match="discard_reason"):
+        add(repo, discard_reason="sem motivo")
+
+
+def test_applied_application_may_carry_a_pending_task(repo):
+    app = add(repo, pending="Teste técnico até sexta")["application"]
+
+    assert (app["status"], app["pending"]) == ("aplicada", "Teste técnico até sexta")
+
+
+@pytest.mark.parametrize("status", ["rh", "tecnica", "proposta", "recusada", "inexistente"])
+def test_other_initial_statuses_are_rejected(repo, status):
+    with pytest.raises(VagasError, match="status"):
+        add(repo, status=status)
