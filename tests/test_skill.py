@@ -42,7 +42,7 @@ def test_skill_has_frontmatter_and_instruction_files():
     text = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
 
     assert text.startswith("---\nname: candidaturas\ndescription: ")
-    assert {p.name for p in INSTRUCTIONS} >= {"SKILL.md", "candidatar.md", "buscar.md"}
+    assert {p.name for p in INSTRUCTIONS} >= {"SKILL.md", "candidatar.md", "buscar.md", "curriculo.md"}
 
 
 def test_linked_files_exist():
@@ -69,3 +69,11 @@ async def test_consistency_check_catches_a_renamed_tool(server, tmp_path):
 
     assert "find_application" in known
     assert "find_applications" not in known
+
+
+def test_skill_routes_to_master_resume_flow():
+    skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    description = skill.split("\n")[2]
+
+    assert "(curriculo.md)" in skill
+    assert "currículo geral" in description

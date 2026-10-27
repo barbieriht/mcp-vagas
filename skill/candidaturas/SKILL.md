@@ -1,12 +1,12 @@
 ---
 name: candidaturas
-description: Vagas de emprego do Thiago com o MCP "vagas". Use para buscar vagas, triar ou avaliar uma vaga, candidatar-se, preencher formulários de candidatura ou responder perguntas de processos seletivos (LinkedIn, Gupy, Indeed, Glassdoor, sites de empresas).
+description: Vagas de emprego do Thiago com o MCP "vagas". Use para buscar vagas, triar ou avaliar uma vaga, candidatar-se, preencher formulários de candidatura, responder perguntas de processos seletivos (LinkedIn, Gupy, Indeed, Glassdoor, sites de empresas) ou montar e atualizar o currículo geral a partir do PDF e do LinkedIn.
 ---
 
 # Candidaturas
 
 Fontes da verdade:
-- **Currículo geral aprovado** (`get_master_resume`) para experiência, formação, skills e idiomas.
+- **Currículo geral aprovado** (`get_master_resume`) para experiência, formação, trabalho voluntário, certificações, skills e idiomas.
 - [politica-salarial.md](politica-salarial.md) para a política salarial.
 - [perfil.md](perfil.md) para os dados de formulário. Ele é carregado só na hora de preencher.
 - **MCP "vagas"** como registro de tudo o que acontece com cada vaga.
@@ -16,6 +16,7 @@ Fontes da verdade:
 - O Thiago traz uma vaga e quer se candidatar: siga [candidatar.md](candidatar.md).
 - Ele pede para buscar vagas: siga [buscar.md](buscar.md).
 - Ele só quer saber se uma vaga vale a pena: faça a **triagem** abaixo e informe o resultado.
+- Ele quer montar ou atualizar o currículo geral (pelo PDF, pelo LinkedIn ou pelos dois): siga [curriculo.md](curriculo.md).
 
 ## Triagem
 
