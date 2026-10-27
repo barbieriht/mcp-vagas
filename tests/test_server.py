@@ -191,3 +191,25 @@ async def test_invalid_master_draft_is_a_readable_error_via_mcp(server):
 
     assert result.is_error
     assert "exp-acme-tech-lead-p1" in result.content[0].text
+
+
+async def test_render_master_resume_via_mcp(db_path, tmp_path, monkeypatch):
+    from resume_fixture import fictitious_resume
+    from vagas.server import build_server
+
+    monkeypatch.delenv("VAGAS_RESUME_OUT", raising=False)
+    without_out = build_server(db_path)
+    with_out = build_server(db_path, resume_out=tmp_path / "out")
+
+    async with Client(with_out) as client:
+        not_approved = await client.call_tool("render_master_resume", {})
+        await client.call_tool("save_master_draft", {"resume": fictitious_resume()})
+        await client.call_tool("approve_master", {})
+        rendered = payload(await client.call_tool("render_master_resume", {"label": "Geral"}))
+    async with Client(without_out) as client:
+        unconfigured = await client.call_tool("render_master_resume", {})
+
+    assert not_approved.is_error and "approve_master" in not_approved.content[0].text
+    assert rendered["path"] == str(tmp_path / "out" / "Fulana_Tal_Resume_Geral.pdf")
+    assert rendered["pages"] == 1
+    assert unconfigured.is_error and "VAGAS_RESUME_OUT" in unconfigured.content[0].text

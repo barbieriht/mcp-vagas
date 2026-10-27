@@ -15,10 +15,15 @@ from vagas.db import connect
 from vagas.models import InitialStatus, Source, Status, WorkMode
 from vagas.repo import Repo, VagasError
 from vagas.resume_model import MasterResume
+from vagas.resume_render import default_output_dir, render_resume
 from vagas.resume_repo import ResumeStore, default_draft_path
 
 
-def build_server(db_path: Path | str | None = None, draft_path: Path | str | None = None) -> MCPServer:
+def build_server(
+    db_path: Path | str | None = None,
+    draft_path: Path | str | None = None,
+    resume_out: Path | str | None = None,
+) -> MCPServer:
     server = MCPServer("vagas")
 
     @contextmanager
@@ -166,6 +171,18 @@ def build_server(db_path: Path | str | None = None, draft_path: Path | str | Non
         """
         with resumes() as s:
             return s.get_master_resume()
+
+    @server.tool()
+    def render_master_resume(label: str | None = None) -> dict[str, Any]:
+        """Gera o PDF (em inglês, Typst, uma coluna, amigável a ATS) do currículo geral aprovado completo.
+
+        O arquivo vai para a pasta de currículos configurada (VAGAS_RESUME_OUT), com nome
+        "<Nome>_<Sobrenome>_Resume[_<label>].pdf"; nunca sobrescreve: acrescenta _2, _3...
+        Retorna {"path", "pages", "warnings"}; warnings avisa se passar de 2 páginas.
+        """
+        with resumes() as s:
+            master = s.get_master_resume()["resume"]
+            return render_resume(master, resume_out or default_output_dir(), label=label)
 
     return server
 
