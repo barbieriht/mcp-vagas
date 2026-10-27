@@ -5,7 +5,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 
-from vagas.models import INITIAL_STATUSES, SOURCES, WORK_MODES
+from vagas.models import INITIAL_STATUSES, SOURCES, STATUSES, WORK_MODES
 from vagas.normalize import canonical_url, normalize_company
 
 
@@ -85,6 +85,57 @@ class Repo:
                 (cursor.lastrowid, now, status),
             )
         return {"created": True, "application": self.get(cursor.lastrowid)}
+
+    def update_application(
+        self,
+        application_id: int,
+        status: str | None = None,
+        note: str | None = None,
+        pending: str | None = None,
+        discard_reason: str | None = None,
+    ) -> dict[str, Any]:
+        """Muda status, pendência e/ou anota. pending="" limpa a pendência.
+
+        Mudança de status ou nota gravam evento; só mudar a pendência não grava.
+        """
+        current = self.get(application_id)
+        if status is None and note is None and pending is None and discard_reason is None:
+            raise VagasError("Nada a atualizar: informe status, note ou pending.")
+        _require_choice("status", status, STATUSES)
+        if status is not None and status == current["status"]:
+            raise VagasError(f"A candidatura {application_id} já está com status {status!r}.")
+
+        new_status = status or current["status"]
+        new_pending = current["pending"] if pending is None else (pending.strip() or None)
+        new_reason = current["discard_reason"] if new_status == "descartada" else None
+        if discard_reason is not None:
+            if status != "descartada":
+                raise VagasError("'discard_reason' só pode ser informado ao mudar o status para 'descartada'.")
+            new_reason = discard_reason.strip() or None
+        if new_status == "pendente_usuario" and new_pending is None:
+            raise VagasError("Status 'pendente_usuario' exige 'pending' descrevendo o que falta.")
+        if new_status == "descartada" and new_reason is None:
+            raise VagasError("Status 'descartada' exige 'discard_reason'.")
+
+        now = self.now()
+        with self.conn:
+            self.conn.execute(
+                """
+                UPDATE applications
+                SET status = ?, pending = ?, discard_reason = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (new_status, new_pending, new_reason, now, application_id),
+            )
+            if status is not None or note is not None:
+                self.conn.execute(
+                    "INSERT INTO events (application_id, at, from_status, to_status, note) VALUES (?, ?, ?, ?, ?)",
+                    (application_id, now, current["status"], new_status, note),
+                )
+        return self.get(application_id)
+
+    def get_history(self, application_id: int) -> dict[str, Any]:
+        return {"application": self.get(application_id), "events": self.events(application_id)}
 
     def find_application(self, url: str | None = None) -> list[dict[str, Any]]:
         url_canonical = canonical_url(url)
