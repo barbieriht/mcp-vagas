@@ -19,6 +19,7 @@ from vagas.repo import Repo, VagasError
 from vagas.resume_model import MasterResume
 from vagas.resume_render import default_output_dir, render_resume
 from vagas.resume_tailor import TailoredSelection
+from vagas.job_search import JobSearchStore
 from vagas.salary import SalaryPoint, SalaryStore
 from vagas.resume_repo import ResumeStore, default_draft_path
 
@@ -47,6 +48,9 @@ def build_server(
 
     def salaries():
         return store(SalaryStore)
+
+    def job_searches():
+        return store(JobSearchStore)
 
     @server.tool()
     def find_application(url: str | None = None, company: str | None = None) -> dict[str, Any]:
@@ -330,6 +334,38 @@ def build_server(
                 role_key, seniority, currency, contract, my_min, my_max=my_max, mode=mode,
                 pj_multiplier=pj_multiplier, company=company, application_id=application_id,
             )
+
+    @server.tool()
+    def find_job_search(query: str, source: Source, location: str | None = None) -> dict[str, Any]:
+        """Consulta se uma busca de vagas equivalente já foi feita e quando.
+
+        Chamar ANTES de executar cada busca num site. Se "recent" for true (feita há menos de
+        "min_hours", padrão 24h), não repita a busca: vagas novas ainda não apareceram. A consulta
+        e o local são comparados sem diferenciar maiúsculas, acentos e espaços.
+        Retorna {"search": {id, query, source, location, filters, results_count, searched_at,
+        note} | null, "recent", "hours_since", "min_hours"}.
+        """
+        with job_searches() as s:
+            return s.find_job_search(query, source, location=location)
+
+    @server.tool()
+    def save_job_search(
+        query: str,
+        source: Source,
+        results_count: int,
+        location: str | None = None,
+        filters: dict[str, Any] | None = None,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        """Registra uma busca de vagas executada num site, inclusive quando não houve resultados.
+
+        query: termos exatamente como buscados; source: site; location: local filtrado (vazio se
+        nenhum); filters: outros filtros usados (ex.: {"posted": "24h", "remote": true});
+        results_count: quantas vagas a busca mostrou. Retorna {"search_id"}, a ser passado ao
+        registrar as vagas encontradas.
+        """
+        with job_searches() as s:
+            return s.save_job_search(query, source, results_count, location=location, filters=filters, note=note)
 
     return server
 

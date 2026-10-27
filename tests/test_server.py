@@ -354,3 +354,19 @@ async def test_published_range_via_mcp(server):
 
     assert (result["basis"], result["value_to_inform"]) == ("vaga", 13000)
     assert history["application"]["salary_evaluation"]["value_to_inform"] == 13000
+
+
+async def test_job_search_registry_via_mcp(server):
+    async with Client(server) as client:
+        tools = await tools_by_name(client)
+        before = payload(await client.call_tool("find_job_search", {"query": "Data Scientist", "source": "gupy"}))
+        saved = payload(await client.call_tool("save_job_search", {
+            "query": "Data Scientist", "source": "gupy", "results_count": 12, "filters": {"remote": True}}))
+        after = payload(await client.call_tool("find_job_search", {"query": "data  scientist", "source": "gupy"}))
+        bad = await client.call_tool("save_job_search", {"query": "x", "source": "gupy", "results_count": -2})
+
+    assert "antes" in tools["find_job_search"].description.lower()
+    assert "linkedin" in json.dumps(tools["save_job_search"].input_schema)
+    assert before["search"] is None
+    assert (after["search"]["id"], after["recent"]) == (saved["search_id"], True)
+    assert bad.is_error and "results_count" in bad.content[0].text

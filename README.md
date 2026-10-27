@@ -21,7 +21,8 @@ Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor 
 | Normalização de URL por plataforma, listagens, CSV | em andamento (#3, #7, #8) |
 | Estimativas salariais: cache de pesquisas (90 dias) | pronto |
 | Avaliação de pretensão salarial (`evaluate_salary`), com prioridade da faixa publicada na vaga | pronto |
-| Busca de vagas a partir do currículo, lista `a_aplicar` | planejado (#35) |
+| Busca de vagas: registro de buscas (evita repetir em 24 h) | pronto |
+| Busca de vagas: aderência ao currículo, lista `a_aplicar` | em andamento (#38, #39, #40) |
 | Skill "candidaturas" (fluxo completo) | planejado (#11) |
 
 Specs e tickets: [issues do repositório](https://github.com/barbieriht/mcp-vagas/issues).
@@ -57,6 +58,7 @@ uv pip install --reinstall-package vagas --python ~/.local/share/vagas/venv/bin/
 | `VAGAS_MASTER_RESUME` | arquivo YAML editável do currículo geral | `curriculo.yaml` ao lado do banco |
 | `VAGAS_RESUME_OUT` | pasta onde os PDFs de currículo são gerados | nenhum (obrigatória para gerar PDF) |
 | `VAGAS_SALARY_TTL_DAYS` | validade do cache de salários, em dias | `90` |
+| `VAGAS_JOB_SEARCH_MIN_HOURS` | intervalo mínimo para repetir a mesma busca de vagas, em horas | `24` |
 
 Mantenha o banco no filesystem do WSL (`~/...`), nunca em `/mnt/c`, que é lento e sujeito a locks. Já a pasta dos PDFs pode ficar no Windows, por exemplo `/mnt/c/Users/<usuário>/Curriculos`, para anexá-los no navegador.
 
@@ -148,6 +150,7 @@ Status possíveis: `aplicada`, `pendente_usuario`, `rh`, `tecnica`, `gestor`, `p
 | `list_resumes` / `get_resume` | consulta currículos personalizados gerados |
 | `find_salary_estimate` | consulta o cache de salários (empresa e mercado; chamar antes de pesquisar) |
 | `save_salary_estimate` | registra uma pesquisa de salários (inclusive "nada encontrado") |
+| `find_job_search` / `save_job_search` | consulta e registra buscas de vagas por site, consulta e local |
 | `evaluate_salary` | decide aplicar/não aplicar/pesquisar e o valor de pretensão, pela política do `perfil.md` |
 
 ## Desenvolvimento
@@ -176,7 +179,8 @@ src/vagas/
 ├── resume_tailor.py    # seleção e resolução do currículo personalizado
 ├── resume_validate.py  # verificação de números e termos
 ├── resume_render.py    # PDF com Typst
-├── salary.py           # cache de estimativas salariais
+├── salary.py           # cache e avaliação de estimativas salariais
+├── job_search.py       # histórico de buscas de vagas
 └── templates/resume.typ
 ```
 

@@ -125,6 +125,22 @@ MIGRATIONS = [
     """,
     # v7: última avaliação salarial usada na candidatura (JSON)
     "ALTER TABLE applications ADD COLUMN salary_evaluation TEXT",
+    # v8: histórico de buscas de vagas
+    """
+    CREATE TABLE job_searches (
+        id INTEGER PRIMARY KEY,
+        query TEXT NOT NULL,
+        query_norm TEXT NOT NULL,
+        source TEXT NOT NULL,
+        location TEXT,
+        location_norm TEXT,
+        filters TEXT,
+        results_count INTEGER NOT NULL,
+        searched_at TEXT NOT NULL,
+        note TEXT
+    );
+    CREATE INDEX job_searches_key ON job_searches (query_norm, source, location_norm);
+    """,
 ]
 LATEST_VERSION = len(MIGRATIONS)
 
