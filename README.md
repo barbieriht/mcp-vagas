@@ -78,9 +78,22 @@ Confira com `claude mcp list`.
 
 ### Claude Desktop (Windows)
 
-> Ainda não validado ponta a ponta (#9).
+O Claude Desktop roda no Windows e chama o servidor dentro do WSL pelo `wsl.exe`. O banco, o código e a cópia estável continuam no Linux.
 
-No `claude_desktop_config.json`, a configuração abaixo roda o servidor dentro do WSL. As variáveis vão pelo `env` do Linux, porque o `env` do Desktop não chega ao WSL.
+**1. Instale a cópia estável no WSL** (seção [Instalação para uso](#instalação-para-uso)) e confira os dados de que vai precisar. Rode no terminal do WSL:
+
+```bash
+echo "distro: $WSL_DISTRO_NAME | usuário: $USER"   # ex.: distro: Ubuntu-22.04 | usuário: newf
+```
+
+**2. Abra o arquivo de configuração do Desktop:** no Claude Desktop, vá em **Configurações → Desenvolvedor → Editar configuração**. Isso abre o `claude_desktop_config.json` certo para a sua instalação. O caminho muda conforme a versão:
+
+| Instalação | Caminho do arquivo |
+|---|---|
+| instalador do site | `%APPDATA%\Claude\claude_desktop_config.json` |
+| Microsoft Store | `%LOCALAPPDATA%\Claude-Data\claude_<id>\claude_desktop_config.json` (ou dentro de `%LOCALAPPDATA%\Packages\Claude_<id>\`) |
+
+**3. Acrescente o servidor `vagas`** em `mcpServers`, mantendo o que já existe no arquivo (por exemplo, `preferences`). Troque `<distro>`, `<usuário-wsl>` e `<usuário>` pelos seus valores:
 
 ```json
 {
@@ -88,6 +101,7 @@ No `claude_desktop_config.json`, a configuração abaixo roda o servidor dentro 
     "vagas": {
       "command": "wsl.exe",
       "args": [
+        "-d", "<distro>",
         "-e", "env",
         "VAGAS_DB=/home/<usuário-wsl>/.local/share/vagas/vagas.db",
         "VAGAS_RESUME_OUT=/mnt/c/Users/<usuário>/Curriculos",
@@ -98,7 +112,19 @@ No `claude_desktop_config.json`, a configuração abaixo roda o servidor dentro 
 }
 ```
 
-Os dois clientes podem usar o mesmo banco ao mesmo tempo, porque o SQLite roda em modo WAL.
+- `-d <distro>` escolhe a distribuição do WSL. Sem ele, o `wsl.exe` usa a distribuição padrão.
+- As variáveis vão pelo `env` do Linux, porque o bloco `env` do Desktop não chega ao WSL.
+- Use os mesmos valores de `VAGAS_DB` e `VAGAS_RESUME_OUT` do Claude Code se quiser que os dois clientes compartilhem as mesmas candidaturas e currículos. O SQLite em modo WAL aguenta os dois abertos ao mesmo tempo.
+
+**4. Reinicie o Claude Desktop por completo:** feche também pelo ícone da bandeja do sistema, porque fechar só a janela não recarrega a configuração. Ao abrir de novo, o servidor `vagas` deve aparecer no menu de ferramentas (conectores) da conversa.
+
+**5. Se não aparecer**, veja o log em **Configurações → Desenvolvedor**, no servidor `vagas` (ou o arquivo `mcp-server-vagas.log` na pasta `logs` ao lado do `claude_desktop_config.json`). Para testar o mesmo comando fora do Desktop, rode no PowerShell:
+
+```powershell
+wsl.exe -d <distro> -e /home/<usuário-wsl>/.local/share/vagas/venv/bin/python -c "import vagas.server; print('ok')"
+```
+
+**6. Instale a Skill no Desktop** pelo zip descrito na seção [Skill "candidaturas"](#skill-candidaturas).
 
 ## Skill "candidaturas"
 
