@@ -42,6 +42,21 @@ MIGRATIONS = [
     );
     CREATE INDEX events_application_id ON events (application_id);
     """,
+    # v2: currículo geral (versões aprovadas e última escrita do rascunho pela tool)
+    """
+    CREATE TABLE master_resumes (
+        id INTEGER PRIMARY KEY,
+        content_hash TEXT NOT NULL UNIQUE,
+        content TEXT NOT NULL,
+        approved_at TEXT NOT NULL
+    );
+
+    CREATE TABLE master_draft (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        file_hash TEXT NOT NULL,
+        written_at TEXT NOT NULL
+    );
+    """,
 ]
 LATEST_VERSION = len(MIGRATIONS)
 

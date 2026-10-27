@@ -11,10 +11,10 @@ def backups(db_path):
     return sorted(p.name for p in db_path.parent.glob(f"{db_path.name}.bak-*"))
 
 
-def test_new_database_gets_full_v1_schema(db_path):
+def test_new_database_gets_latest_schema(db_path):
     conn = connect(db_path)
 
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_VERSION == 1
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_VERSION
     assert columns(conn, "applications") == {
         "id", "company", "company_norm", "role", "url", "url_canonical", "source",
         "seniority", "work_mode", "location", "salary_expectation", "description",
