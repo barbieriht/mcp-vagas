@@ -62,6 +62,17 @@ def _is_term(token: str, sentence_start: bool) -> bool:
     return token[0].isupper() and not sentence_start
 
 
+def term_candidates(text: str) -> list[str]:
+    """Tokens do texto que parecem tecnologia ou nome próprio (inteiros ou por parte hifenizada)."""
+    found = []
+    for token, sentence_start in _tokens(text):
+        parts = [p for p in token.split("-") if p] or [token]
+        starts = [sentence_start] + [False] * (len(parts) - 1)
+        if any(_is_term(p, s) for p, s in zip(parts, starts)) and token not in found:
+            found.append(token)
+    return found
+
+
 def unknown_terms(text: str, corpus: set[str]) -> list[str]:
     missing = []
     for token, sentence_start in _tokens(text):

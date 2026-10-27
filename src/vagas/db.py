@@ -73,6 +73,15 @@ MIGRATIONS = [
     );
     CREATE INDEX resumes_application_id ON resumes (application_id);
     """,
+    # v4: texto extraído do PDF do currículo, referência para revisar o rascunho
+    """
+    CREATE TABLE resume_sources (
+        id INTEGER PRIMARY KEY,
+        path TEXT NOT NULL,
+        pages TEXT NOT NULL,
+        extracted_at TEXT NOT NULL
+    );
+    """,
 ]
 LATEST_VERSION = len(MIGRATIONS)
 

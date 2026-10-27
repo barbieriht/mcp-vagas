@@ -267,3 +267,22 @@ async def test_resume_link_via_mcp(db_path, tmp_path):
     assert updated.is_error and "999" in updated.content[0].text
     assert [r["id"] for r in history["resumes"]] == [resume["id"]]
     assert [r["id"] for r in filtered["resumes"]] == [resume["id"]] != [other["id"]]
+
+
+async def test_extract_and_review_via_mcp(server, tmp_path):
+    from resume_fixture import fictitious_resume
+    from vagas.resume_render import render_resume
+
+    pdf = render_resume(fictitious_resume(), tmp_path / "pdf")["path"]
+    resume = fictitious_resume()
+    resume["experience"][1]["title"] = "Head of Data"
+    async with Client(server) as client:
+        tools = await tools_by_name(client)
+        extracted = payload(await client.call_tool("extract_resume_text", {"pdf_path": pdf}))
+        missing = await client.call_tool("extract_resume_text", {"pdf_path": str(tmp_path / "nada.pdf")})
+        saved = payload(await client.call_tool("save_master_draft", {"resume": resume}))
+
+    assert "save_master_draft" in tools["extract_resume_text"].description
+    assert extracted["page_count"] == 1 and "Acme Analytics" in extracted["pages"][0]
+    assert missing.is_error and "não existe" in missing.content[0].text
+    assert [(r["where"], r["value"]) for r in saved["review"]] == [("exp-acme-analyst.title", "Head of Data")]
