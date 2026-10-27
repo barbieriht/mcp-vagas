@@ -459,3 +459,19 @@ async def test_work_list_via_mcp(server):
 
     assert "aderência" in tools["list_applications"].description
     assert [a["company"] for a in work["applications"]] == ["High", "Low"]
+
+
+async def test_export_csv_via_mcp(db_path, monkeypatch):
+    from pathlib import Path
+
+    from vagas.server import build_server
+
+    monkeypatch.delenv("VAGAS_EXPORT_DIR", raising=False)
+    async with Client(build_server(db_path)) as client:
+        tools = await tools_by_name(client)
+        await client.call_tool("add_application", {"company": "Nubank", "role": "DS", "source": "linkedin"})
+        result = payload(await client.call_tool("export_csv", {}))
+
+    assert tools["export_csv"].input_schema.get("properties", {}) == {}
+    assert Path(result["path"]).parent == db_path.parent / "exports"
+    assert Path(result["path"]).exists() and result["rows"] == 1

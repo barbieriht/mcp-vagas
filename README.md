@@ -21,7 +21,7 @@ Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor 
 | Currículos personalizados com validação anti-invenção + PDF (Typst) | pronto |
 | Listagens com filtros (status, pendências, fonte, data, sem resposta há N dias) | pronto |
 | Normalização de URL por plataforma (LinkedIn, Gupy, Indeed, Glassdoor) | pronto |
-| Exportação CSV | em andamento (#8) |
+| Exportação CSV | pronto |
 | Estimativas salariais: cache de pesquisas (90 dias) | pronto |
 | Avaliação de pretensão salarial (`evaluate_salary`), com prioridade da faixa publicada na vaga | pronto |
 | Busca de vagas: registro de buscas (evita repetir em 24 h) | pronto |
@@ -63,6 +63,7 @@ uv pip install --reinstall-package vagas --python ~/.local/share/vagas/venv/bin/
 | `VAGAS_MASTER_RESUME` | arquivo YAML editável do currículo geral | `curriculo.yaml` ao lado do banco |
 | `VAGAS_RESUME_OUT` | pasta onde os PDFs de currículo são gerados | nenhum (obrigatória para gerar PDF) |
 | `VAGAS_SALARY_TTL_DAYS` | validade do cache de salários, em dias | `90` |
+| `VAGAS_EXPORT_DIR` | pasta dos CSVs exportados (ex.: `/mnt/c/Users/<usuário>/Documents/vagas` para abrir no Windows) | `exports` ao lado do banco |
 | `VAGAS_JOB_SEARCH_MIN_HOURS` | intervalo mínimo para repetir a mesma busca de vagas, em horas | `24` |
 
 Mantenha o banco no filesystem do WSL (`~/...`), nunca em `/mnt/c`, que é lento e sujeito a locks. Já a pasta dos PDFs pode ficar no Windows, por exemplo `/mnt/c/Users/<usuário>/Curriculos`, para anexá-los no navegador.
@@ -201,6 +202,7 @@ O PDF sai em `VAGAS_RESUME_OUT`, com nome no formato `Nome_Sobrenome_Resume_Empr
 - *"Ficou faltando o CPF; registre como pendente."* (status `pendente_usuario` com `pending`)
 - *"Passei para a entrevista técnica."* / *"Mostre o histórico da candidatura 3."* (`update_application`, `get_history`)
 - *"Mostre minha lista de vagas a aplicar."* (ordenada pela aderência ao currículo)
+- *"Exporte minhas candidaturas para uma planilha."* (`export_csv`)
 - *"O que está pendente comigo?"* / *"Quais candidaturas estão sem resposta há mais de 30 dias?"* (`list_applications`)
 
 Status possíveis: `a_aplicar` (vaga encontrada e triada, aguardando candidatura), `aplicada`, `pendente_usuario`, `rh`, `tecnica`, `gestor`, `proposta`, `recusada`, `desistiu`, `descartada`.
@@ -213,6 +215,7 @@ Status possíveis: `a_aplicar` (vaga encontrada e triada, aguardando candidatura
 | `add_application` | registra vaga (`a_aplicar`, `aplicada`, `pendente_usuario` ou `descartada`), com busca de origem e aderência; duplicata devolve a existente |
 | `update_application` | muda etapa, pendência, nota ou currículo vinculado |
 | `list_applications` | lista candidaturas com filtros combináveis: status, pendências, fonte, data de criação e sem resposta há N dias |
+| `export_csv` | exporta todas as candidaturas para um CSV novo (separador `;`, abre no Excel e no Google Sheets) |
 | `get_history` | candidatura, linha do tempo e currículos vinculados |
 | `extract_resume_text` | extrai o texto do PDF do currículo (caminho Windows ou WSL) |
 | `save_resume_source` | registra o texto das seções do seu perfil do LinkedIn como fonte do currículo |
