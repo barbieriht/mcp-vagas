@@ -385,3 +385,24 @@ async def test_score_job_match_via_mcp(server):
     assert "indicativ" in tools["score_job_match"].description.lower()
     assert before.is_error and "approve_master" in before.content[0].text
     assert (result["matched"], result["missing"], result["score"]) == (["Python"], ["Spark"], 50)
+
+
+async def test_a_aplicar_via_mcp(server):
+    async with Client(server) as client:
+        tools = await tools_by_name(client)
+        search = payload(await client.call_tool("save_job_search", {
+            "query": "Data Scientist", "source": "linkedin", "results_count": 3}))
+        app = payload(await client.call_tool("add_application", {
+            "company": "Nubank", "role": "DS", "source": "linkedin", "status": "a_aplicar",
+            "search_id": search["search_id"], "match_score": 75,
+            "match_terms": {"matched": ["Python"], "missing": ["Spark"]}}))["application"]
+        applied = payload(await client.call_tool("update_application", {"id": app["id"], "status": "aplicada"}))
+        bad = await client.call_tool("add_application", {
+            "company": "X", "role": "DS", "source": "linkedin", "status": "a_aplicar", "match_score": 150})
+
+    add_schema = json.dumps(tools["add_application"].input_schema)
+    assert "a_aplicar" in add_schema and "match_terms" in add_schema
+    assert "a_aplicar" in tools["find_application"].description
+    assert (app["status"], app["match_terms"]["missing"]) == ("a_aplicar", ["Spark"])
+    assert (applied["status"], applied["match_score"]) == ("aplicada", 75)
+    assert bad.is_error and "match_score" in bad.content[0].text

@@ -31,9 +31,24 @@ def _require_choice(field: str, value: str | None, choices: tuple[str, ...]) -> 
 
 def _application(row: sqlite3.Row) -> dict[str, Any]:
     application = dict(row)
-    if application.get("salary_evaluation"):
-        application["salary_evaluation"] = json.loads(application["salary_evaluation"])
+    for field in ("salary_evaluation", "match_terms"):
+        if application.get(field):
+            application[field] = json.loads(application[field])
     return application
+
+
+def _check_match_terms(match_terms: dict[str, Any] | None) -> None:
+    if match_terms is None:
+        return
+    valid = (
+        isinstance(match_terms, dict)
+        and set(match_terms) == {"matched", "missing"}
+        and all(isinstance(v, list) and all(isinstance(t, str) for t in v) for v in match_terms.values())
+    )
+    if not valid:
+        raise VagasError(
+            "'match_terms' deve ser {\"matched\": [termos], \"missing\": [termos]}, como devolvido por score_job_match."
+        )
 
 
 class Repo:
@@ -56,6 +71,9 @@ class Repo:
         pending: str | None = None,
         discard_reason: str | None = None,
         resume_id: int | None = None,
+        search_id: int | None = None,
+        match_score: int | None = None,
+        match_terms: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         company = _require_text("company", company)
         role = _require_text("role", role)
@@ -70,6 +88,13 @@ class Repo:
             raise VagasError("'discard_reason' só pode ser informado com status 'descartada'.")
         if resume_id is not None:
             self._check_resume(resume_id, application_id=None)
+        if search_id is not None and not self.conn.execute(
+            "SELECT 1 FROM job_searches WHERE id = ?", (search_id,)
+        ).fetchone():
+            raise VagasError(f"Busca {search_id} não existe (registre-a com save_job_search).")
+        if match_score is not None and not 0 <= match_score <= 100:
+            raise VagasError(f"'match_score' deve estar entre 0 e 100 (recebido {match_score}).")
+        _check_match_terms(match_terms)
 
         url_canonical = canonical_url(url)
         if url_canonical is not None:
@@ -84,12 +109,13 @@ class Repo:
                 INSERT INTO applications (
                     company, company_norm, role, url, url_canonical, source, seniority,
                     work_mode, location, salary_expectation, description, status, pending,
-                    discard_reason, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    discard_reason, search_id, match_score, match_terms, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (company, normalize_company(company), role, url, url_canonical, source,
                  seniority, work_mode, location, salary_expectation, description, status,
-                 pending, discard_reason, now, now),
+                 pending, discard_reason, search_id, match_score,
+                 json.dumps(match_terms, ensure_ascii=False) if match_terms is not None else None, now, now),
             )
             self.conn.execute(
                 "INSERT INTO events (application_id, at, from_status, to_status) VALUES (?, ?, NULL, ?)",

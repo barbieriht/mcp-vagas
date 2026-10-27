@@ -3,10 +3,10 @@
 from typing import Literal, get_args
 
 Status = Literal[
-    "aplicada", "pendente_usuario", "rh", "tecnica", "gestor",
+    "a_aplicar", "aplicada", "pendente_usuario", "rh", "tecnica", "gestor",
     "proposta", "recusada", "desistiu", "descartada",
 ]
-InitialStatus = Literal["aplicada", "pendente_usuario", "descartada"]
+InitialStatus = Literal["a_aplicar", "aplicada", "pendente_usuario", "descartada"]
 Source = Literal["linkedin", "gupy", "indeed", "glassdoor", "outro"]
 WorkMode = Literal["remoto", "hibrido", "presencial"]
 
