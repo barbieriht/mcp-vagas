@@ -21,6 +21,7 @@ from vagas.repo import Repo, VagasError
 from vagas.resume_model import MasterResume
 from vagas.resume_render import default_output_dir, render_resume
 from vagas.resume_tailor import TailoredSelection
+from vagas.export import default_export_dir, export_csv as write_csv
 from vagas.job_search import JobSearchStore
 from vagas.salary import SalaryPoint, SalaryStore
 from vagas.resume_repo import ResumeStore, default_draft_path
@@ -190,6 +191,18 @@ def build_server(
             return r.list_applications(
                 status=status, only_pending=only_pending, source=source, since=since, stale_days=stale_days,
             )
+
+    @server.tool()
+    def export_csv() -> dict[str, Any]:
+        """Exporta todas as candidaturas para um arquivo CSV novo, para abrir numa planilha.
+
+        Todas as colunas, uma linha por candidatura, mais recentes primeiro; separador ";" e UTF-8
+        (abre direto no Excel em português e no Google Sheets). O arquivo vai para a pasta de
+        exportação (VAGAS_EXPORT_DIR, padrão "exports" ao lado do banco) com data e hora no nome;
+        nunca sobrescreve. Retorna {"path", "rows"}.
+        """
+        with repo() as r:
+            return write_csv(r, default_export_dir(db_path))
 
     @server.tool()
     def get_history(id: int) -> dict[str, Any]:
