@@ -167,6 +167,28 @@ def build_server(
             )
 
     @server.tool()
+    def list_applications(
+        status: Status | None = None,
+        only_pending: bool = False,
+        source: Source | None = None,
+        since: str | None = None,
+        stale_days: int | None = None,
+    ) -> dict[str, Any]:
+        """Lista candidaturas, mais recentes primeiro; os filtros se combinam.
+
+        - status: uma etapa (ex.: "a_aplicar" para a lista de trabalho, "descartada", "tecnica");
+        - only_pending: só as que têm pendência do usuário (campo pending);
+        - source: plataforma;
+        - since: criadas a partir desta data ISO (ex.: "2026-10-01");
+        - stale_days: só "aplicada" sem nenhum evento há mais de N dias (candidaturas sem resposta).
+        Cada item traz last_event_at (data do último evento). Retorna {"applications", "count"}.
+        """
+        with repo() as r:
+            return r.list_applications(
+                status=status, only_pending=only_pending, source=source, since=since, stale_days=stale_days,
+            )
+
+    @server.tool()
     def get_history(id: int) -> dict[str, Any]:
         """Retorna a candidatura e a linha do tempo completa, em ordem cronológica.
 
