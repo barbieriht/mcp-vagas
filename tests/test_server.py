@@ -370,3 +370,18 @@ async def test_job_search_registry_via_mcp(server):
     assert before["search"] is None
     assert (after["search"]["id"], after["recent"]) == (saved["search_id"], True)
     assert bad.is_error and "results_count" in bad.content[0].text
+
+
+async def test_score_job_match_via_mcp(server):
+    from resume_fixture import fictitious_resume
+
+    async with Client(server) as client:
+        tools = await tools_by_name(client)
+        before = await client.call_tool("score_job_match", {"description": "Python and Spark"})
+        await client.call_tool("save_master_draft", {"resume": fictitious_resume()})
+        await client.call_tool("approve_master", {})
+        result = payload(await client.call_tool("score_job_match", {"description": "Strong Python and Spark."}))
+
+    assert "indicativ" in tools["score_job_match"].description.lower()
+    assert before.is_error and "approve_master" in before.content[0].text
+    assert (result["matched"], result["missing"], result["score"]) == (["Python"], ["Spark"], 50)

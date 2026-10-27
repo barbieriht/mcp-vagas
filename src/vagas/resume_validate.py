@@ -35,10 +35,16 @@ def _clean(token: str) -> str:
 def _tokens(text: str) -> Iterator[tuple[str, bool]]:
     """Tokens com a indicação de início de frase/segmento."""
     for segment in _SEGMENT_BREAK.split(text):
-        for i, raw in enumerate(_TOKEN.findall(segment)):
+        started = False  # marcadores de lista ("-", "•", "1.") não contam como primeira palavra
+        for raw in _TOKEN.findall(segment):
             token = _clean(raw)
-            if token:
-                yield token, i == 0
+            if not token:
+                continue
+            if not any(c.isalnum() for c in token) or re.fullmatch(r"\d+[.)]?", token):
+                yield token, False
+                continue
+            yield token, not started
+            started = True
 
 
 def term_set(texts: Iterable[str]) -> set[str]:
@@ -51,7 +57,7 @@ def term_set(texts: Iterable[str]) -> set[str]:
 
 
 def _is_term(token: str, sentence_start: bool) -> bool:
-    if not any(c.isalpha() for c in token):
+    if not any(c.isalpha() for c in token) or len(token) == 1:
         return False
     if any(c in "+#" for c in token) or (any(c.isdigit() for c in token)):
         return True
@@ -84,6 +90,23 @@ def unknown_terms(text: str, corpus: set[str]) -> list[str]:
             if token not in missing:
                 missing.append(token)
     return missing
+
+
+def match_terms(text: str, corpus: set[str], vocabulary: set[str] = frozenset()) -> tuple[list[str], list[str]]:
+    """Termos do texto presentes e ausentes no corpus, sem repetição (ignorando maiúsculas).
+
+    vocabulary (ex.: as skills do currículo) recupera termos em início de frase ou de item de
+    lista ("Requirements: Python, SQL"), que de outro modo seriam ignorados como palavra comum.
+    """
+    unknown = {term.casefold() for term in unknown_terms(text, corpus)}
+    terms = set(term_candidates(text))
+    matched, missing, seen = [], [], set()
+    for token, sentence_start in _tokens(text):
+        is_term = token in terms or (sentence_start and token[:1].isupper() and token.lower() in vocabulary)
+        if is_term and token.casefold() not in seen:
+            seen.add(token.casefold())
+            (missing if token.casefold() in unknown else matched).append(token)
+    return matched, missing
 
 
 def unknown_numbers(text: str, allowed: set[str]) -> list[str]:

@@ -22,7 +22,8 @@ Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor 
 | Estimativas salariais: cache de pesquisas (90 dias) | pronto |
 | Avaliação de pretensão salarial (`evaluate_salary`), com prioridade da faixa publicada na vaga | pronto |
 | Busca de vagas: registro de buscas (evita repetir em 24 h) | pronto |
-| Busca de vagas: aderência ao currículo, lista `a_aplicar` | em andamento (#38, #39, #40) |
+| Busca de vagas: aderência da vaga ao currículo (`score_job_match`) | pronto |
+| Busca de vagas: lista `a_aplicar` | em andamento (#39, #40) |
 | Skill "candidaturas" (fluxo completo) | planejado (#11) |
 
 Specs e tickets: [issues do repositório](https://github.com/barbieriht/mcp-vagas/issues).
@@ -147,6 +148,7 @@ Status possíveis: `aplicada`, `pendente_usuario`, `rh`, `tecnica`, `gestor`, `p
 | `get_master_resume` | devolve o currículo geral aprovado |
 | `render_master_resume` | gera o PDF do currículo geral completo |
 | `create_tailored_resume` | valida e gera um currículo personalizado |
+| `score_job_match` | aderência de uma vaga ao currículo geral: nota 0–100, termos presentes e ausentes (indicativa) |
 | `list_resumes` / `get_resume` | consulta currículos personalizados gerados |
 | `find_salary_estimate` | consulta o cache de salários (empresa e mercado; chamar antes de pesquisar) |
 | `save_salary_estimate` | registra uma pesquisa de salários (inclusive "nada encontrado") |

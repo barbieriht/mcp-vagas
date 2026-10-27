@@ -243,6 +243,21 @@ def build_server(
             return s.create_tailored_resume(selection, resume_out or default_output_dir(), application_id)
 
     @server.tool()
+    def score_job_match(description: str) -> dict[str, Any]:
+        """Aderência de uma vaga ao currículo geral aprovado, a partir da descrição da vaga.
+
+        Extrai os termos técnicos da descrição (tecnologias, siglas, nomes próprios) e separa os
+        que aparecem no currículo geral ("matched") dos que não aparecem ("missing"). "score" é a
+        proporção de presentes, de 0 a 100 (null se a descrição não tiver termos técnicos).
+        A nota é INDICATIVA: nomes de cidades, empresas ou palavras capitalizadas podem aparecer
+        como ausentes, e termos ausentes no início de frase ou de item de lista podem não ser
+        detectados (a nota tende a sair um pouco otimista). Use-a para justificar a triagem e para escolher o que destacar no
+        currículo personalizado; a decisão de aplicar continua sendo da triagem completa.
+        """
+        with resumes() as s:
+            return s.score_job_match(description)
+
+    @server.tool()
     def list_resumes(application_id: int | None = None) -> dict[str, Any]:
         """Lista os currículos personalizados gerados, mais recentes primeiro: {"resumes": [...]}.
         Com application_id, só os vinculados àquela candidatura."""
