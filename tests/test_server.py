@@ -1,0 +1,104 @@
+import json
+import sys
+
+import pytest
+from mcp import Client, StdioServerParameters
+
+from vagas.models import SOURCES, WORK_MODES
+
+pytestmark = pytest.mark.anyio
+
+LINKEDIN = "https://www.linkedin.com/jobs/view/4012345678/"
+
+
+def payload(result):
+    assert not result.is_error, result.content
+    return result.structured_content
+
+
+async def tools_by_name(client):
+    return {tool.name: tool for tool in (await client.list_tools()).tools}
+
+
+async def test_tools_are_listed_with_docstrings(server):
+    async with Client(server) as client:
+        tools = await tools_by_name(client)
+
+    assert {"add_application", "find_application"} <= tools.keys()
+    assert "SEMPRE" in tools["find_application"].description
+    assert all(tool.description for tool in tools.values())
+
+
+async def test_enums_are_visible_in_add_application_schema(server):
+    async with Client(server) as client:
+        schema = (await tools_by_name(client))["add_application"].input_schema
+
+    text = json.dumps(schema)
+    assert all(value in text for value in SOURCES + WORK_MODES)
+    assert {"company", "role", "source"} <= set(schema["required"])
+
+
+async def test_add_then_find_by_url(server):
+    async with Client(server) as client:
+        added = payload(await client.call_tool("add_application", {
+            "company": "Nubank", "role": "Data Scientist", "url": LINKEDIN, "source": "linkedin",
+        }))
+        found = payload(await client.call_tool("find_application", {"url": LINKEDIN + "#x"}))
+
+    assert added["created"] is True
+    assert added["application"]["status"] == "aplicada"
+    assert found["matches"] == [added["application"]]
+
+
+async def test_duplicate_returns_existing_record(server):
+    args = {"company": "Nubank", "role": "Data Scientist", "url": LINKEDIN, "source": "linkedin"}
+    async with Client(server) as client:
+        first = payload(await client.call_tool("add_application", args))
+        second = payload(await client.call_tool("add_application", args))
+
+    assert second["created"] is False
+    assert second["application"] == first["application"]
+
+
+async def test_invalid_enum_is_a_readable_error(server):
+    async with Client(server) as client:
+        result = await client.call_tool("add_application", {
+            "company": "Nubank", "role": "DS", "source": "monster",
+        })
+
+    assert result.is_error
+    assert "source" in result.content[0].text
+    assert "Traceback" not in result.content[0].text
+
+
+async def test_domain_error_message_reaches_the_client(server):
+    async with Client(server) as client:
+        result = await client.call_tool("add_application", {
+            "company": "   ", "role": "DS", "source": "linkedin",
+        })
+
+    assert result.is_error
+    assert "company" in result.content[0].text
+
+
+async def test_find_without_criteria_is_a_readable_error(server):
+    async with Client(server) as client:
+        result = await client.call_tool("find_application", {})
+
+    assert result.is_error
+    assert "url" in result.content[0].text
+
+
+async def test_stdio_server_starts_and_keeps_stdout_clean(db_path):
+    params = StdioServerParameters(
+        command=sys.executable, args=["-m", "vagas.server"], env={"VAGAS_DB": str(db_path)},
+    )
+    async with Client(params) as client:
+        tools = await tools_by_name(client)
+        added = payload(await client.call_tool("add_application", {
+            "company": "Nubank", "role": "DS", "url": LINKEDIN, "source": "linkedin",
+        }))
+
+    assert "find_application" in tools
+    assert added["created"] is True
+    assert db_path.exists()
