@@ -127,11 +127,11 @@ def _ids(resume: MasterResume):
                 yield f"{section}.{i}.items.{j}.id", cert.id
 
 
-def describe_errors(exc: ValidationError) -> str:
+def describe_errors(exc: ValidationError, title: str = "Currículo inválido") -> str:
     lines = []
     for error in exc.errors():
         location = ".".join(str(part) for part in error["loc"])
         message = error["msg"].removeprefix("Value error, ")
         value = f" (valor: {error['input']!r})" if isinstance(error.get("input"), str) else ""
         lines.append(f"- {location}: {message}{value}" if location else f"- {message}")
-    return "Currículo inválido:\n" + "\n".join(lines)
+    return f"{title}:\n" + "\n".join(lines)

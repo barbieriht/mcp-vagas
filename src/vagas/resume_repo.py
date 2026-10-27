@@ -14,6 +14,8 @@ from pydantic import ValidationError
 from vagas.db import default_db_path
 from vagas.repo import VagasError, _utcnow
 from vagas.resume_model import MasterResume, describe_errors
+from vagas.resume_render import render_resume
+from vagas.resume_tailor import TailoredSelection, resolve
 
 
 def default_draft_path(db_path: Path | str | None = None) -> Path:
@@ -112,6 +114,46 @@ class ResumeStore:
             "approved_at": row["approved_at"],
             "resume": json.loads(row["content"]),
         }
+
+    def create_tailored_resume(self, selection: Any, out_dir: Path | str | None) -> dict[str, Any]:
+        """Valida a seleção contra o currículo geral, gera o PDF e registra. Nada é gravado se falhar."""
+        if not isinstance(selection, TailoredSelection):
+            try:
+                selection = TailoredSelection.model_validate(selection)
+            except ValidationError as exc:
+                raise VagasError(describe_errors(exc, "Seleção inválida")) from exc
+        master = self.get_master_resume()
+        resolved = resolve(master["resume"], selection)
+        rendered = render_resume(resolved, out_dir, label=selection.label)
+        with self.conn:
+            cursor = self.conn.execute(
+                """
+                INSERT INTO resumes (master_resume_id, label, selection, resolved, pdf_path, pages, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (master["version_id"], selection.label,
+                 json.dumps(selection.model_dump(exclude_none=True), ensure_ascii=False),
+                 json.dumps(resolved, ensure_ascii=False), rendered["path"], rendered["pages"], self.now()),
+            )
+        return {"id": cursor.lastrowid, **rendered}
+
+    def list_resumes(self) -> list[dict[str, Any]]:
+        rows = self.conn.execute(
+            """
+            SELECT id, label, pdf_path, pages, master_resume_id, application_id, created_at
+            FROM resumes ORDER BY created_at DESC, id DESC
+            """
+        )
+        return [dict(row) for row in rows]
+
+    def get_resume(self, resume_id: int) -> dict[str, Any]:
+        row = self.conn.execute("SELECT * FROM resumes WHERE id = ?", (resume_id,)).fetchone()
+        if row is None:
+            raise VagasError(f"Currículo personalizado {resume_id} não existe.")
+        resume = dict(row)
+        resume["selection"] = json.loads(resume["selection"])
+        resume["resolved"] = json.loads(resume["resolved"])
+        return resume
 
     def _read_draft(self) -> Any:
         if not self.draft_path.exists():
