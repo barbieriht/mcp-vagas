@@ -244,6 +244,8 @@ class Repo:
     ) -> dict[str, Any]:
         """Candidaturas com os filtros combinados (E), mais recentes primeiro.
 
+        status="a_aplicar" (lista de trabalho) ordena pela aderência (maior primeiro, sem nota por
+        último) e depois pelas mais recentes.
         stale_days=N: só "aplicada" cujo último evento é mais antigo que N dias (sem resposta).
         """
         _require_choice("status", status, STATUSES)
@@ -267,6 +269,7 @@ class Repo:
             conditions.append("a.status = 'aplicada' AND last_event_at < ?")
             params.append(threshold.isoformat(timespec="seconds"))
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        by_match = "a.match_score IS NULL, a.match_score DESC, " if status == "a_aplicar" else ""
         rows = self.conn.execute(
             f"""
             SELECT * FROM (
@@ -274,7 +277,7 @@ class Repo:
                 FROM applications a
             ) a
             {where}
-            ORDER BY a.created_at DESC, a.id DESC
+            ORDER BY {by_match}a.created_at DESC, a.id DESC
             """,
             params,
         )
