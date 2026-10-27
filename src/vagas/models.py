@@ -16,6 +16,7 @@ Seniority = Literal["estagio", "junior", "pleno", "senior", "especialista"]
 Currency = Literal["BRL", "USD", "EUR"]
 Period = Literal["hora", "mes", "ano"]
 Contract = Literal["clt", "pj", "desconhecido"]
+SalaryMode = Literal["minimo", "faixa"]
 
 STATUSES: tuple[str, ...] = get_args(Status)
 INITIAL_STATUSES: tuple[str, ...] = get_args(InitialStatus)
@@ -25,3 +26,4 @@ ROLE_KEYS: tuple[str, ...] = get_args(RoleKey)
 SENIORITIES: tuple[str, ...] = get_args(Seniority)
 CURRENCIES: tuple[str, ...] = get_args(Currency)
 CONTRACTS: tuple[str, ...] = get_args(Contract)
+SALARY_MODES: tuple[str, ...] = get_args(SalaryMode)

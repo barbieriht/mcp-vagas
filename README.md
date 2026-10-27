@@ -20,7 +20,8 @@ Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor 
 | Currículos personalizados com validação anti-invenção + PDF (Typst) | pronto |
 | Normalização de URL por plataforma, listagens, CSV | em andamento (#3, #7, #8) |
 | Estimativas salariais: cache de pesquisas (90 dias) | pronto |
-| Avaliação de pretensão salarial (`evaluate_salary`) | em andamento (#25, #26) |
+| Avaliação de pretensão salarial (`evaluate_salary`) | pronto; faixa publicada na vaga em andamento (#26) |
+| Busca de vagas a partir do currículo, lista `a_aplicar` | planejado (#35) |
 | Skill "candidaturas" (fluxo completo) | planejado (#11) |
 
 Specs e tickets: [issues do repositório](https://github.com/barbieriht/mcp-vagas/issues).
@@ -147,6 +148,7 @@ Status possíveis: `aplicada`, `pendente_usuario`, `rh`, `tecnica`, `gestor`, `p
 | `list_resumes` / `get_resume` | consulta currículos personalizados gerados |
 | `find_salary_estimate` | consulta o cache de salários (empresa e mercado; chamar antes de pesquisar) |
 | `save_salary_estimate` | registra uma pesquisa de salários (inclusive "nada encontrado") |
+| `evaluate_salary` | decide aplicar/não aplicar/pesquisar e o valor de pretensão, pela política do `perfil.md` |
 
 ## Desenvolvimento
 

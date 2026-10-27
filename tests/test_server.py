@@ -320,3 +320,21 @@ async def test_salary_cache_via_mcp(server):
     assert saved["search_id"] > 0
     assert found["company"]["median"] == 11000 and found["fresh_company"] is True
     assert bad.is_error and "min_value" in bad.content[0].text
+
+
+async def test_evaluate_salary_via_mcp(server):
+    key = {"role_key": "data_scientist", "seniority": "pleno", "currency": "BRL"}
+    async with Client(server) as client:
+        tools = await tools_by_name(client)
+        before = payload(await client.call_tool("evaluate_salary", {**key, "contract": "clt", "my_min": 10000}))
+        await client.call_tool("save_salary_estimate", {**key, "points": [
+            {"source": "glassdoor", "period": "mes", "contract": "clt", "avg_value": 12000}]})
+        after = payload(await client.call_tool("evaluate_salary", {
+            **key, "contract": "pj", "my_min": 10000, "my_max": 14000, "pj_multiplier": 1.4}))
+        bad = await client.call_tool("evaluate_salary", {**key, "contract": "clt", "my_min": 10000, "mode": "faixa"})
+
+    schema = json.dumps(tools["evaluate_salary"].input_schema)
+    assert "minimo" in schema and "faixa" in schema
+    assert before["decision"] == "pesquisar"
+    assert (after["decision"], after["value_to_inform"], after["contract"]) == ("aplicar", 16800, "pj")
+    assert bad.is_error and "my_max" in bad.content[0].text
