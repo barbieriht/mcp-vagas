@@ -298,3 +298,25 @@ async def test_find_by_company_via_mcp(server):
 
     assert found["matches"] == [added["application"]]
     assert "company" in tools["find_application"].input_schema["properties"]
+
+
+async def test_salary_cache_via_mcp(server):
+    key = {"role_key": "data_scientist", "seniority": "pleno", "currency": "BRL"}
+    async with Client(server) as client:
+        tools = await tools_by_name(client)
+        saved = payload(await client.call_tool("save_salary_estimate", {
+            **key, "company": "Nubank", "points": [
+                {"source": "glassdoor", "source_url": "https://g.example", "period": "mes",
+                 "contract": "clt", "min_value": 9000, "max_value": 13000}],
+        }))
+        found = payload(await client.call_tool("find_salary_estimate", {**key, "company": "Nubank S.A."}))
+        bad = await client.call_tool("save_salary_estimate", {**key, "points": [
+            {"source": "x", "period": "mes", "min_value": 10, "max_value": 5}]})
+
+    schema = json.dumps(tools["save_salary_estimate"].input_schema)
+    assert all(v in schema for v in ("data_scientist", "especialista", "USD", "hora", "desconhecido"))
+    assert "SEMPRE" in tools["find_salary_estimate"].description
+    assert "nunca" in tools["save_salary_estimate"].description.lower()
+    assert saved["search_id"] > 0
+    assert found["company"]["median"] == 11000 and found["fresh_company"] is True
+    assert bad.is_error and "min_value" in bad.content[0].text
