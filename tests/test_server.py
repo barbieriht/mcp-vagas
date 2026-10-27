@@ -102,3 +102,40 @@ async def test_stdio_server_starts_and_keeps_stdout_clean(db_path):
     assert "find_application" in tools
     assert added["created"] is True
     assert db_path.exists()
+
+
+async def test_find_docstring_explains_pending_versus_other_statuses(server):
+    async with Client(server) as client:
+        description = (await tools_by_name(client))["find_application"].description
+
+    assert "pendente_usuario" in description
+    assert "retomar" in description.lower()
+
+
+async def test_initial_status_enum_is_visible_in_schema(server):
+    async with Client(server) as client:
+        schema = json.dumps((await tools_by_name(client))["add_application"].input_schema)
+
+    assert all(s in schema for s in ("aplicada", "pendente_usuario", "descartada"))
+    assert "tecnica" not in schema
+
+
+async def test_pending_and_discarded_via_mcp(server):
+    base = {"role": "DS", "source": "linkedin"}
+    async with Client(server) as client:
+        pending = payload(await client.call_tool("add_application", {
+            **base, "company": "Itaú", "url": "https://x.com/1",
+            "status": "pendente_usuario", "pending": "CPF",
+        }))
+        discarded = payload(await client.call_tool("add_application", {
+            **base, "company": "CI&T", "url": "https://x.com/2",
+            "status": "descartada", "discard_reason": "Empresa ignorada",
+        }))
+        missing = await client.call_tool("add_application", {
+            **base, "company": "Itaú", "url": "https://x.com/3", "status": "pendente_usuario",
+        })
+        found = payload(await client.call_tool("find_application", {"url": "https://x.com/2"}))
+
+    assert pending["application"]["pending"] == "CPF"
+    assert found["matches"][0]["discard_reason"] == "Empresa ignorada"
+    assert missing.is_error and "pending" in missing.content[0].text

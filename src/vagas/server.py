@@ -11,7 +11,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from vagas.db import connect
-from vagas.models import Source, WorkMode
+from vagas.models import InitialStatus, Source, WorkMode
 from vagas.repo import Repo, VagasError
 
 
@@ -32,7 +32,12 @@ def build_server(db_path: Path | str | None = None) -> MCPServer:
         """Procura candidaturas já registradas para uma vaga.
 
         SEMPRE chamar antes de iniciar qualquer candidatura, antes de abrir o formulário.
-        Se houver registro, não iniciar uma nova candidatura: informar o status atual ao usuário.
+        Interpretação do resultado:
+        - nenhum registro: seguir com a triagem e a candidatura;
+        - registro com status "pendente_usuario": retomar a candidatura a partir do que
+          está descrito em "pending" (não criar outro registro);
+        - registro com qualquer outro status (inclusive "descartada", com "discard_reason"):
+          parar e informar o status atual ao usuário.
 
         A URL é comparada em forma normalizada (sem fragmento e sem parâmetros utm_*).
         Retorna {"matches": [candidaturas]}; lista vazia quando a vaga não foi registrada.
@@ -51,10 +56,19 @@ def build_server(db_path: Path | str | None = None) -> MCPServer:
         location: str | None = None,
         salary_expectation: str | None = None,
         description: str | None = None,
+        status: InitialStatus = "aplicada",
+        pending: str | None = None,
+        discard_reason: str | None = None,
     ) -> dict[str, Any]:
-        """Registra uma candidatura submetida, com status "aplicada".
+        """Registra uma vaga: candidatura enviada, incompleta ou descartada na triagem.
 
-        Chamar somente depois que a candidatura foi de fato enviada.
+        status:
+        - "aplicada": SOMENTE se a candidatura foi de fato submetida;
+        - "pendente_usuario": candidatura incompleta; "pending" é obrigatório e descreve
+          o que falta o usuário fazer (ex.: "CPF", "criar conta", "responder pergunta X");
+        - "descartada": vaga reprovada na triagem; "discard_reason" é obrigatório.
+        "pending" também pode acompanhar "aplicada" (ex.: "teste técnico até sexta").
+
         Se a URL já estiver registrada, NÃO cria outro registro: retorna
         {"created": false, "application": <registro existente>} sem erro.
         Caso contrário retorna {"created": true, "application": <novo registro>}.
@@ -67,6 +81,7 @@ def build_server(db_path: Path | str | None = None) -> MCPServer:
                 company=company, role=role, source=source, url=url, seniority=seniority,
                 work_mode=work_mode, location=location,
                 salary_expectation=salary_expectation, description=description,
+                status=status, pending=pending, discard_reason=discard_reason,
             )
 
     return server
