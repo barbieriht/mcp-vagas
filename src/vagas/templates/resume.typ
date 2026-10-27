@@ -76,6 +76,15 @@
   }
 }
 
+#let render-volunteering(volunteering) = {
+  section("Volunteering")
+  for (i, x) in volunteering.enumerate() {
+    if i > 0 { v(0.4em) }
+    block(above: 0.85em, breakable: false, head(x.organization, span(x), subtitle: x.role, right2: get(x, "location")))
+    paragraphs(x)
+  }
+}
+
 #let render-projects(projects) = {
   section("Projects")
   for p in projects {
@@ -103,8 +112,10 @@
   section("Certifications")
   for g in certifications {
     let items = g.items.map(c => {
+      let name = if get(c, "link") != none { link(c.link, c.name) } else { c.name }
       let tail = (get(c, "provider"), get(c, "year")).filter(x => x != none).map(str)
-      if tail.len() > 0 { c.name + " – " + tail.join(" (") + if tail.len() > 1 { ")" } else { "" } } else { c.name }
+      let details = if tail.len() == 2 { tail.at(0) + " (" + tail.at(1) + ")" } else { tail.join("") }
+      if details != "" [#name – #details] else [#name]
     })
     par[#text(weight: "bold", g.label + ":") #items.join("; ")]
   }
@@ -120,6 +131,7 @@
 #let renderers = (
   education: render-education,
   experience: render-experience,
+  volunteering: render-volunteering,
   projects: render-projects,
   publications: render-publications,
   skills: render-skills,
@@ -127,7 +139,7 @@
   languages: render-languages,
 )
 #let order = data.at("order", default: (
-  "education", "experience", "projects", "publications", "skills", "certifications", "languages",
+  "education", "experience", "volunteering", "projects", "publications", "skills", "certifications", "languages",
 ))
 #for name in order {
   let items = data.at(name, default: ())

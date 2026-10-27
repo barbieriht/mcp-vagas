@@ -17,7 +17,7 @@ Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor 
 |---|---|
 | Registrar, deduplicar por URL, buscar por empresa normalizada, atualizar e ver histórico | pronto |
 | Currículo geral: extração do PDF, rascunho YAML, revisão e aprovação | pronto |
-| Currículo geral também a partir do LinkedIn (revisão contra todas as fontes) | fonte e revisão prontas; seção Volunteering e fluxo na Skill em andamento (#48, #49) |
+| Currículo geral também a partir do LinkedIn (revisão contra todas as fontes), seção Volunteering e link de certificação | pronto; fluxo na Skill em andamento (#49) |
 | Currículos personalizados com validação anti-invenção + PDF (Typst) | pronto |
 | Normalização de URL por plataforma, listagens, CSV | em andamento (#3, #7, #8) |
 | Estimativas salariais: cache de pesquisas (90 dias) | pronto |
