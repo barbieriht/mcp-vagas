@@ -57,6 +57,22 @@ MIGRATIONS = [
         written_at TEXT NOT NULL
     );
     """,
+    # v3: currículos personalizados gerados
+    """
+    CREATE TABLE resumes (
+        id INTEGER PRIMARY KEY,
+        master_resume_id INTEGER NOT NULL REFERENCES master_resumes (id),
+        application_id INTEGER REFERENCES applications (id),
+        label TEXT,
+        lang TEXT NOT NULL DEFAULT 'en',
+        selection TEXT NOT NULL,
+        resolved TEXT NOT NULL,
+        pdf_path TEXT NOT NULL,
+        pages INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX resumes_application_id ON resumes (application_id);
+    """,
 ]
 LATEST_VERSION = len(MIGRATIONS)
 

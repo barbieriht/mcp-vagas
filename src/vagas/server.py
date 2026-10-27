@@ -16,6 +16,7 @@ from vagas.models import InitialStatus, Source, Status, WorkMode
 from vagas.repo import Repo, VagasError
 from vagas.resume_model import MasterResume
 from vagas.resume_render import default_output_dir, render_resume
+from vagas.resume_tailor import TailoredSelection
 from vagas.resume_repo import ResumeStore, default_draft_path
 
 
@@ -183,6 +184,39 @@ def build_server(
         with resumes() as s:
             master = s.get_master_resume()["resume"]
             return render_resume(master, resume_out or default_output_dir(), label=label)
+
+    @server.tool()
+    def create_tailored_resume(selection: TailoredSelection) -> dict[str, Any]:
+        """Gera um currículo personalizado para uma vaga a partir do currículo geral aprovado.
+
+        Escolha seções, itens e parágrafos (IDs de get_master_resume) e a ordem em que aparecem.
+        Parágrafos longos podem ser reescritos como bullets objetivos, em inglês, destacando o que
+        a vaga pede. Empresa, cargo, datas, local, formação, certificações e idiomas vêm sempre do
+        currículo geral e não podem ser enviados.
+
+        Antes de gerar, o MCP rejeita qualquer coisa que não esteja no currículo geral: ID
+        inexistente, parágrafo de outro item, número que não está no parágrafo de origem (inclusive
+        "3+ years"), tecnologia ou nome próprio que não aparece no currículo geral. Em caso de erro,
+        corrija a seleção ou o texto; NUNCA tente contornar a validação nem exagerar
+        responsabilidades (ex.: "contributed" não vira "led").
+
+        Retorna {"id", "path", "pages", "warnings"}; o PDF vai para VAGAS_RESUME_OUT.
+        """
+        with resumes() as s:
+            return s.create_tailored_resume(selection, resume_out or default_output_dir())
+
+    @server.tool()
+    def list_resumes() -> dict[str, Any]:
+        """Lista os currículos personalizados gerados, mais recentes primeiro: {"resumes": [...]}."""
+        with resumes() as s:
+            return {"resumes": s.list_resumes()}
+
+    @server.tool()
+    def get_resume(id: int) -> dict[str, Any]:
+        """Retorna um currículo personalizado: seleção enviada, conteúdo final ("resolved"),
+        versão do currículo geral de origem, caminho do PDF e páginas."""
+        with resumes() as s:
+            return s.get_resume(id)
 
     return server
 

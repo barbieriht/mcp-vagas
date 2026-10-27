@@ -213,3 +213,31 @@ async def test_render_master_resume_via_mcp(db_path, tmp_path, monkeypatch):
     assert rendered["path"] == str(tmp_path / "out" / "Fulana_Tal_Resume_Geral.pdf")
     assert rendered["pages"] == 1
     assert unconfigured.is_error and "VAGAS_RESUME_OUT" in unconfigured.content[0].text
+
+
+async def test_tailored_resume_via_mcp(db_path, tmp_path):
+    from resume_fixture import fictitious_resume
+    from vagas.server import build_server
+
+    server = build_server(db_path, resume_out=tmp_path / "out")
+    good = {"label": "Nubank", "sections": [{"section": "experience", "items": [
+        {"id": "exp-acme-tech-lead", "paragraphs": [
+            {"id": "exp-acme-tech-lead-p1", "bullets": ["Cut answer latency by 30%"]}]}]}]}
+    bad = {"sections": [{"section": "experience", "items": [
+        {"id": "exp-acme-tech-lead", "paragraphs": [
+            {"id": "exp-acme-tech-lead-p1", "bullets": ["Cut answer latency by 45%"]}]}]}]}
+
+    async with Client(server) as client:
+        await client.call_tool("save_master_draft", {"resume": fictitious_resume()})
+        await client.call_tool("approve_master", {})
+        tools = await tools_by_name(client)
+        created = payload(await client.call_tool("create_tailored_resume", {"selection": good}))
+        rejected = await client.call_tool("create_tailored_resume", {"selection": bad})
+        listed = payload(await client.call_tool("list_resumes", {}))
+        fetched = payload(await client.call_tool("get_resume", {"id": created["id"]}))
+
+    assert "nunca" in tools["create_tailored_resume"].description.lower()
+    assert created["path"].endswith("Fulana_Tal_Resume_Nubank.pdf")
+    assert rejected.is_error and "45%" in rejected.content[0].text
+    assert [r["id"] for r in listed["resumes"]] == [created["id"]]
+    assert fetched["resolved"]["experience"][0]["company"] == "Acme Analytics"

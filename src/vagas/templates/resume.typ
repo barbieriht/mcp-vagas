@@ -32,7 +32,9 @@
 }
 
 #let paragraphs(item) = {
-  for p in item.at("paragraphs", default: ()) { par(p.text) }
+  for p in item.at("paragraphs", default: ()) {
+    if "bullets" in p { list(..p.bullets) } else { par(p.text) }
+  }
 }
 
 #let contacts = {
@@ -55,8 +57,7 @@
   par(data.summary)
 }
 
-#let education = data.at("education", default: ())
-#if education.len() > 0 {
+#let render-education(education) = {
   section("Education")
   for e in education {
     let subtitle = (e.degree, get(e, "field")).filter(x => x != none).join(", ")
@@ -65,8 +66,7 @@
   }
 }
 
-#let experience = data.at("experience", default: ())
-#if experience.len() > 0 {
+#let render-experience(experience) = {
   section("Experience")
   for (i, x) in experience.enumerate() {
     if i > 0 { v(0.4em) }
@@ -76,8 +76,7 @@
   }
 }
 
-#let projects = data.at("projects", default: ())
-#if projects.len() > 0 {
+#let render-projects(projects) = {
   section("Projects")
   for p in projects {
     let name = if get(p, "link") != none { link(url(p.link), p.name) } else { p.name }
@@ -86,8 +85,7 @@
   }
 }
 
-#let publications = data.at("publications", default: ())
-#if publications.len() > 0 {
+#let render-publications(publications) = {
   section("Publications")
   list(..publications.map(p => {
     let title = if get(p, "link") != none { link(url(p.link), p.title) } else { p.title }
@@ -96,14 +94,12 @@
   }))
 }
 
-#let skills = data.at("skills", default: ())
-#if skills.len() > 0 {
+#let render-skills(skills) = {
   section("Technical Skills")
   for g in skills { par[#text(weight: "bold", g.label + ":") #g.terms.join(", ")] }
 }
 
-#let certifications = data.at("certifications", default: ())
-#if certifications.len() > 0 {
+#let render-certifications(certifications) = {
   section("Certifications")
   for g in certifications {
     let items = g.items.map(c => {
@@ -114,10 +110,26 @@
   }
 }
 
-#let languages = data.at("languages", default: ())
-#if languages.len() > 0 {
+#let render-languages(languages) = {
   section("Languages")
   for l in languages {
     par[#text(weight: "bold", l.name + ":") #l.level#if get(l, "note") != none [ – #l.note]]
   }
+}
+
+#let renderers = (
+  education: render-education,
+  experience: render-experience,
+  projects: render-projects,
+  publications: render-publications,
+  skills: render-skills,
+  certifications: render-certifications,
+  languages: render-languages,
+)
+#let order = data.at("order", default: (
+  "education", "experience", "projects", "publications", "skills", "certifications", "languages",
+))
+#for name in order {
+  let items = data.at(name, default: ())
+  if items.len() > 0 { renderers.at(name)(items) }
 }
