@@ -5,7 +5,7 @@ import pytest
 import yaml
 
 from resume_fixture import fictitious_resume
-from vagas.db import connect
+from vagas.db import MIGRATIONS, connect
 from vagas.repo import VagasError
 from vagas.resume_repo import ResumeStore
 
@@ -194,7 +194,7 @@ def test_save_may_replace_draft_equal_to_approved_version(store):
 def test_migration_from_v1_backs_up_and_adds_master_resumes(tmp_path):
     path = tmp_path / "v1.db"
     old = sqlite3.connect(path)
-    old.execute("CREATE TABLE applications (id INTEGER PRIMARY KEY)")
+    old.executescript(MIGRATIONS[0])
     old.execute("PRAGMA user_version = 1")
     old.commit()
     old.close()

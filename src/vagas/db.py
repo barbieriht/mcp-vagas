@@ -6,8 +6,19 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+from vagas.normalize import normalize_company
+
 log = logging.getLogger(__name__)
 
+
+def _renormalize_companies(conn: sqlite3.Connection) -> None:
+    rows = conn.execute("SELECT id, company FROM applications").fetchall()
+    conn.executemany(
+        "UPDATE applications SET company_norm = ? WHERE id = ?",
+        [(normalize_company(row[1]), row[0]) for row in rows],
+    )
+
+# Cada passo é SQL ou uma função (para transformar dados com código Python).
 MIGRATIONS = [
     # v1
     """
@@ -82,6 +93,8 @@ MIGRATIONS = [
         extracted_at TEXT NOT NULL
     );
     """,
+    # v5: recalcula company_norm com a normalização completa (acentos, pontuação, sufixos)
+    _renormalize_companies,
 ]
 LATEST_VERSION = len(MIGRATIONS)
 
@@ -113,9 +126,14 @@ def _migrate(conn: sqlite3.Connection, path: Path, existed: bool) -> None:
         return
     if existed:
         _backup(conn, path, version)
-    for target, script in enumerate(MIGRATIONS[version:], start=version + 1):
-        with conn:
-            conn.executescript(f"BEGIN; {script}; PRAGMA user_version = {target}; COMMIT;")
+    for target, step in enumerate(MIGRATIONS[version:], start=version + 1):
+        if callable(step):
+            with conn:
+                step(conn)
+                conn.execute(f"PRAGMA user_version = {target}")
+        else:
+            with conn:
+                conn.executescript(f"BEGIN; {step}; PRAGMA user_version = {target}; COMMIT;")
         log.info("Banco migrado para a versão %d", target)
 
 

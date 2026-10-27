@@ -172,12 +172,22 @@ class Repo:
     def _link_resume(self, resume_id: int, application_id: int) -> None:
         self.conn.execute("UPDATE resumes SET application_id = ? WHERE id = ?", (application_id, resume_id))
 
-    def find_application(self, url: str | None = None) -> list[dict[str, Any]]:
+    def find_application(self, url: str | None = None, company: str | None = None) -> list[dict[str, Any]]:
+        """Por URL (match exato da forma canônica) e/ou por empresa (todas as vagas dela).
+        Resultado combinado, sem repetição, mais recentes primeiro."""
         url_canonical = canonical_url(url)
-        if url_canonical is None:
-            raise VagasError("Informe 'url' para buscar uma candidatura.")
-        existing = self._by_url(url_canonical)
-        return [existing] if existing else []
+        company_norm = normalize_company(company) if company and company.strip() else None
+        if url_canonical is None and company_norm is None:
+            raise VagasError("Informe 'url' e/ou 'company' para buscar candidaturas.")
+        rows = self.conn.execute(
+            """
+            SELECT * FROM applications
+            WHERE url_canonical = ? OR company_norm = ?
+            ORDER BY created_at DESC, id DESC
+            """,
+            (url_canonical, company_norm),
+        )
+        return [dict(row) for row in rows]
 
     def get(self, application_id: int) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM applications WHERE id = ?", (application_id,)).fetchone()

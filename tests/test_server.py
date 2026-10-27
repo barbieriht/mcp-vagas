@@ -286,3 +286,15 @@ async def test_extract_and_review_via_mcp(server, tmp_path):
     assert extracted["page_count"] == 1 and "Acme Analytics" in extracted["pages"][0]
     assert missing.is_error and "não existe" in missing.content[0].text
     assert [(r["where"], r["value"]) for r in saved["review"]] == [("exp-acme-analyst.title", "Head of Data")]
+
+
+async def test_find_by_company_via_mcp(server):
+    async with Client(server) as client:
+        added = payload(await client.call_tool("add_application", {
+            "company": "Itaú Unibanco S.A.", "role": "DS", "source": "gupy",
+        }))
+        found = payload(await client.call_tool("find_application", {"company": "itau unibanco"}))
+        tools = await tools_by_name(client)
+
+    assert found["matches"] == [added["application"]]
+    assert "company" in tools["find_application"].input_schema["properties"]

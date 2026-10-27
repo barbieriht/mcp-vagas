@@ -43,8 +43,8 @@ def build_server(
         return store(lambda conn: ResumeStore(conn, draft_path or default_draft_path(db_path)))
 
     @server.tool()
-    def find_application(url: str | None = None) -> dict[str, Any]:
-        """Procura candidaturas já registradas para uma vaga.
+    def find_application(url: str | None = None, company: str | None = None) -> dict[str, Any]:
+        """Procura candidaturas já registradas para uma vaga, por URL e/ou por empresa.
 
         SEMPRE chamar antes de iniciar qualquer candidatura, antes de abrir o formulário.
         Interpretação do resultado:
@@ -54,11 +54,15 @@ def build_server(
         - registro com qualquer outro status (inclusive "descartada", com "discard_reason"):
           parar e informar o status atual ao usuário.
 
-        A URL é comparada em forma normalizada (sem fragmento e sem parâmetros utm_*).
-        Retorna {"matches": [candidaturas]}; lista vazia quando a vaga não foi registrada.
+        Passe os dois quando souber. A URL é comparada em forma normalizada (sem fragmento e sem
+        parâmetros utm_*). A empresa ignora maiúsculas, acentos, pontuação e sufixos societários
+        ("Itaú Unibanco S.A." = "itau unibanco") e devolve TODAS as vagas daquela empresa: decida
+        se alguma é a mesma vaga publicada em outra plataforma (mesmo cargo e senioridade) e, na
+        dúvida, pergunte ao usuário.
+        Retorna {"matches": [candidaturas]}, mais recentes primeiro; lista vazia se não houver.
         """
         with repo() as r:
-            return {"matches": r.find_application(url=url)}
+            return {"matches": r.find_application(url=url, company=company)}
 
     @server.tool()
     def add_application(
