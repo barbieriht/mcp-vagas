@@ -53,6 +53,27 @@ const findList = (title) => {
   if (!best) { best = top; for (const e of fromTop) if (score(e) > score(best)) best = e; }
   return {list: best, heading};
 };
+// Listas sem anos (idiomas, skills): na maior região em volta do título que não inclui a barra lateral,
+// o elemento (fora do título) com mais filhos com texto.
+const findListByCount = (title) => {
+  const root = document.querySelector("main") || document.body;
+  const sidebar = /viewers also viewed|People also viewed|People you may know/;
+  const heading = [...root.querySelectorAll("h1, h2, h3, span, div, p")]
+    .find(e => e.innerText && e.innerText.trim() === title && ![...e.children].some(c => c.innerText && c.innerText.trim() === title));
+  if (!heading) return null;
+  let region = heading;
+  for (let e = heading.parentElement; e && e !== root.parentElement; e = e.parentElement) {
+    if (sidebar.test(e.innerText || "")) break;
+    region = e;
+  }
+  let list = null, best = 1;
+  for (const e of region.querySelectorAll("*")) {
+    if (e.contains(heading)) continue;
+    const count = [...e.children].filter(c => (c.innerText || "").trim()).length;
+    if (count > best) { list = e; best = count; }
+  }
+  return list && {list, heading};
+};
 const linesOf = e => (e.innerText || "").split("\n").map(s => s.trim()).filter(Boolean);
 const linksOf = e => [...e.querySelectorAll("a[href]")].map(a => ({text: a.innerText.trim(), href: a.href}));
 // Lista interna de um item (ex.: vários cargos na mesma empresa): descendente com 2+ filhos com ano.
@@ -69,8 +90,8 @@ const innerList = item => {
 """
 
 # Separa os itens da lista em blocos {lines, links}; a interpretação fica em linkedin_parse.
-BLOCKS_JS = "(title) => {" + _FIND_LIST + r"""
-  const found = findList(title);
+BLOCKS_JS = "([title, byCount]) => {" + _FIND_LIST + r"""
+  const found = byCount ? findListByCount(title) : findList(title);
   if (!found) return [];
   return [...found.list.children].filter(c => !c.contains(found.heading)).map(child => {
     const lines = linesOf(child), inner = innerList(child);
@@ -82,9 +103,9 @@ BLOCKS_JS = "(title) => {" + _FIND_LIST + r"""
 }"""
 
 # Traz o último item da lista para a tela (dispara o carregamento do próximo lote) e devolve quantos há.
-SCROLL_JS = "(title) => {" + _FIND_LIST + r"""
+SCROLL_JS = "([title, byCount]) => {" + _FIND_LIST + r"""
   window.scrollTo(0, document.body.scrollHeight);
-  const found = findList(title);
+  const found = byCount ? findListByCount(title) : findList(title);
   if (!found) return 0;
   const items = [...found.list.children].filter(c => !c.contains(found.heading));
   if (items.length) items[items.length - 1].scrollIntoView({block: "end"});
@@ -97,7 +118,11 @@ SECTION_TITLES = {
     "experience": "Experience",
     "education": "Education",
     "volunteering": "Volunteering",
+    "languages": "Languages",
+    "skills": "Skills",
 }
+SECTIONS_BY_COUNT = {"skills"}
+SECTIONS_AS_TEXT = {"profile", "languages"}  # páginas lidas como texto (interpretadas em linkedin_parse)
 SECTION_PAGES = {"volunteering": "volunteering-experiences"}
 _EXPANDERS = re.compile(r"^(…|\.\.\.)\s*(see )?more$|^see more$", re.IGNORECASE)
 
@@ -167,7 +192,7 @@ def login(timeout_minutes: int = 10) -> None:
         raise LinkedInError("Tempo esgotado esperando o login; rode o comando de novo.")
 
 
-def _scroll_to_end(page, marker: str | None = None, max_rounds: int = 80) -> None:
+def _scroll_to_end(page, marker: list | None = None, max_rounds: int = 80) -> None:
     """Carrega a lista inteira: traz o último item para a tela e clica em "Show more" até a quantidade de
     itens (ou, sem marcador, a altura da página) ficar igual em três leituras seguidas."""
     stable, last = 0, -1
@@ -191,14 +216,35 @@ def _scroll_to_end(page, marker: str | None = None, max_rounds: int = 80) -> Non
 
 
 def _expand_descriptions(page) -> None:
-    """Clica nos "… more" das descrições cortadas, para extrair o texto inteiro. Na interface atual
-    eles nem sempre são botões; o clique vai no elemento que mostra o texto."""
-    for _ in range(100):
-        expanders = [e for e in page.get_by_text(_EXPANDERS).all() if e.is_visible()]
+    """Clica nos "… more" das descrições cortadas, para extrair o texto inteiro. Na interface atual eles
+    nem sempre são botões. Ignora os que estão dentro de links e, se um clique navegar para outra página
+    (ex.: um post da seção Activity), volta e para."""
+    start = page.url
+    clicked = 0
+    while clicked < 100:
+        expanders = [e for e in page.get_by_text(_EXPANDERS).all()
+                     if e.is_visible() and not e.evaluate("el => !!el.closest('a')")]
         if not expanders:
             return
         expanders[0].click()
+        clicked += 1
         page.wait_for_timeout(400)
+        if page.url != start:
+            page.go_back(wait_until="domcontentloaded")
+            page.wait_for_timeout(2000)
+            return
+
+
+def _wait_for_text(page, texts: tuple[str, ...], timeout_ms: int = 30000) -> None:
+    """Espera o conteúdo da página aparecer (a página do perfil carrega bem depois do cabeçalho)."""
+    try:
+        page.wait_for_function("(texts) => texts.some(t => document.body.innerText.includes(t))", arg=list(texts),
+                               timeout=timeout_ms)
+    except Exception as exc:
+        if is_blocked(page.url):
+            raise LinkedInError("O LinkedIn pediu login ou verificação de segurança. Rode `python -m vagas.linkedin "
+                                "login`, resolva a verificação na janela e tente de novo.") from exc
+        raise LinkedInError(f"A página {page.url} não carregou o conteúdo esperado ({', '.join(texts)}).") from exc
 
 
 def _open(page, url: str) -> None:
@@ -225,10 +271,22 @@ class LinkedInReader:
             page = context.pages[0] if context.pages else context.new_page()
             try:
                 for section in sections:
+                    if section in SECTIONS_AS_TEXT:
+                        _open(page, profile_base(url) if section == "profile" else urls[section])
+                        _wait_for_text(page, ("Contact info", "Experience") if section == "profile"
+                                       else (SECTION_TITLES[section],))
+                        _scroll_to_end(page)
+                        _expand_descriptions(page)
+                        # document.body direto: o locator("body") do Playwright atravessa shadow DOM e
+                        # pode pegar um <body> interno só com o cabeçalho.
+                        result[section] = page.evaluate("document.body.innerText")
+                        continue
+                    args = [SECTION_TITLES[section], section in SECTIONS_BY_COUNT]
                     _open(page, urls[SECTION_PAGES.get(section, section)])
-                    _scroll_to_end(page, SECTION_TITLES[section])
+                    _wait_for_text(page, (SECTION_TITLES[section],))
+                    _scroll_to_end(page, args)
                     _expand_descriptions(page)
-                    result[section] = page.evaluate(BLOCKS_JS, SECTION_TITLES[section])
+                    result[section] = page.evaluate(BLOCKS_JS, args)
             finally:
                 context.close()
         return result

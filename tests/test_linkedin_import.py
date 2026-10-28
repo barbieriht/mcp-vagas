@@ -29,7 +29,10 @@ class FakeReader:
     def __init__(self, blocks=None, error=None, sections=None):
         self.error, self.calls = error, []
         self.sections = sections or {"certifications": blocks if blocks is not None else CERTS,
-                                     "experience": EXPERIENCE, "education": EDUCATION, "volunteering": VOLUNTEERING}
+                                     "experience": EXPERIENCE, "education": EDUCATION, "volunteering": VOLUNTEERING,
+                                     "profile": "Fulana\nData Scientist | AI\nAbout\nI build ETL pipelines.\nActivity",
+                                     "languages": "Languages\nEnglish\nFull professional proficiency",
+                                     "skills": [{"lines": ["Python"]}, {"lines": ["SQL"]}]}
 
     def read_sections(self, url, sections):
         self.calls.append((url, tuple(sections)))
@@ -63,17 +66,21 @@ def test_imports_certifications_and_registers_source(store):
 
     result = LinkedInImporter(store, reader).import_profile(PROFILE)
 
-    assert reader.calls == [("https://www.linkedin.com/in/fulana/",
-                              ("experience", "education", "certifications", "volunteering"))]
+    assert reader.calls == [("https://www.linkedin.com/in/fulana/", (
+        "profile", "experience", "education", "certifications", "volunteering", "languages", "skills"))]
     groups = result["items"]["certifications"]
     assert [i["name"] for g in groups for i in g["items"]] == ["Course A", "Course B"]
     assert result["completeness"]["certifications"] == {"read": 2, "expected": None, "verified": False}
     assert {s: c["read"] for s, c in result["completeness"].items()} == {
-        "experience": 1, "education": 1, "certifications": 2, "volunteering": 1}
+        "experience": 1, "education": 1, "certifications": 2, "volunteering": 1, "languages": 1, "skills": 2}
+    assert (result["items"]["headline"], result["items"]["summary"]) == ("Data Scientist | AI", "I build ETL pipelines.")
+    assert result["items"]["languages"] == [{"name": "English", "level": "Full professional proficiency"}]
     assert result["items"]["experience"][0]["work_mode"] == "remote"
     assert result["items"]["education"][0]["end"] == "Present"
     assert result["warnings"] == []
-    draft = store.save_master_draft({"basics": {"name": "Course A"}, **result["items"]})
+    items = dict(result["items"])
+    basics = {"name": "Course A", "headline": items.pop("headline")}
+    draft = store.save_master_draft({"basics": basics, **items})
     assert draft["sources"] == [{"kind": "linkedin", "path": "https://www.linkedin.com/in/fulana/"}]
     assert draft["review"] == []
 

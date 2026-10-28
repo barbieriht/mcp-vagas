@@ -20,7 +20,9 @@ SalaryMode = Literal["minimo", "faixa"]
 
 # Fontes do currículo geral
 ResumeSourceKind = Literal["linkedin", "pdf"]
-LinkedInSection = Literal["about", "experience", "education", "certifications", "volunteering"]
+LinkedInSection = Literal[
+    "about", "headline", "experience", "education", "certifications", "volunteering", "languages", "skills",
+]
 
 STATUSES: tuple[str, ...] = get_args(Status)
 INITIAL_STATUSES: tuple[str, ...] = get_args(InitialStatus)
