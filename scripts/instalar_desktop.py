@@ -25,6 +25,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 SKILL_DIR = REPO / "skill" / "candidaturas"
+COMMANDS_DIR = REPO / "skill" / "comandos"
 STABLE_VENV = Path.home() / ".local/share/vagas/venv"
 ENV_KEYS = ("VAGAS_DB", "VAGAS_RESUME_OUT", "VAGAS_EXPORT_DIR")
 SKILL_FILES = ("SKILL.md", "candidatar.md", "buscar.md", "curriculo.md", "perfil.md", "politica-salarial.md")
@@ -81,6 +82,18 @@ def unfilled(skill_dir: Path) -> list[str]:
             if "<PREENCHER" in line:
                 problems.append(f"{name}:{number}: {line.strip()}")
     return problems
+
+
+def build_command_zips(commands_dir: Path, dest_dir: Path) -> list[Path]:
+    """Um zip por comando (pasta com o SKILL.md do comando)."""
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    zips = []
+    for skill_md in sorted(commands_dir.glob("*/SKILL.md")):
+        dest = dest_dir / f"{skill_md.parent.name}.zip"
+        with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
+            z.write(skill_md, f"{skill_md.parent.name}/SKILL.md")
+        zips.append(dest)
+    return zips
 
 
 def build_zip(skill_dir: Path, dest: Path) -> None:
@@ -197,6 +210,8 @@ def main(argv: list[str] | None = None) -> None:
         zip_path = Path(win["profile"]) / "Downloads" / "candidaturas.zip"
         build_zip(SKILL_DIR, zip_path)
         print(f"    {zip_path}")
+        commands = build_command_zips(COMMANDS_DIR, Path(win["profile"]) / "Downloads" / "vagas-comandos")
+        print(f"    comandos: {len(commands)} zips em {commands[0].parent if commands else '-'}")
 
     if args.fechar_desktop:
         step("Fechando o Claude Desktop")
@@ -208,6 +223,8 @@ def main(argv: list[str] | None = None) -> None:
     if zip_path:
         windows_zip = subprocess.run(["wslpath", "-w", str(zip_path)], capture_output=True, text=True).stdout.strip()
         print(f"    2. Em Configurações → Skills, enviar {windows_zip} (substituindo a versão anterior)")
+        print("    3. Opcional: enviar também os zips de Downloads\\vagas-comandos (comandos /apply, /search-jobs...),"
+              " se o Desktop oferecer comandos de Skills")
 
 
 if __name__ == "__main__":
