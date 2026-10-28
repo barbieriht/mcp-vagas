@@ -9,13 +9,14 @@ from typing import Any, Protocol
 
 from vagas.linkedin import LinkedInError, profile_base
 from vagas.linkedin_parse import (
-    certifications_text, parse_certifications, parse_education, parse_experience, parse_volunteering, section_text,
+    certifications_text, parse_certifications, parse_education, parse_experience, parse_languages, parse_profile,
+    parse_skills, parse_volunteering, section_text,
 )
 from vagas.repo import VagasError
 from vagas.resume_repo import ResumeStore
 
 DEFAULT_MIN_MINUTES = 60
-SECTIONS = ("experience", "education", "certifications", "volunteering")
+SECTIONS = ("profile", "experience", "education", "certifications", "volunteering", "languages", "skills")
 
 
 class Reader(Protocol):
@@ -51,15 +52,27 @@ class LinkedInImporter:
         warnings += found
         volunteering, found = parse_volunteering(blocks.get("volunteering", []))
         warnings += found
+        profile = parse_profile(blocks.get("profile", ""))
+        languages = parse_languages(blocks.get("languages", ""))
+        skills = parse_skills(blocks.get("skills", []))
+        if "headline" not in profile:
+            warnings.append("Headline não encontrada na página do perfil.")
+        if "summary" not in profile:
+            warnings.append("Seção About não encontrada na página do perfil.")
 
-        items = {"experience": experience, "education": education, "certifications": groups,
-                 "volunteering": volunteering}
+        items = {**profile, "experience": experience, "education": education, "certifications": groups,
+                 "volunteering": volunteering, "languages": languages, "skills": skills}
         counts = {"experience": len(experience), "education": len(education),
-                  "certifications": sum(len(g["items"]) for g in groups), "volunteering": len(volunteering)}
+                  "certifications": sum(len(g["items"]) for g in groups), "volunteering": len(volunteering),
+                  "languages": len(languages), "skills": sum(len(g["terms"]) for g in skills)}
         for section, count in counts.items():
             if count == 0:
                 warnings.append(f"Nenhum item encontrado em {section}: confira se a seção existe no perfil.")
         texts = {
+            "about": profile.get("summary", ""),
+            "headline": profile.get("headline", ""),
+            "languages": section_text(languages),
+            "skills": "\n".join(line for group in skills for line in [group["label"], *group["terms"]]),
             "experience": section_text(experience, extras),
             "education": section_text(education),
             "certifications": certifications_text(groups),

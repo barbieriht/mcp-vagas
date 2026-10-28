@@ -239,13 +239,15 @@ def build_server(
         nem o currículo aprovado: devolve os itens e registra o texto como fonte (kind linkedin).
 
         Usa a sessão salva pelo comando de login (`python -m vagas.linkedin login`, feito pelo usuário).
-        Lê Experience, Education, Licenses & certifications e Volunteering por completo (rola e carrega
-        todos os itens, expande descrições cortadas) e devolve os itens já no formato do currículo geral:
+        Lê a página do perfil (headline e About) e as páginas de Experience, Education, Licenses &
+        certifications, Volunteering, Languages e Skills por completo (rola e carrega todos os itens,
+        expande descrições cortadas) e devolve os itens já no formato do currículo geral:
         cargos agrupados por empresa viram itens separados, qualificador do cargo vai para context,
         Remote/Hybrid/On-site para work_mode, formação em andamento com end "Present" e previsão em
         notes, certificações com mês de emissão, ID e link real da credencial.
-        Retorna {"items": {experience, education, certifications, volunteering}, "extras" (anexos por
-        experiência), "completeness", "warnings", "source_id"}.
+        Retorna {"items": {headline, summary, experience, education, certifications, volunteering,
+        languages, skills}, "extras" (anexos por experiência), "completeness", "warnings", "source_id"}.
+        Leva cerca de 3 minutos.
         Se der erro (sessão expirada, verificação de segurança, intervalo mínimo entre leituras ou
         Playwright ausente), informe o usuário e use a leitura pelo navegador como plano B.
         """

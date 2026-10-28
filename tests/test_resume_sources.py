@@ -50,7 +50,7 @@ def test_saves_linkedin_source_with_section_sizes(store):
 
 @pytest.mark.parametrize("sections, message", [
     ({}, "sections"),
-    ({"skills": "Python"}, "skills"),
+    ({"recommendations": "x"}, "recommendations"),
     ({"about": "   "}, "about"),
 ])
 def test_invalid_sections_are_rejected(store, sections, message):

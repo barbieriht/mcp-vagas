@@ -75,15 +75,15 @@ def review_draft(draft: dict[str, Any], reference: str) -> list[dict[str, str]]:
                 review.append(item)
 
     def check_whole(where: str, value: Any) -> None:
-        check(where, value, "não encontrado no PDF")
+        check(where, value, "não encontrado nas fontes")
 
     def check_long(where: str, text: str | None) -> None:
         if text is None:
             return
         for number in numbers(text):
-            check(where, number, "número não encontrado no PDF")
+            check(where, number, "número não encontrado nas fontes")
         for term in term_candidates(text):
-            check(where, term, "termo não encontrado no PDF")
+            check(where, term, "termo não encontrado nas fontes")
 
     basics = draft.get("basics", {})
     for field in _WHOLE_FIELDS["basics"]:

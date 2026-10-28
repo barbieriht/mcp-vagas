@@ -282,3 +282,68 @@ def section_text(items: list[dict[str, Any]], extras: dict[str, dict] | None = N
         lines = list(values(item)) + list(values((extras or {}).get(item.get("id"), {})))
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
+
+
+# --- Perfil (headline, About), idiomas e skills ------------------------------------------------
+
+_PRONOUNS = re.compile(r"^\w+/\w+$")
+_LOCATION = re.compile(r",\s*[A-Z][\w ]+$")
+_PROFILE_SECTIONS = {"Featured", "Activity", "Experience", "Education", "Licenses & certifications", "Skills",
+                     "Top skills", "Services", "Recommendations", "Interests", "Languages", "Volunteering",
+                     "Projects", "Publications", "Honors & awards", "Courses", "Organizations", "Causes"}
+_SKILL_TABS = {"All", "Industry Knowledge", "Tools & Technologies", "Interpersonal Skills", "Other Skills",
+               "Languages"}
+_SIDEBAR = re.compile(r"viewers also viewed|People also viewed|People you may know")
+
+
+def parse_profile(text: str) -> dict[str, str]:
+    """Texto da página principal do perfil -> headline (linha após nome e pronomes) e summary (About)."""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    result: dict[str, str] = {}
+    # Cartão do perfil: ... nome, pronomes?, headline, local, "·", "Contact info". Sem "Contact info",
+    # o texto começa no nome (página salva só com o conteúdo principal).
+    card = lines[:lines.index("Contact info")] if "Contact info" in lines else lines[:4]
+    pronoun = max((i for i, line in enumerate(card) if _PRONOUNS.match(line)), default=None)
+    if pronoun is not None and pronoun + 1 < len(card):
+        result["headline"] = card[pronoun + 1]
+    elif "Contact info" in lines:
+        candidates = [line for line in card[-4:] if line != "·" and not _LOCATION.search(line)]
+        if candidates:
+            result["headline"] = candidates[-1]
+    elif len(card) > 1:
+        result["headline"] = card[1]
+    if "About" in lines:
+        about = []
+        for line in lines[lines.index("About") + 1:]:
+            if line in _PROFILE_SECTIONS:
+                break
+            line = _TRUNCATED.sub("", line).strip()
+            if line:
+                about.append(line)
+        if about:
+            result["summary"] = "\n\n".join(about)
+    return result
+
+
+def parse_languages(text: str) -> list[dict[str, str]]:
+    """Texto de /details/languages/ -> [{name, level}] (pares "idioma" + "... proficiency")."""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if "Languages" in lines:
+        lines = lines[lines.index("Languages") + 1:]
+    languages = []
+    for name, level in zip(lines, lines[1:]):
+        if _SIDEBAR.search(name):
+            break
+        if level.lower().endswith("proficiency") and not name.lower().endswith("proficiency"):
+            languages.append({"name": name, "level": level})
+    return languages
+
+
+def parse_skills(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Blocos de /details/skills/ -> um grupo de skills com a primeira linha de cada bloco."""
+    terms: list[str] = []
+    for block in blocks:
+        lines = block.get("lines", [])
+        if lines and lines[0] not in _SKILL_TABS and lines[0] not in terms:
+            terms.append(lines[0])
+    return [{"id": "skills-linkedin", "label": "Skills (LinkedIn)", "terms": terms}] if terms else []
