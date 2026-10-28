@@ -54,8 +54,9 @@ class TailoredSelection(_Model):
 
 def resolve(master: dict[str, Any], selection: TailoredSelection) -> dict[str, Any]:
     """Monta o conteúdo final; levanta VagasError listando todos os problemas encontrados."""
-    corpus_terms = term_set(strings(master))
-    corpus_numbers = number_set(strings(master))
+    evidence = _without_course_descriptions(master)
+    corpus_terms = term_set(strings(evidence))
+    corpus_numbers = number_set(strings(evidence))
     errors: list[str] = []
 
     basics = copy.deepcopy(master["basics"])
@@ -83,6 +84,15 @@ def resolve(master: dict[str, Any], selection: TailoredSelection) -> dict[str, A
             + "\n".join(f"- {e}" for e in errors)
         )
     return resolved
+
+
+def _without_course_descriptions(master: dict[str, Any]) -> dict[str, Any]:
+    """Currículo sem as descrições de certificação: conteúdo de curso não comprova experiência."""
+    evidence = copy.deepcopy(master)
+    for group in evidence.get("certifications", []):
+        for cert in group.get("items", []):
+            cert.pop("description", None)
+    return evidence
 
 
 def _resolve_section(master, pick: SectionPick, corpus_numbers, corpus_terms, errors) -> list[dict[str, Any]]:
