@@ -528,3 +528,18 @@ async def test_import_linkedin_profile_via_mcp(db_path):
     assert "próprio" in tools["import_linkedin_profile"].description.lower()
     assert len(ok["items"]["certifications"]) == 2
     assert blocked.is_error and "checkpoint" in blocked.content[0].text
+
+
+async def test_read_job_posting_via_mcp(db_path):
+    from test_job_posting import FakeFetcher, GUPY_URL, gupy_html
+    from vagas.server import build_server
+
+    async with Client(build_server(db_path, job_fetcher=FakeFetcher(body=gupy_html()))) as client:
+        tools = await tools_by_name(client)
+        ok = payload(await client.call_tool("read_job_posting", {"url": GUPY_URL}))
+    async with Client(build_server(db_path, job_fetcher=FakeFetcher(403, "Blocked"))) as client:
+        blocked = await client.call_tool("read_job_posting", {"url": "https://br.indeed.com/viewjob?jk=a"})
+
+    assert "Indeed" in tools["read_job_posting"].description
+    assert (ok["role_key"], ok["work_mode"]) == ("data_scientist", "hibrido")
+    assert blocked.is_error and "bloqueou" in blocked.content[0].text
