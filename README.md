@@ -142,6 +142,8 @@ A Skill diz ao Claude quando e em que ordem usar as tools. É ela que garante, p
 | `perfil.md` | dados para formulários (contato, respostas padrão) | não (use `perfil.example.md`) |
 | `politica-salarial.md` | faixas CLT por modalidade, modo e multiplicador PJ | não (use `politica-salarial.example.md`) |
 
+Quando um formulário pede um dado que ainda não está no perfil, a Skill acrescenta o campo no `perfil.md` (com a sua resposta, depois que você responde) e no `perfil.example.md` (com valor fictício). Assim o campo fica documentado para as próximas candidaturas. Dados sensíveis (CPF, RG, senhas, dados bancários) entram só como campo, com o valor "informar manualmente". O `perfil.example.md` é versionado: faça commit dele de vez em quando.
+
 Antes de usar, crie e preencha os dois arquivos pessoais:
 
 ```bash

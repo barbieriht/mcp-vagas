@@ -26,3 +26,7 @@ Este arquivo guarda só o que não está no currículo ou respostas padrão de f
   - Raça/etnia: <...>
 - Parentes na empresa: não
 - Cargo público: nunca ocupou
+
+## Outros campos de formulário
+Campos pedidos por formulários que não se encaixam nas seções acima. Dados sensíveis: só o campo, com "informar manualmente".
+- <Rótulo do campo como o formulário pede>: <...>
