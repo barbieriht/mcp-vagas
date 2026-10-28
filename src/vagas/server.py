@@ -23,6 +23,7 @@ from vagas.resume_render import default_output_dir, render_resume
 from vagas.resume_tailor import TailoredSelection
 from vagas.export import default_export_dir, export_csv as write_csv
 from vagas.job_search import JobSearchStore
+from vagas.linkedin_import import LinkedInImporter
 from vagas.salary import SalaryPoint, SalaryStore
 from vagas.resume_repo import ResumeStore, default_draft_path
 
@@ -39,6 +40,7 @@ def build_server(
     db_path: Path | str | None = None,
     draft_path: Path | str | None = None,
     resume_out: Path | str | None = None,
+    linkedin_reader: Any = None,
 ) -> MCPServer:
     server = MCPServer("vagas")
 
@@ -227,6 +229,27 @@ def build_server(
         """
         with resumes() as s:
             return s.extract_resume_text(pdf_path)
+
+    @server.tool()
+    def import_linkedin_profile(url: str) -> dict[str, Any]:
+        """Lê o perfil do LinkedIn do PRÓPRIO usuário por código (sem a LLM transcrever a página).
+
+        Usa a sessão salva pelo comando de login (`python -m vagas.linkedin login`, feito pelo usuário).
+        Hoje lê a seção Licenses & certifications por completo (rola e carrega todos os itens) e devolve
+        os itens já no formato do currículo geral, com mês de emissão, ID e link real da credencial;
+        o resultado é registrado como fonte do currículo (kind linkedin).
+        Retorna {"items": {"certifications": [grupos]}, "completeness", "warnings", "source_id"}.
+        Se der erro (sessão expirada, verificação de segurança, intervalo mínimo entre leituras ou
+        Playwright ausente), informe o usuário e use a leitura pelo navegador como plano B.
+        """
+        def reader():
+            if linkedin_reader is not None:
+                return linkedin_reader
+            from vagas.linkedin import LinkedInReader
+            return LinkedInReader()
+
+        with resumes() as s:
+            return LinkedInImporter(s, reader()).import_profile(url)
 
     @server.tool()
     def save_resume_source(
