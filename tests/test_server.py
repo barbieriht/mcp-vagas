@@ -511,3 +511,20 @@ async def test_variants_via_mcp(db_path, tmp_path):
                for f in ("headline_variants", "title_aliases", "work_mode", "onsite"))
     assert not ok.is_error
     assert bad.is_error and "CEO" in bad.content[0].text
+
+
+async def test_import_linkedin_profile_via_mcp(db_path):
+    from test_linkedin_import import FakeReader
+    from vagas.linkedin import LinkedInError
+    from vagas.server import build_server
+
+    async with Client(build_server(db_path, linkedin_reader=FakeReader())) as client:
+        tools = await tools_by_name(client)
+        ok = payload(await client.call_tool("import_linkedin_profile", {"url": "https://www.linkedin.com/in/fulana/"}))
+    other_db = db_path.parent / "outro.db"
+    async with Client(build_server(other_db, linkedin_reader=FakeReader(error=LinkedInError("checkpoint")))) as client:
+        blocked = await client.call_tool("import_linkedin_profile", {"url": "https://www.linkedin.com/in/fulana/"})
+
+    assert "próprio" in tools["import_linkedin_profile"].description.lower()
+    assert len(ok["items"]["certifications"]) == 2
+    assert blocked.is_error and "checkpoint" in blocked.content[0].text
