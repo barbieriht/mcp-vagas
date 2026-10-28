@@ -229,8 +229,19 @@ def build_server(
             return s.extract_resume_text(pdf_path)
 
     @server.tool()
-    def save_resume_source(kind: ResumeSourceKind, url: str, sections: dict[LinkedInSection, str]) -> dict[str, Any]:
-        """Registra o texto do perfil do LinkedIn do usuário como fonte do currículo geral, ao lado do PDF.
+    def save_resume_source(
+        kind: ResumeSourceKind,
+        url: str,
+        sections: dict[LinkedInSection, str] | None = None,
+        text: str | None = None,
+    ) -> dict[str, Any]:
+        """Registra uma fonte do currículo geral: o perfil do LinkedIn do usuário ou o texto de um PDF.
+
+        kind="pdf": use quando o PDF não está acessível por caminho local (ex.: anexado no chat) e
+        você já leu o conteúdo: passe o texto completo em "text" e o nome do arquivo em "url".
+        Retorna {"source_id", "chars"}. Com caminho local, prefira extract_resume_text.
+
+        kind="linkedin": texto por seção em "sections".
 
         Leia SOMENTE o perfil do próprio usuário, logado com a conta dele, no ritmo de uma pessoa.
         Para cada seção (about, experience, education, certifications, volunteering), abra a página de
@@ -241,7 +252,7 @@ def build_server(
         Retorna {"source_id", "sections": {seção: nº de caracteres}}.
         """
         with resumes() as s:
-            return s.save_resume_source(kind, url, sections)
+            return s.save_resume_source(kind, url, sections=sections, text=text)
 
     @server.tool()
     def save_master_draft(resume: MasterResume, overwrite: bool = False) -> dict[str, Any]:

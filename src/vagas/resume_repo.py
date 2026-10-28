@@ -99,10 +99,24 @@ class ResumeStore:
             "review": review_draft(data, reference),
         }
 
-    def save_resume_source(self, kind: str, url: str, sections: dict[str, str]) -> dict[str, Any]:
-        """Registra o texto de seções de um perfil (hoje, LinkedIn) como fonte do currículo geral."""
+    def save_resume_source(
+        self, kind: str, url: str, sections: dict[str, str] | None = None, text: str | None = None,
+    ) -> dict[str, Any]:
+        """Registra uma fonte do currículo geral: seções do LinkedIn ou o texto de um PDF já extraído."""
         _require_choice("kind", kind, RESUME_SOURCE_KINDS)
         url = _require_text("url", url)
+        if kind == "pdf":
+            if sections is not None:
+                raise VagasError("Fonte 'pdf' recebe o texto em 'text', não em 'sections'.")
+            text = _require_text("text", text)
+            with self.conn:
+                cursor = self.conn.execute(
+                    "INSERT INTO resume_sources (kind, path, content, extracted_at) VALUES ('pdf', ?, ?, ?)",
+                    (url, json.dumps([text], ensure_ascii=False), self.now()),
+                )
+            return {"source_id": cursor.lastrowid, "chars": len(text)}
+        if text is not None:
+            raise VagasError("Fonte 'linkedin' recebe o texto por seção em 'sections', não em 'text'.")
         if not sections:
             raise VagasError(f"Informe 'sections' com ao menos uma seção: {', '.join(LINKEDIN_SECTIONS)}.")
         cleaned = {}
@@ -119,7 +133,7 @@ class ResumeStore:
     def _latest_sources(self) -> list[sqlite3.Row]:
         """Fonte mais recente de cada tipo, PDF primeiro."""
         sources = []
-        for kind in ("pdf", *RESUME_SOURCE_KINDS):
+        for kind in ("pdf", *(k for k in RESUME_SOURCE_KINDS if k != "pdf")):
             row = self.conn.execute(
                 "SELECT kind, path, content FROM resume_sources WHERE kind = ? "
                 "ORDER BY extracted_at DESC, id DESC LIMIT 1",
