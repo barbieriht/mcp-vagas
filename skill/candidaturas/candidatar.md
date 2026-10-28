@@ -20,6 +20,7 @@ A candidatura termina num destes dois estados:
    - **Pretensão salarial:** use o `value_to_inform` da avaliação salarial. Se não estiver à mão, ele está em `salary_evaluation`, no `get_history`.
    - **Consentimentos:** marque os de privacidade e LGPD exigidos pelo formulário.
 4. **Bloqueios.** Se o formulário exigir criar conta com senha, CPF, outro documento ou dado sensível, ou uma resposta que não está no perfil nem no currículo:
+   - registre cada campo novo no perfil (seção "Campos novos do perfil" abaixo);
    - preencha todo o resto e deixe a aba aberta;
    - chame `update_application` com status `pendente_usuario`, `pending` listando cada item que falta e o `resume_id`;
    - avise o Thiago e encerre a vaga.
@@ -31,6 +32,20 @@ A candidatura termina num destes dois estados:
 
    Clique em enviar somente depois que ele confirmar.
 6. **Registro final.** Depois do envio confirmado, chame `update_application` com status `aplicada`, `pending` vazio, o `resume_id` e uma nota com a data e a plataforma.
+
+## Campos novos do perfil
+
+Todo dado pedido por um formulário que ainda não está no [perfil.md](perfil.md) nem no currículo geral passa a ser documentado, para que da próxima vez seja preenchido direto.
+
+1. **Registrar o campo.** Acrescente uma linha com o rótulo como o formulário pede, nos dois arquivos:
+   - no [perfil.md](perfil.md), na seção que combina com o assunto (contato, respostas padrão), ou em "Outros campos de formulário": `- <rótulo>: <PREENCHER>`;
+   - no [perfil.example.md](perfil.example.md), na mesma seção e posição, com um valor fictício ou `<...>`.
+
+   Se a opção é de lista fechada (por exemplo, "Como soube da vaga?"), anote também as opções oferecidas.
+2. **Guardar a resposta.** Quando o Thiago responder, troque o `<PREENCHER>` do [perfil.md](perfil.md) pela resposta dele.
+3. **Dados sensíveis.** Para CPF, RG, passaporte, senhas e dados bancários, registre só o campo com o valor `informar manualmente`. O valor fica com o Thiago, digitado por ele no formulário.
+
+Se a sessão não tiver acesso de escrita a esses arquivos (por exemplo, a Skill instalada por zip no Desktop), mostre ao Thiago as linhas exatas a acrescentar em cada um.
 
 ## Respostas em texto
 
