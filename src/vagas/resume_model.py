@@ -1,11 +1,12 @@
 """Modelo do currículo geral (fonte única da verdade para os currículos personalizados)."""
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError, model_validator
 
 Id = Annotated[str, StringConstraints(pattern=r"^[a-z0-9]+(-[a-z0-9]+)*$")]
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+WorkMode = Literal["remote", "hybrid", "onsite"]
 
 
 class _Model(BaseModel):
@@ -15,6 +16,7 @@ class _Model(BaseModel):
 class Basics(_Model):
     name: Text
     headline: Text | None = None
+    headline_variants: list[Text] = Field([], description="Outras headlines usadas nas fontes (ex.: LinkedIn)")
     email: Text | None = None
     phone: Text | None = None
     location: Text | None = None
@@ -41,7 +43,9 @@ class Experience(_Model):
     company: Text
     context: Text | None = Field(None, description="Ex.: projeto financiado ao qual a função pertence")
     title: Text
-    location: Text | None = None
+    title_aliases: list[Text] = Field([], description="Outras formas do título usadas nas fontes")
+    location: Text | None = Field(None, description="Cidade do escritório")
+    work_mode: WorkMode | None = None
     start: Text
     end: Text | None = Field(None, description='Vazio ou "Present" para função atual')
     paragraphs: list[Paragraph] = Field(min_length=1)
@@ -52,6 +56,7 @@ class Volunteering(_Model):
     organization: Text
     role: Text
     location: Text | None = None
+    work_mode: WorkMode | None = None
     start: Text | None = None
     end: Text | None = None
     paragraphs: list[Paragraph] = []
