@@ -22,6 +22,7 @@ from vagas.resume_model import MasterResume
 from vagas.resume_render import default_output_dir, render_resume
 from vagas.resume_tailor import TailoredSelection
 from vagas.export import default_export_dir, export_csv as write_csv
+from vagas.job_posting import JobPostingError, http_fetch, read_job_posting as fetch_job
 from vagas.job_search import JobSearchStore
 from vagas.linkedin_import import LinkedInImporter
 from vagas.salary import SalaryPoint, SalaryStore
@@ -41,6 +42,7 @@ def build_server(
     draft_path: Path | str | None = None,
     resume_out: Path | str | None = None,
     linkedin_reader: Any = None,
+    job_fetcher: Any = None,
 ) -> MCPServer:
     server = MCPServer("vagas")
 
@@ -360,6 +362,23 @@ def build_server(
         """
         with resumes() as s:
             return s.create_tailored_resume(selection, resume_out or default_output_dir(), application_id)
+
+    @server.tool()
+    def read_job_posting(url: str) -> dict[str, Any]:
+        """Lê a página de uma vaga por código e devolve os campos já normalizados, sem você transcrever.
+
+        Funciona com a Gupy e com páginas que publicam dados estruturados de vaga (LinkedIn Jobs e
+        muitos sites de carreira). Retorna {url, url_canonical, source, title, company, location,
+        work_mode (remoto/hibrido/presencial), contract (clt/pj/desconhecido), role_key, seniority,
+        role_certain, salary ({currency, period, min_value, max_value} se publicada), pcd_flag,
+        published_at, description}. role_certain=false: confirme cargo e família pela descrição.
+        Indeed e Glassdoor bloqueiam leitura automática: nesse caso (ou se a página não tiver dados
+        estruturados) a tool devolve erro e você lê a vaga pelo navegador.
+        """
+        try:
+            return fetch_job(url, fetcher=job_fetcher or http_fetch)
+        except JobPostingError as exc:
+            raise ToolError(str(exc)) from exc
 
     @server.tool()
     def score_job_match(description: str) -> dict[str, Any]:

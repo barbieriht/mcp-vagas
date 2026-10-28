@@ -1,5 +1,7 @@
 """Normalização de empresa e URL usada na deduplicação."""
 
+import base64
+import json
 import re
 import unicodedata
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -57,6 +59,20 @@ def canonical_url(url: str | None) -> str | None:
     return urlunsplit(("https", host, path, urlencode(query), ""))
 
 
+def _gupy_short_link_id(path: str) -> str | None:
+    """Links /job/<base64 de {"jobId": N, ...}> do portal da Gupy."""
+    match = re.fullmatch(r"/job/([A-Za-z0-9+/=_-]+)", path)
+    if not match:
+        return None
+    token = match.group(1)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(token + "=" * (-len(token) % 4)))
+    except (ValueError, TypeError):
+        return None
+    job_id = data.get("jobId") if isinstance(data, dict) else None
+    return str(job_id) if job_id else None
+
+
 def _platform_url(host: str, path: str, query: dict[str, str]) -> str | None:
     if host == "linkedin.com" or host.endswith(".linkedin.com"):
         match = re.search(r"/jobs/view/(?:[^/]*-)?(\d+)$", path)
@@ -64,7 +80,10 @@ def _platform_url(host: str, path: str, query: dict[str, str]) -> str | None:
         return f"https://linkedin.com/jobs/view/{job}" if job.isdigit() else None
     if host.endswith(".gupy.io"):
         match = re.fullmatch(r"/jobs/(\d+)", path)
-        return f"https://{host}/jobs/{match.group(1)}" if match else None
+        if match:
+            return f"https://{host}/jobs/{match.group(1)}"
+        job_id = _gupy_short_link_id(path)
+        return f"https://{host}/jobs/{job_id}" if job_id else None
     if host == "indeed.com" or host.endswith(".indeed.com"):
         job = query.get("jk") or query.get("vjk")
         return f"https://indeed.com/viewjob?jk={job}" if job else None
