@@ -83,10 +83,22 @@ class SkillGroup(_Model):
 
 class Certification(_Model):
     id: Id
-    name: Text
+    name: Text = Field(description="Título em inglês (é o que sai no currículo)")
+    name_original: Text | None = Field(None, description="Título exato da credencial, se não estiver em inglês")
     provider: Text | None = None
     year: int | None = None
+    issued: Annotated[str, StringConstraints(pattern=r"^\d{4}(-(0[1-9]|1[0-2]))?$")] | None = Field(
+        None, description="Emissão: YYYY-MM (ou YYYY)")
+    credential_id: Text | None = Field(None, description="ID da credencial; único no currículo")
     link: Text | None = Field(None, description="URL da credencial, quando houver")
+    description: Text | None = Field(
+        None, description="Descrição do curso; guardada, mas não vale como experiência nos personalizados")
+
+    @model_validator(mode="after")
+    def _issued_matches_year(self) -> "Certification":
+        if self.issued and self.year is not None and int(self.issued[:4]) != self.year:
+            raise ValueError(f"issued ({self.issued}) e year ({self.year}) não concordam em {self.id}")
+        return self
 
 
 class CertificationGroup(_Model):
@@ -115,6 +127,22 @@ class MasterResume(_Model):
     skills: list[SkillGroup] = []
     certifications: list[CertificationGroup] = []
     languages: list[Language] = []
+
+    @model_validator(mode="after")
+    def _unique_credentials(self) -> "MasterResume":
+        seen: dict[str, str] = {}
+        for group in self.certifications:
+            for cert in group.items:
+                if cert.credential_id is None:
+                    continue
+                if cert.credential_id in seen:
+                    raise ValueError(
+                        f"credential_id {cert.credential_id!r} repetido em {seen[cert.credential_id]} e {cert.id}: "
+                        "é a mesma credencial; funda os itens mantendo a data de emissão mais antiga e avise o "
+                        "usuário para corrigir a fonte"
+                    )
+                seen[cert.credential_id] = cert.id
+        return self
 
     @model_validator(mode="after")
     def _unique_ids(self) -> "MasterResume":

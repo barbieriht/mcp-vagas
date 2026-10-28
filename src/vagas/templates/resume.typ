@@ -113,7 +113,8 @@
   for g in certifications {
     let items = g.items.map(c => {
       let name = if get(c, "link") != none { link(c.link, c.name) } else { c.name }
-      let tail = (get(c, "provider"), get(c, "year")).filter(x => x != none).map(str)
+      let year = if get(c, "year") != none { c.year } else if get(c, "issued") != none { c.issued.slice(0, 4) } else { none }
+      let tail = (get(c, "provider"), year).filter(x => x != none).map(str)
       let details = if tail.len() == 2 { tail.at(0) + " (" + tail.at(1) + ")" } else { tail.join("") }
       if details != "" [#name – #details] else [#name]
     })

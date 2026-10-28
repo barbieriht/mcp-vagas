@@ -475,3 +475,18 @@ async def test_export_csv_via_mcp(db_path, monkeypatch):
     assert tools["export_csv"].input_schema.get("properties", {}) == {}
     assert Path(result["path"]).parent == db_path.parent / "exports"
     assert Path(result["path"]).exists() and result["rows"] == 1
+
+
+async def test_certification_fields_via_mcp(server):
+    from resume_fixture import fictitious_resume
+
+    resume = fictitious_resume()
+    item = {"id": "cert-x", "name": "Course", "credential_id": "ID-1", "issued": "2025-03"}
+    resume["certifications"][0]["items"] += [item, {**item, "id": "cert-y"}]
+    async with Client(server) as client:
+        tools = await tools_by_name(client)
+        result = await client.call_tool("save_master_draft", {"resume": resume})
+
+    schema = json.dumps(tools["save_master_draft"].input_schema)
+    assert all(field in schema for field in ("name_original", "credential_id", "issued", "description"))
+    assert result.is_error and "ID-1" in result.content[0].text

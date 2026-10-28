@@ -62,11 +62,14 @@ def review_draft(draft: dict[str, Any], reference: str) -> list[dict[str, str]]:
     variants = (_squash(reference), _squash(re.sub(r"-[ \t]*\n\s*", "", reference)))
     review: list[dict[str, str]] = []
 
+    def found(value: Any) -> bool:
+        squashed = _squash(str(value))
+        return not squashed or any(squashed in v for v in variants)
+
     def check(where: str, value: Any, reason: str) -> None:
         if value is None:
             return
-        squashed = _squash(str(value))
-        if squashed and not any(squashed in v for v in variants):
+        if not found(value):
             item = {"where": where, "value": str(value), "reason": reason}
             if item not in review:
                 review.append(item)
@@ -106,8 +109,14 @@ def review_draft(draft: dict[str, Any], reference: str) -> list[dict[str, str]]:
     for group in draft.get("certifications", []):
         check_whole(f"{group['id']}.label", group.get("label"))
         for cert in group.get("items", []):
-            for field in ("name", "provider", "year", "link"):
+            names = [cert.get("name"), cert.get("name_original")]
+            if not any(found(name) for name in names if name):
+                check_whole(f"{cert['id']}.name", cert.get("name"))
+            for field in ("provider", "year", "credential_id", "link"):
                 check_whole(f"{cert['id']}.{field}", cert.get(field))
+            if cert.get("issued"):
+                check_whole(f"{cert['id']}.issued", cert["issued"][:4])
+            check_long(f"{cert['id']}.description", cert.get("description"))
     for i, language in enumerate(draft.get("languages", [])):
         for field in ("name", "level", "note"):
             check_whole(f"languages.{i}.{field}", language.get(field))
