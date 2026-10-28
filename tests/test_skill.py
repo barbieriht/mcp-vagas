@@ -77,3 +77,53 @@ def test_skill_routes_to_master_resume_flow():
 
     assert "(curriculo.md)" in skill
     assert "currículo geral" in description
+
+
+COMMANDS_DIR = SKILL_DIR.parent / "comandos"
+COMMANDS = sorted(COMMANDS_DIR.glob("*/SKILL.md"))
+EXPECTED_COMMANDS = {"generate-master-resume", "search-jobs", "apply", "screen", "work-list", "pending",
+                     "export-applications"}
+
+
+def frontmatter(path):
+    _, header, body = path.read_text(encoding="utf-8").split("---", 2)
+    fields = dict(line.split(": ", 1) for line in header.strip().splitlines())
+    return fields, body
+
+
+def test_all_commands_exist():
+    assert {path.parent.name for path in COMMANDS} == EXPECTED_COMMANDS
+
+
+@pytest.mark.parametrize("path", COMMANDS, ids=lambda p: p.parent.name)
+def test_command_is_user_invoked_and_named_after_its_folder(path):
+    fields, body = frontmatter(path)
+
+    assert fields["name"] == path.parent.name
+    assert fields["disable-model-invocation"] == "true"
+    assert fields["description"]
+    assert "$ARGUMENTS" in body or path.parent.name in {"work-list", "pending", "export-applications"}
+
+
+@pytest.mark.parametrize("name", ["apply", "screen"])
+def test_commands_with_required_argument_ask_for_it(name):
+    fields, body = frontmatter(COMMANDS_DIR / name / "SKILL.md")
+
+    assert "argument-hint" in fields
+    assert "peça" in body.lower()
+
+
+@pytest.mark.parametrize("path", COMMANDS, ids=lambda p: p.parent.name)
+def test_command_points_to_existing_flow(path):
+    body = frontmatter(path)[1]
+
+    for flow in re.findall(r"\b([a-z]+\.md)\b", body):
+        assert (SKILL_DIR / flow).exists(), flow
+
+
+async def test_commands_cite_only_identifiers_the_server_knows(server):
+    known = await known_identifiers(server)
+
+    unknown = {(p.parent.name, i) for p in COMMANDS for i in SNAKE_IN_BACKTICKS.findall(p.read_text()) if i not in known}
+
+    assert unknown == set()

@@ -98,3 +98,15 @@ def test_zip_has_skill_folder_with_personal_files_and_without_examples(skill, tm
             "candidaturas/SKILL.md", "candidaturas/buscar.md", "candidaturas/candidatar.md",
             "candidaturas/curriculo.md", "candidaturas/perfil.md", "candidaturas/politica-salarial.md",
         ]
+
+
+def test_command_zips_have_one_folder_each(tmp_path):
+    commands = tmp_path / "comandos"
+    for name in ("apply", "screen"):
+        write(commands / name / "SKILL.md", f"---\nname: {name}\n---\n")
+
+    zips = inst.build_command_zips(commands, tmp_path / "out")
+
+    assert [z.name for z in zips] == ["apply.zip", "screen.zip"]
+    with zipfile.ZipFile(zips[0]) as z:
+        assert z.namelist() == ["apply/SKILL.md"]

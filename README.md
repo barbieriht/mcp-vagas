@@ -170,10 +170,10 @@ cp -n perfil.example.md perfil.md
 cp -n politica-salarial.example.md politica-salarial.md
 ```
 
-**Claude Code:** instale com um symlink. Assim existe uma cópia só, sempre igual ao repositório:
+**Claude Code:** instale a Skill, os comandos e o MCP com um comando. Ele cria symlinks em `~/.claude/skills`, então existe uma cópia só, sempre igual ao repositório:
 
 ```bash
-ln -s ~/projects/mcp-vagas/skill/candidaturas ~/.claude/skills/candidaturas
+python3 scripts/instalar_claude_code.py
 ```
 
 **Claude Desktop/Cowork:** compacte a pasta, incluindo os seus `perfil.md` e `politica-salarial.md`, e envie o zip em Configurações → Skills. Isso faz uma cópia, então repita o envio a cada mudança na Skill ou nos seus dados.
@@ -183,6 +183,22 @@ cd ~/projects/mcp-vagas/skill && zip -r /mnt/c/Users/<usuário>/Downloads/candid
 ```
 
 A Skill descreve ações no navegador ("abra a vaga", "anexe o PDF") sem depender de uma ferramenta específica. O cliente precisa ter alguma, como o Claude in Chrome no Desktop ou um MCP de navegador no Claude Code.
+
+## Comandos
+
+No Claude Code, os fluxos também podem ser disparados por comandos:
+
+| Comando | O que faz |
+|---|---|
+| `/generate-master-resume [PDF] [URL do LinkedIn]` | monta ou atualiza o currículo geral |
+| `/search-jobs [critério]` | busca vagas e monta a lista de trabalho |
+| `/apply <URL da vaga>` | candidatura completa, parando antes do envio |
+| `/screen <URL da vaga>` | só a triagem, registrando `a_aplicar` ou `descartada` |
+| `/work-list` | vagas a aplicar, da maior para a menor aderência |
+| `/pending` | o que depende de você e o que está sem resposta há mais de 30 dias |
+| `/export-applications` | exporta as candidaturas para CSV |
+
+Cada comando só dispara o fluxo correspondente da Skill `candidaturas`, então as regras ficam num lugar só (`skill/comandos/`). O instalador do Desktop também gera um zip por comando em `Downloads\vagas-comandos`. Use-os se o Desktop oferecer comandos de Skills; senão, peça em texto.
 
 ## Como usar
 
