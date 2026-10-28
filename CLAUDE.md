@@ -18,7 +18,7 @@ Servidor MCP local (stdio) em Python + SQLite para registrar e deduplicar candid
 - Mudança de schema = nova entrada em `MIGRATIONS` (`db.py`), nunca editar uma migração já aplicada. O backup antes de migrar é automático.
 - Docstrings das tools são lidas pelo modelo: explícitas sobre quando chamar e o que retorna.
 - TDD: testes antes da implementação. Testar pelo comportamento externo em dois seams: `Repo` contra banco temporário e cliente MCP em memória (`mcp.Client(server)`). Nada de dados pessoais em fixtures.
-- Dependências fixadas no `pyproject.toml`: `mcp`, `pydantic` (modelos com schema para as tools), `PyYAML` (currículo editável), `typst` (PDF do currículo; compilador embutido, só fontes embutidas) e `pypdf` (contagem de páginas e testes). Nada além disso sem discutir.
+- Dependências fixadas no `pyproject.toml`: `mcp`, `pydantic` (modelos com schema para as tools), `PyYAML` (currículo editável), `typst` (PDF do currículo; compilador embutido, só fontes embutidas) e `pypdf` (contagem de páginas e testes). Extra opcional `[linkedin]`: `playwright` (leitor do perfil do próprio usuário; sem técnicas de disfarce: diante de login/checkpoint, parar e pedir ação). Nada além disso sem discutir.
 - PDFs de currículo vão para `$VAGAS_RESUME_OUT` (sem padrão; ex.: `/mnt/c/Users/<usuário>/Curriculos`). Template em `src/vagas/templates/resume.typ`, dados via `sys.inputs` (JSON), nunca interpolados no código Typst.
 - Currículo geral: rascunho YAML em `$VAGAS_MASTER_RESUME` (padrão `curriculo.yaml` ao lado do banco); versões aprovadas ficam no banco, que é a fonte da verdade.
 - `skill/candidaturas/perfil.md` tem dados pessoais e fica fora do git; manter `perfil.example.md` com a mesma estrutura.
