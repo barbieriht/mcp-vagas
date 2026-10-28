@@ -7,6 +7,7 @@ dependencies = ["mcp==2.3.0", "pydantic==2.14.1", "PyYAML==6.0.3", "typst==0.15.
 
 [project.optional-dependencies]
 dev = ["pytest==9.1.1", "mcp[cli]==2.3.0"]
+linkedin = ["playwright==1.64.1"]
 
 [project.scripts]
 vagas-server = "vagas.server:main"
