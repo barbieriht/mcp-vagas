@@ -33,6 +33,8 @@ class ItemPick(_Model):
     )
     terms: list[Text] | None = Field(None, description="Só skills. Subconjunto e ordem dos termos do grupo.")
     items: list[Id] | None = Field(None, description="Só certifications. IDs das certificações do grupo.")
+    title: Text | None = Field(
+        None, description="Só experience. O título ou um dos title_aliases do currículo geral; ausente = o título.")
 
 
 class SectionPick(_Model):
@@ -115,10 +117,17 @@ def _resolve_section(master, pick: SectionPick, corpus_numbers, corpus_terms, er
         if item is None:
             errors.append(f"{where}: não existe na seção {pick.section!r} do currículo geral")
             continue
-        for field, allowed in (("paragraphs", _WITH_PARAGRAPHS), ("terms", {"skills"}), ("items", {"certifications"})):
+        for field, allowed in (("paragraphs", _WITH_PARAGRAPHS), ("terms", {"skills"}), ("items", {"certifications"}),
+                               ("title", {"experience"})):
             if getattr(item_pick, field) is not None and pick.section not in allowed:
                 errors.append(f"{where}: {field!r} não se aplica à seção {pick.section!r}")
         item = copy.deepcopy(item)
+        if pick.section == "experience" and item_pick.title is not None:
+            options = {t.casefold(): t for t in [item["title"], *item.get("title_aliases", [])]}
+            if item_pick.title.casefold() in options:
+                item["title"] = options[item_pick.title.casefold()]
+            else:
+                errors.append(f"{where}: título {item_pick.title!r} não é o título nem um dos title_aliases registrados")
         if pick.section in _WITH_PARAGRAPHS and item_pick.paragraphs is not None:
             item["paragraphs"] = _resolve_paragraphs(item, item_pick, corpus_terms, errors)
         if pick.section == "skills" and item_pick.terms is not None:

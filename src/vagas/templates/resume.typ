@@ -31,6 +31,13 @@
   }
 }
 
+#let modes = (remote: "Remote", hybrid: "Hybrid", onsite: "On-site")
+#let place(x) = {
+  let parts = (get(x, "location"), if get(x, "work_mode") != none { modes.at(x.work_mode) } else { none })
+  let parts = parts.filter(p => p != none)
+  if parts.len() == 0 { none } else { parts.join(" · ") }
+}
+
 #let paragraphs(item) = {
   for p in item.at("paragraphs", default: ()) {
     if "bullets" in p { list(..p.bullets) } else { par(p.text) }
@@ -71,7 +78,7 @@
   for (i, x) in experience.enumerate() {
     if i > 0 { v(0.4em) }
     let title = if get(x, "context") != none { x.company + " – " + x.context } else { x.company }
-    block(above: 0.85em, breakable: false, head(title, span(x), subtitle: x.title, right2: get(x, "location")))
+    block(above: 0.85em, breakable: false, head(title, span(x), subtitle: x.title, right2: place(x)))
     paragraphs(x)
   }
 }
@@ -80,7 +87,7 @@
   section("Volunteering")
   for (i, x) in volunteering.enumerate() {
     if i > 0 { v(0.4em) }
-    block(above: 0.85em, breakable: false, head(x.organization, span(x), subtitle: x.role, right2: get(x, "location")))
+    block(above: 0.85em, breakable: false, head(x.organization, span(x), subtitle: x.role, right2: place(x)))
     paragraphs(x)
   }
 }

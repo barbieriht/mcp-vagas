@@ -90,6 +90,8 @@ def review_draft(draft: dict[str, Any], reference: str) -> list[dict[str, str]]:
         check_whole(f"basics.{field}", basics.get(field))
     for link in basics.get("links", []):
         check_whole("basics.links", link)
+    for variant in basics.get("headline_variants", []):
+        check_whole("basics.headline_variants", variant)
     check_long("summary", draft.get("summary"))
 
     for section in ("education", "experience", "volunteering", "projects", "publications"):
@@ -97,6 +99,8 @@ def review_draft(draft: dict[str, Any], reference: str) -> list[dict[str, str]]:
             item_id = item.get("id", section)
             for field in _WHOLE_FIELDS[section]:
                 check_whole(f"{item_id}.{field}", item.get(field))
+            for alias in item.get("title_aliases", []):
+                check_whole(f"{item_id}.title_aliases", alias)
             if section in _LONG_FIELDS:
                 check_long(item_id, item.get(_LONG_FIELDS[section]))
             for paragraph in item.get("paragraphs", []):

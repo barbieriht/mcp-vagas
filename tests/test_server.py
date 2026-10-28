@@ -490,3 +490,24 @@ async def test_certification_fields_via_mcp(server):
     schema = json.dumps(tools["save_master_draft"].input_schema)
     assert all(field in schema for field in ("name_original", "credential_id", "issued", "description"))
     assert result.is_error and "ID-1" in result.content[0].text
+
+
+async def test_variants_via_mcp(db_path, tmp_path):
+    from resume_fixture import fictitious_resume
+    from vagas.server import build_server
+
+    resume = fictitious_resume()
+    resume["experience"][1]["title_aliases"] = ["Quant Analyst"]
+    async with Client(build_server(db_path, resume_out=tmp_path / "out")) as client:
+        tools = await tools_by_name(client)
+        await client.call_tool("save_master_draft", {"resume": resume})
+        await client.call_tool("approve_master", {})
+        ok = await client.call_tool("create_tailored_resume", {"selection": {"sections": [
+            {"section": "experience", "items": [{"id": "exp-acme-analyst", "title": "Quant Analyst"}]}]}})
+        bad = await client.call_tool("create_tailored_resume", {"selection": {"sections": [
+            {"section": "experience", "items": [{"id": "exp-acme-analyst", "title": "CEO"}]}]}})
+
+    assert all(f in json.dumps(tools["save_master_draft"].input_schema)
+               for f in ("headline_variants", "title_aliases", "work_mode", "onsite"))
+    assert not ok.is_error
+    assert bad.is_error and "CEO" in bad.content[0].text
