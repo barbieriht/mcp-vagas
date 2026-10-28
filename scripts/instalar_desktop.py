@@ -1,0 +1,214 @@
+#!/usr/bin/env python3
+"""Instala ou atualiza o MCP "vagas" e a Skill "candidaturas" no Claude Desktop (Windows), a partir do WSL.
+
+Uso, na raiz do repositório:
+    python3 scripts/instalar_desktop.py                  # tudo
+    python3 scripts/instalar_desktop.py --sem-skill      # só servidor e configuração
+    python3 scripts/instalar_desktop.py --fechar-desktop # fecha o Desktop no fim, para recarregar
+
+Passos: atualiza a cópia estável do servidor, registra o servidor no claude_desktop_config.json
+(com backup), testa o servidor pelo wsl.exe, gera o zip da Skill na pasta Downloads do Windows
+e, opcionalmente, fecha o Desktop. O envio do zip (Configurações → Skills) continua manual.
+Variáveis VAGAS_DB, VAGAS_RESUME_OUT e VAGAS_EXPORT_DIR definidas no ambiente têm prioridade.
+"""
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import zipfile
+from datetime import datetime
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+SKILL_DIR = REPO / "skill" / "candidaturas"
+STABLE_VENV = Path.home() / ".local/share/vagas/venv"
+ENV_KEYS = ("VAGAS_DB", "VAGAS_RESUME_OUT", "VAGAS_EXPORT_DIR")
+SKILL_FILES = ("SKILL.md", "candidatar.md", "buscar.md", "curriculo.md", "perfil.md", "politica-salarial.md")
+PERSONAL_FILES = ("perfil.md", "politica-salarial.md")
+
+
+# --- Partes puras (testadas) ---------------------------------------------------------------
+
+def find_config(localappdata: Path, appdata: Path) -> Path | None:
+    """claude_desktop_config.json da instalação existente: Microsoft Store ou instalador do site."""
+    candidates = [
+        *sorted(localappdata.glob("Claude-Data/claude_*/claude_desktop_config.json")),
+        appdata / "Claude" / "claude_desktop_config.json",
+        *sorted(localappdata.glob("Packages/Claude_*/LocalCache/Roaming/Claude/claude_desktop_config.json")),
+    ]
+    return next((path for path in candidates if path.exists()), None)
+
+
+def merge_config(config: dict, distro: str, env: dict[str, str], python: str) -> dict:
+    """Cópia da configuração com o servidor "vagas" acrescentado ou atualizado; o resto fica igual."""
+    merged = json.loads(json.dumps(config))
+    merged.setdefault("mcpServers", {})["vagas"] = {
+        "command": "wsl.exe",
+        "args": ["-d", distro, "-e", "env", *(f"{key}={value}" for key, value in env.items()),
+                 python, "-m", "vagas.server"],
+    }
+    return merged
+
+
+def desktop_env(claude_json: Path, windows_user: str, home: Path) -> dict[str, str]:
+    """Mesmas variáveis do registro no Claude Code, para os dois clientes compartilharem os dados."""
+    registered: dict[str, str] = {}
+    try:
+        registered = json.loads(claude_json.read_text(encoding="utf-8"))["mcpServers"]["vagas"].get("env", {})
+    except (OSError, ValueError, KeyError):
+        pass
+    env = {
+        "VAGAS_DB": str(home / ".local/share/vagas/vagas.db"),
+        "VAGAS_RESUME_OUT": f"/mnt/c/Users/{windows_user}/Curriculos",
+    }
+    env.update({key: value for key, value in registered.items() if key in ENV_KEYS})
+    return env
+
+
+def unfilled(skill_dir: Path) -> list[str]:
+    """Arquivos pessoais ausentes e linhas com <PREENCHER>."""
+    problems = []
+    for name in PERSONAL_FILES:
+        path = skill_dir / name
+        if not path.exists():
+            problems.append(f"{name}: arquivo não existe (copie de {name.replace('.md', '.example.md')})")
+            continue
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            if "<PREENCHER" in line:
+                problems.append(f"{name}:{number}: {line.strip()}")
+    return problems
+
+
+def build_zip(skill_dir: Path, dest: Path) -> None:
+    """Zip com a pasta da Skill (instruções e arquivos pessoais; exemplos ficam de fora)."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
+        for name in SKILL_FILES:
+            if (skill_dir / name).exists():
+                z.write(skill_dir / name, f"{skill_dir.name}/{name}")
+
+
+# --- Integração com Windows e WSL ------------------------------------------------------------
+
+def step(message: str) -> None:
+    print(f"\n==> {message}")
+
+
+def fail(message: str) -> None:
+    print(f"\nERRO: {message}", file=sys.stderr)
+    sys.exit(1)
+
+
+def windows_paths() -> dict[str, str]:
+    if not shutil.which("cmd.exe"):
+        fail("cmd.exe não encontrado: rode este script dentro do WSL, com a integração com o Windows ativa.")
+    out = subprocess.run(["cmd.exe", "/c", "echo %USERNAME%^|%LOCALAPPDATA%^|%APPDATA%^|%USERPROFILE%"],
+                         capture_output=True, text=True, cwd="/mnt/c").stdout.strip().replace("\r", "")
+    user, localappdata, appdata, profile = out.split("|")
+    return {"user": user, "localappdata": _wsl_path(localappdata), "appdata": _wsl_path(appdata),
+            "profile": _wsl_path(profile)}
+
+
+def _wsl_path(windows_path: str) -> str:
+    return subprocess.run(["wslpath", "-u", windows_path], capture_output=True, text=True).stdout.strip()
+
+
+def update_stable_install() -> Path:
+    if not shutil.which("uv"):
+        fail("uv não encontrado (https://docs.astral.sh/uv/).")
+    python = STABLE_VENV / "bin" / "python"
+    if not python.exists():
+        subprocess.run(["uv", "venv", "-q", "-p", "3.12", str(STABLE_VENV)], check=True)
+    subprocess.run(["uv", "pip", "install", "-q", "--reinstall-package", "vagas", "--python", str(python), str(REPO)],
+                   check=True)
+    return python
+
+
+def smoke_test(distro: str, python: Path) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        result = subprocess.run(
+            ["wsl.exe", "-d", distro, "-e", "env", f"VAGAS_DB={tmp}/teste.db", str(python), "-c",
+             "import asyncio\nfrom vagas.server import build_server\nfrom mcp import Client\n"
+             "async def main():\n    async with Client(build_server()) as c:\n"
+             "        print(len((await c.list_tools()).tools))\nasyncio.run(main())"],
+            capture_output=True, text=True, cwd="/mnt/c",
+        )
+    tools = result.stdout.strip().splitlines()[-1:] if result.stdout.strip() else []
+    if result.returncode != 0 or not tools or not tools[0].isdigit():
+        fail(f"o servidor não subiu pelo wsl.exe:\n{result.stderr[-1500:]}")
+    print(f"    servidor respondeu pelo wsl.exe com {tools[0]} tools")
+
+
+def close_desktop() -> None:
+    # Só processos do Claude Desktop (Microsoft Store ou instalador), nunca o Claude Code nativo.
+    script = ("Get-Process claude -ErrorAction SilentlyContinue | "
+              "Where-Object { $_.Path -like '*\\WindowsApps\\Claude_*' -or $_.Path -like '*\\AnthropicClaude\\*' } | "
+              "Stop-Process -Force")
+    subprocess.run(["powershell.exe", "-NoProfile", "-Command", script], cwd="/mnt/c", check=False)
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--sem-skill", action="store_true", help="não gera o zip da Skill")
+    parser.add_argument("--fechar-desktop", action="store_true", help="fecha o Claude Desktop no fim")
+    args = parser.parse_args(argv)
+    sys.stdout.reconfigure(line_buffering=True)  # mantém a ordem com o stderr quando a saída vai para um pipe
+
+    distro = os.environ.get("WSL_DISTRO_NAME") or fail("WSL_DISTRO_NAME vazio: rode dentro do WSL.")
+    win = windows_paths()
+
+    step("Atualizando a cópia estável do servidor")
+    python = update_stable_install()
+    print(f"    {python}")
+
+    step("Registrando o servidor no Claude Desktop")
+    config_path = find_config(Path(win["localappdata"]), Path(win["appdata"]))
+    if config_path is None:
+        fail("claude_desktop_config.json não encontrado. Abra o Claude Desktop uma vez, vá em "
+             "Configurações → Desenvolvedor → Editar configuração e rode de novo.")
+    env = desktop_env(Path.home() / ".claude.json", win["user"], Path.home())
+    env.update({key: os.environ[key] for key in ENV_KEYS if os.environ.get(key)})
+    config = json.loads(config_path.read_text(encoding="utf-8") or "{}")
+    merged = merge_config(config, distro, env, str(python))
+    if merged != config:
+        backup = config_path.with_name(f"{config_path.name}.bak-{datetime.now():%Y%m%d%H%M%S}")
+        shutil.copy2(config_path, backup)
+        config_path.write_text(json.dumps(merged, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"    atualizado: {config_path}\n    backup: {backup.name}")
+    else:
+        print(f"    já estava atualizado: {config_path}")
+    for key, value in env.items():
+        print(f"    {key}={value}")
+
+    step("Testando o servidor como o Desktop vai chamá-lo")
+    smoke_test(distro, python)
+
+    zip_path = None
+    if not args.sem_skill:
+        step("Gerando o zip da Skill")
+        problems = unfilled(SKILL_DIR)
+        if problems:
+            fail("preencha os arquivos pessoais da Skill antes de gerar o zip:\n  "
+                 + "\n  ".join(problems) + f"\n(pasta: {SKILL_DIR})")
+        zip_path = Path(win["profile"]) / "Downloads" / "candidaturas.zip"
+        build_zip(SKILL_DIR, zip_path)
+        print(f"    {zip_path}")
+
+    if args.fechar_desktop:
+        step("Fechando o Claude Desktop")
+        close_desktop()
+
+    step("Pronto. Falta você:")
+    print(("    1. Abrir o Claude Desktop" if args.fechar_desktop else
+           "    1. Fechar o Claude Desktop por completo (inclusive pelo ícone perto do relógio) e abrir de novo"))
+    if zip_path:
+        windows_zip = subprocess.run(["wslpath", "-w", str(zip_path)], capture_output=True, text=True).stdout.strip()
+        print(f"    2. Em Configurações → Skills, enviar {windows_zip} (substituindo a versão anterior)")
+
+
+if __name__ == "__main__":
+    main()

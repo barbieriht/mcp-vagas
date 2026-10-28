@@ -83,6 +83,24 @@ Confira com `claude mcp list`.
 
 O Claude Desktop roda no Windows e chama o servidor dentro do WSL pelo `wsl.exe`. O banco, o código e a cópia estável continuam no Linux.
 
+**Instalação automática (recomendada).** No WSL, na raiz do repositório:
+
+```bash
+python3 scripts/instalar_desktop.py                   # servidor, configuração, teste e zip da Skill
+python3 scripts/instalar_desktop.py --sem-skill       # só servidor e configuração
+python3 scripts/instalar_desktop.py --fechar-desktop  # e fecha o Desktop no fim, para recarregar
+```
+
+O script:
+- atualiza a cópia estável;
+- encontra o `claude_desktop_config.json` (instalador do site ou Microsoft Store), faz backup e registra o servidor `vagas` com as mesmas variáveis do Claude Code;
+- testa o servidor pelo `wsl.exe`;
+- gera `Downloads\candidaturas.zip`. Ele se recusa a gerar o zip se o `perfil.md` ou o `politica-salarial.md` tiverem campos `<PREENCHER>`.
+
+Pode ser rodado de novo a cada atualização. Ficam manuais só reabrir o Desktop e enviar o zip em Configurações → Skills.
+
+Os passos abaixo fazem o mesmo à mão.
+
 **1. Instale a cópia estável no WSL** (seção [Instalação para uso](#instalação-para-uso)) e confira os dados de que vai precisar. Rode no terminal do WSL:
 
 ```bash
