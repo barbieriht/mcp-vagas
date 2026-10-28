@@ -18,6 +18,7 @@ Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor 
 | Registrar, deduplicar por URL, buscar por empresa normalizada, atualizar e ver histórico | pronto |
 | Currículo geral: extração do PDF, rascunho YAML, revisão e aprovação | pronto |
 | Currículo geral também a partir do LinkedIn (revisão contra todas as fontes), seção Volunteering e link de certificação | pronto |
+| Leitor do LinkedIn em Python (Playwright): perfil inteiro por código, sem a LLM transcrever páginas | pronto |
 | Currículos personalizados com validação anti-invenção + PDF (Typst) | pronto |
 | Listagens com filtros (status, pendências, fonte, data, sem resposta há N dias) | pronto |
 | Normalização de URL por plataforma (LinkedIn, Gupy, Indeed, Glassdoor) | pronto |
@@ -64,6 +65,8 @@ uv pip install --reinstall-package vagas --python ~/.local/share/vagas/venv/bin/
 | `VAGAS_RESUME_OUT` | pasta onde os PDFs de currículo são gerados | nenhum (obrigatória para gerar PDF) |
 | `VAGAS_SALARY_TTL_DAYS` | validade do cache de salários, em dias | `90` |
 | `VAGAS_EXPORT_DIR` | pasta dos CSVs exportados (ex.: `/mnt/c/Users/<usuário>/Documents/vagas` para abrir no Windows) | `exports` ao lado do banco |
+| `VAGAS_LINKEDIN_MIN_MINUTES` | intervalo mínimo entre leituras do seu perfil do LinkedIn, em minutos | `60` |
+| `VAGAS_LINKEDIN_HEADLESS` | `0` mostra a janela do navegador durante a leitura | `1` (invisível) |
 | `VAGAS_JOB_SEARCH_MIN_HOURS` | intervalo mínimo para repetir a mesma busca de vagas, em horas | `24` |
 
 Mantenha o banco no filesystem do WSL (`~/...`), nunca em `/mnt/c`, que é lento e sujeito a locks. Já a pasta dos PDFs pode ficar no Windows, por exemplo `/mnt/c/Users/<usuário>/Curriculos`, para anexá-los no navegador.
@@ -146,6 +149,40 @@ wsl.exe -d <distro> -e /home/<usuário-wsl>/.local/share/vagas/venv/bin/python -
 ```
 
 **6. Instale a Skill no Desktop** pelo zip descrito na seção [Skill "candidaturas"](#skill-candidaturas).
+
+## Leitor do LinkedIn
+
+A tool `import_linkedin_profile` lê o **seu próprio** perfil do LinkedIn por código (Playwright), em cerca de 3 minutos, e devolve os itens já no formato do currículo geral. São lidos:
+- headline e About;
+- experiências, incluindo cargos agrupados por empresa, modalidade e anexos;
+- formação;
+- certificações, com mês de emissão, ID e link real da credencial;
+- voluntariado, idiomas e skills.
+
+Ela só roda quando você pede para montar ou atualizar o currículo geral, e não altera o rascunho nem o currículo aprovado: devolve os itens e registra o texto como fonte para o relatório de revisão.
+
+**Instalação:** os instaladores (`scripts/instalar_claude_code.py` e `scripts/instalar_desktop.py`) já incluem o leitor na cópia estável, com o extra `[linkedin]` e o navegador Chromium.
+
+**Login (uma vez):** no terminal do WSL, rode o comando abaixo. Abre uma janela do navegador; entre na sua conta, inclusive com 2FA. A senha não passa pelo código: só a sessão fica salva, em `~/.local/share/vagas/linkedin-browser`, com acesso restrito ao seu usuário.
+
+```bash
+~/.local/share/vagas/venv/bin/python -m vagas.linkedin login
+```
+
+**Cuidados com a sua conta:**
+- só o seu perfil é lido, e só quando você pede;
+- há um intervalo mínimo entre leituras (`VAGAS_LINKEDIN_MIN_MINUTES`, padrão 60);
+- diante de login, captcha ou verificação de segurança, o leitor **para** e pede para você rodar o login de novo. Não há nenhuma técnica de disfarce de automação.
+
+Os Termos do LinkedIn restringem automação; o risco de usar o leitor é seu. Se ele falhar, a Skill volta à leitura pelo navegador.
+
+**Limitação:** a interface atual do LinkedIn não mostra o total de itens de cada seção. O leitor rola até a lista parar de crescer e informa quantos itens leu, para você conferir.
+
+**Diagnóstico:** `python -m vagas.linkedin capture <URL do perfil>` salva o HTML das páginas numa pasta local fora do repositório. Para testar o leitor contra o seu perfil, rode:
+
+```bash
+VAGAS_TEST_LINKEDIN_PROFILE=https://www.linkedin.com/in/<perfil>/ .venv/bin/pytest -q tests/test_linkedin_real.py
+```
 
 ## Skill "candidaturas"
 
@@ -254,6 +291,7 @@ Status possíveis: `a_aplicar` (vaga encontrada e triada, aguardando candidatura
 | `export_csv` | exporta todas as candidaturas para um CSV novo (separador `;`, abre no Excel e no Google Sheets) |
 | `get_history` | candidatura, linha do tempo e currículos vinculados |
 | `extract_resume_text` | extrai o texto do PDF do currículo (caminho Windows ou WSL) |
+| `import_linkedin_profile` | lê o seu perfil do LinkedIn por código e devolve os itens no formato do currículo geral (só a pedido) |
 | `save_resume_source` | registra como fonte do currículo as seções do seu LinkedIn ou o texto de um PDF (ex.: anexado no chat) |
 | `save_master_draft` | grava o rascunho YAML do currículo geral, com relatório de revisão contra todas as fontes |
 | `approve_master` | aprova o rascunho (só com aprovação explícita do usuário) |

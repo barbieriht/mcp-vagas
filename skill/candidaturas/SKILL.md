@@ -16,7 +16,7 @@ Fontes da verdade:
 - O Thiago traz uma vaga e quer se candidatar: siga [candidatar.md](candidatar.md).
 - Ele pede para buscar vagas: siga [buscar.md](buscar.md).
 - Ele só quer saber se uma vaga vale a pena: faça a **triagem** abaixo e informe o resultado.
-- Ele quer montar ou atualizar o currículo geral (pelo PDF, pelo LinkedIn ou pelos dois): siga [curriculo.md](curriculo.md).
+- Ele pediu para montar ou atualizar o currículo geral (pelo PDF, pelo LinkedIn ou pelos dois): siga [curriculo.md](curriculo.md). Esse fluxo roda só a pedido dele.
 
 ## Triagem
 

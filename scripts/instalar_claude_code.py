@@ -70,9 +70,13 @@ def main() -> None:
     print("\n==> Cópia estável do servidor")
     if not STABLE_PYTHON.exists():
         subprocess.run(["uv", "venv", "-q", "-p", "3.12", str(STABLE_PYTHON.parents[1])], check=True)
+    # Extra [linkedin]: leitor do perfil (Playwright + Chromium).
     subprocess.run(["uv", "pip", "install", "-q", "--reinstall-package", "vagas", "--python", str(STABLE_PYTHON),
-                    str(REPO)], check=True)
-    print(f"    {STABLE_PYTHON}")
+                    f"{REPO}[linkedin]"], check=True)
+    subprocess.run([str(STABLE_PYTHON), "-m", "playwright", "install", "chromium"], check=True, capture_output=True)
+    print(f"    {STABLE_PYTHON} (com o leitor do LinkedIn)")
+    if not (Path.home() / ".local/share/vagas/linkedin-browser").exists():
+        print(f"    para o leitor do LinkedIn, faça login uma vez: {STABLE_PYTHON} -m vagas.linkedin login")
 
     print("\n==> MCP \"vagas\" no Claude Code")
     if mcp_registered(Path.home() / ".claude.json"):

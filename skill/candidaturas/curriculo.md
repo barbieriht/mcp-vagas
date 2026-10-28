@@ -1,5 +1,7 @@
 # Montar ou atualizar o currículo geral
 
+Siga este fluxo **somente quando o Thiago pedir** para montar ou atualizar o currículo geral. Ler o LinkedIn ou o PDF e alterar o currículo geral nunca acontecem por iniciativa própria nem como parte de outro fluxo (busca, triagem, candidatura).
+
 O currículo geral é um **superconjunto**: guarda tudo o que as fontes trazem sobre o Thiago, e quem escolhe o que entra em cada vaga é o currículo personalizado. Na dúvida entre incluir e deixar de fora, inclua.
 
 O fluxo termina num destes estados:
@@ -14,15 +16,18 @@ O fluxo termina num destes estados:
 2. **PDF.**
    - Com o caminho local, chame `extract_resume_text`.
    - Se o PDF só estiver anexado no chat, o MCP não enxerga o arquivo. Leia o conteúdo do anexo e registre o texto completo com `save_resume_source` (kind "pdf", `text` com o texto e `url` com o nome do arquivo).
-3. **LinkedIn.** Leia somente o perfil do próprio Thiago, no navegador em que ele está logado, no ritmo de uma pessoa.
-   1. **Página principal.** Abra o perfil e role até o fim antes de ler: About e Experience só aparecem no texto da página depois da rolagem. Leia o About e anote o **N** de cada botão "Show all N ..." (experiências, formação, certificações, voluntariado).
-   2. **Páginas de detalhes.** Para cada seção, abra a página de detalhes (`/details/experience/`, `/details/education/`, `/details/certifications/`, `/details/volunteering-experiences/`). As listas carregam em lotes: role até o fim, espere, leia, e repita até a quantidade de itens lidos igualar o N.
-      - Sem N disponível, pare quando três condições valerem juntas: rodapé da página visível, nenhum indicador de carregamento e duas leituras seguidas com a mesma quantidade. Diga ao Thiago que essa seção não teve a contagem verificada.
-   3. **Links das credenciais.** O texto da página mostra só "Show credential". Leia o endereço (href) desses links pela árvore de acessibilidade da própria página de detalhes (por exemplo, read_page ou find no Claude in Chrome), sem abrir cada credencial. Se não for possível, registre emissor, data e ID e avise que os links ficaram de fora.
-   4. **Anexos.** Em experiências com anexos (apresentações, artigos, certificados), copie o título de cada anexo junto com o texto da experiência: eles comprovam fatos citados no currículo.
-   5. **Registro.** Chame `save_resume_source` (kind "linkedin") com a URL do perfil e o texto completo de cada seção lida.
-   6. Feche a aba aberta para a leitura.
+3. **LinkedIn.** Leia somente o perfil do próprio Thiago.
+   1. **Leitor automático (caminho principal).** Chame `import_linkedin_profile` com a URL do perfil. Ele lê o perfil por código em cerca de 3 minutos (sem você transcrever páginas) e devolve os itens já no formato do currículo geral (`items`: headline, summary, experience, education, certifications, volunteering, languages, skills), os anexos das experiências em `extras`, o relatório `completeness` e os `warnings`. O texto já fica registrado como fonte.
+      - A interface do LinkedIn não mostra o total de itens, então as seções vêm com `verified` falso: diga ao Thiago quantos itens foram lidos em cada seção, para ele conferir.
+      - Mostre os `warnings` (descrição cortada, seção vazia, credencial duplicada).
+   2. **Plano B (leitura pelo navegador).** Se a tool falhar (sessão do LinkedIn expirada, verificação de segurança, leitura recente demais, leitor não instalado), explique o motivo ao Thiago. Para sessão expirada ou verificação, ele roda o comando de login no terminal do WSL (`~/.local/share/vagas/venv/bin/python -m vagas.linkedin login`). Se ele preferir não esperar, leia pelo navegador:
+      - abra o perfil e role até o fim antes de ler o About;
+      - para cada seção, abra a página de detalhes (`/details/experience/`, `/details/education/`, `/details/certifications/`, `/details/volunteering-experiences/`) e role, espere e leia, repetindo até a quantidade de itens parar de crescer em duas leituras seguidas;
+      - leia o endereço (href) dos links "Show credential" pela árvore de acessibilidade da página (por exemplo, read_page ou find no Claude in Chrome), sem abrir cada credencial;
+      - copie os títulos dos anexos junto com o texto da experiência;
+      - chame `save_resume_source` (kind "linkedin") com a URL do perfil e o texto de cada seção, e feche a aba.
 4. **Combinar.** Monte o rascunho em inglês com a união das fontes:
+   - Itens vindos de `import_linkedin_profile` já estão no formato certo: use-os como base e acrescente o que só o PDF traz.
    - About vira o `summary`; headlines diferentes entre as fontes ficam em `headline_variants`, com a principal em `headline`.
    - Cada cargo de Experience vira um item próprio, inclusive cargos diferentes na mesma empresa, com descrição em parágrafos. Qualificadores do cargo ("EMBRAPII-funded project") vão em `context`. Outras formas do título usadas nas fontes ficam em `title_aliases`.
    - Cidade do escritório em `location` e modalidade em `work_mode` (remote, hybrid, onsite), mesmo quando a cidade parecer irrelevante para as vagas: formulários pedem.

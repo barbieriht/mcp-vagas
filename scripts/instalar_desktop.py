@@ -136,8 +136,10 @@ def update_stable_install() -> Path:
     python = STABLE_VENV / "bin" / "python"
     if not python.exists():
         subprocess.run(["uv", "venv", "-q", "-p", "3.12", str(STABLE_VENV)], check=True)
-    subprocess.run(["uv", "pip", "install", "-q", "--reinstall-package", "vagas", "--python", str(python), str(REPO)],
-                   check=True)
+    # Extra [linkedin]: leitor do perfil (Playwright + Chromium, compartilhado com o Claude Code).
+    subprocess.run(["uv", "pip", "install", "-q", "--reinstall-package", "vagas", "--python", str(python),
+                    f"{REPO}[linkedin]"], check=True)
+    subprocess.run([str(python), "-m", "playwright", "install", "chromium"], check=True, capture_output=True)
     return python
 
 
