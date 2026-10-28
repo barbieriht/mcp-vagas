@@ -8,12 +8,14 @@ from datetime import datetime, timedelta
 from typing import Any, Protocol
 
 from vagas.linkedin import LinkedInError, profile_base
-from vagas.linkedin_parse import certifications_text, parse_certifications
+from vagas.linkedin_parse import (
+    certifications_text, parse_certifications, parse_education, parse_experience, parse_volunteering, section_text,
+)
 from vagas.repo import VagasError
 from vagas.resume_repo import ResumeStore
 
 DEFAULT_MIN_MINUTES = 60
-SECTIONS = ("certifications",)
+SECTIONS = ("experience", "education", "certifications", "volunteering")
 
 
 class Reader(Protocol):
@@ -40,16 +42,37 @@ class LinkedInImporter:
         except LinkedInError as exc:
             raise VagasError(str(exc)) from exc
 
-        groups, warnings = parse_certifications(blocks.get("certifications", []))
-        read = sum(len(group["items"]) for group in groups)
-        if read == 0:
-            warnings.append("Nenhum item encontrado em certifications: confira se a seção existe no perfil.")
-        source = self.store.save_resume_source("linkedin", base, {"certifications": certifications_text(groups)}) \
-            if read else None
+        warnings: list[str] = []
+        experience, extras, found = parse_experience(blocks.get("experience", []))
+        warnings += found
+        education, found = parse_education(blocks.get("education", []), today=self.store.now()[:10])
+        warnings += found
+        groups, found = parse_certifications(blocks.get("certifications", []))
+        warnings += found
+        volunteering, found = parse_volunteering(blocks.get("volunteering", []))
+        warnings += found
+
+        items = {"experience": experience, "education": education, "certifications": groups,
+                 "volunteering": volunteering}
+        counts = {"experience": len(experience), "education": len(education),
+                  "certifications": sum(len(g["items"]) for g in groups), "volunteering": len(volunteering)}
+        for section, count in counts.items():
+            if count == 0:
+                warnings.append(f"Nenhum item encontrado em {section}: confira se a seção existe no perfil.")
+        texts = {
+            "experience": section_text(experience, extras),
+            "education": section_text(education),
+            "certifications": certifications_text(groups),
+            "volunteering": section_text(volunteering),
+        }
+        texts = {section: text for section, text in texts.items() if text}
+        source = self.store.save_resume_source("linkedin", base, texts) if texts else None
         return {
-            "items": {"certifications": groups},
+            "items": items,
+            "extras": extras,
             # A interface atual do LinkedIn não mostra o total nos botões "Show all": sem "expected".
-            "completeness": {"certifications": {"read": read, "expected": None, "verified": False}},
+            "completeness": {section: {"read": count, "expected": None, "verified": False}
+                             for section, count in counts.items()},
             "warnings": warnings,
             "source_id": source and source["source_id"],
         }

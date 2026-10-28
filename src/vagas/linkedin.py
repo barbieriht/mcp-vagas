@@ -23,44 +23,83 @@ DETAIL_SECTIONS = ("experience", "education", "certifications", "volunteering-ex
 _BLOCKED = re.compile(r"/(login|checkpoint|authwall|uas/login|signup)\b")
 _SHOW_MORE = re.compile(r"show more|exibir mais|ver mais|mostrar mais", re.IGNORECASE)
 
-# Separa os itens da lista da página de detalhes em blocos {lines, links}. A lista é o ancestral do
-# primeiro texto com o marcador da seção que tem mais filhos; a interpretação fica em linkedin_parse.
-BLOCKS_JS = r"""(marker) => {
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-  let node, first = null;
-  while ((node = walker.nextNode())) { if (node.textContent.includes(marker)) { first = node; break; } }
-  if (!first) return [];
-  let list = null;
-  for (let e = first.parentElement; e; e = e.parentElement) {
-    if (e.children.length >= 2 && (!list || e.children.length > list.children.length)) {
-      list = e;
-      if (e.children.length > 10) break;
-    }
+# Localiza a lista principal da página de detalhes a partir do título da seção: dentro de <main>,
+# o primeiro texto com um ano depois do título; entre os ancestrais desse texto até o ancestral comum
+# com o título, a lista é o elemento cujos filhos mais contêm anos (cada filho é um item).
+_FIND_LIST = r"""
+const findList = (title) => {
+  const root = document.querySelector("main") || document.body;
+  const year = /\b(19|20)\d{2}\b/;
+  const heading = [...root.querySelectorAll("h1, h2, h3, span, div, p")]
+    .find(e => e.innerText && e.innerText.trim() === title && ![...e.children].some(c => c.innerText && c.innerText.trim() === title));
+  if (!heading) return null;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let node = null, n;
+  while ((n = walker.nextNode())) {
+    if (n.parentElement.closest("script, style, noscript")) continue;
+    if (year.test(n.textContent) && (heading.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING)) { node = n; break; }
   }
-  return [...list.children].map(child => ({
-    lines: child.innerText.split("\n").map(s => s.trim()).filter(Boolean),
-    links: [...child.querySelectorAll("a[href]")].map(a => ({text: a.innerText.trim(), href: a.href})),
-  })).filter(block => block.lines.length);
+  if (!node) return null;
+  let top = node.parentElement;
+  while (top && !top.contains(heading)) top = top.parentElement;
+  const path = [];
+  for (let e = node.parentElement; e && e !== top; e = e.parentElement) path.push(e);
+  path.push(top);
+  const score = e => [...e.children].filter(c => !c.contains(heading) && year.test(c.innerText || "")).length;
+  // A lista mais externa com 2+ itens (assim uma empresa com vários cargos conta como um item);
+  // com um item só, o elemento de maior pontuação mais próximo do título.
+  const fromTop = path.slice().reverse();
+  let best = fromTop.find(e => score(e) >= 2);
+  if (!best) { best = top; for (const e of fromTop) if (score(e) > score(best)) best = e; }
+  return {list: best, heading};
+};
+const linesOf = e => (e.innerText || "").split("\n").map(s => s.trim()).filter(Boolean);
+const linksOf = e => [...e.querySelectorAll("a[href]")].map(a => ({text: a.innerText.trim(), href: a.href}));
+// Lista interna de um item (ex.: vários cargos na mesma empresa): descendente com 2+ filhos com ano.
+const innerList = item => {
+  // Cargos têm período ("Aug 2020 - Sep 2021", "May 2024 - Present"); anos soltos em descrições não contam.
+  const period = /\b[A-Z][a-z]{2} (19|20)\d{2} [-–] ([A-Z][a-z]{2} (19|20)\d{2}|Present)/;
+  let best = null, bestCount = 1;
+  for (const e of item.querySelectorAll("*")) {
+    const count = [...e.children].filter(c => period.test(c.innerText || "")).length;
+    if (count > bestCount) { best = e; bestCount = count; }
+  }
+  return best;
+};
+"""
+
+# Separa os itens da lista em blocos {lines, links}; a interpretação fica em linkedin_parse.
+BLOCKS_JS = "(title) => {" + _FIND_LIST + r"""
+  const found = findList(title);
+  if (!found) return [];
+  return [...found.list.children].filter(c => !c.contains(found.heading)).map(child => {
+    const lines = linesOf(child), inner = innerList(child);
+    if (!inner) return {lines, links: linksOf(child)};
+    const roles = [...inner.children].map(r => ({lines: linesOf(r), links: linksOf(r)})).filter(r => r.lines.length);
+    const roleLines = roles.reduce((n, r) => n + r.lines.length, 0);
+    return {lines: lines.slice(0, Math.max(lines.length - roleLines, 0)), links: [], roles};
+  }).filter(block => block.lines.length || (block.roles && block.roles.length));
 }"""
-SECTION_MARKERS = {"certifications": "Issued"}
 
 # Traz o último item da lista para a tela (dispara o carregamento do próximo lote) e devolve quantos há.
-SCROLL_JS = r"""(marker) => {
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-  let node, first = null;
-  while ((node = walker.nextNode())) { if (node.textContent.includes(marker)) { first = node; break; } }
+SCROLL_JS = "(title) => {" + _FIND_LIST + r"""
   window.scrollTo(0, document.body.scrollHeight);
-  if (!first) return 0;
-  let list = null;
-  for (let e = first.parentElement; e; e = e.parentElement) {
-    if (e.children.length >= 2 && (!list || e.children.length > list.children.length)) {
-      list = e;
-      if (e.children.length > 10) break;
-    }
-  }
-  list.lastElementChild.scrollIntoView({block: "end"});
-  return list.children.length;
+  const found = findList(title);
+  if (!found) return 0;
+  const items = [...found.list.children].filter(c => !c.contains(found.heading));
+  if (items.length) items[items.length - 1].scrollIntoView({block: "end"});
+  return items.length;
 }"""
+
+# Título da seção em cada página de detalhes (chave = nome da seção no currículo geral).
+SECTION_TITLES = {
+    "certifications": "Licenses & certifications",
+    "experience": "Experience",
+    "education": "Education",
+    "volunteering": "Volunteering",
+}
+SECTION_PAGES = {"volunteering": "volunteering-experiences"}
+_EXPANDERS = re.compile(r"^(…|\.\.\.)\s*(see )?more$|^see more$", re.IGNORECASE)
 
 
 class LinkedInError(RuntimeError):
@@ -151,6 +190,17 @@ def _scroll_to_end(page, marker: str | None = None, max_rounds: int = 80) -> Non
             return
 
 
+def _expand_descriptions(page) -> None:
+    """Clica nos "… more" das descrições cortadas, para extrair o texto inteiro. Na interface atual
+    eles nem sempre são botões; o clique vai no elemento que mostra o texto."""
+    for _ in range(100):
+        expanders = [e for e in page.get_by_text(_EXPANDERS).all() if e.is_visible()]
+        if not expanders:
+            return
+        expanders[0].click()
+        page.wait_for_timeout(400)
+
+
 def _open(page, url: str) -> None:
     page.goto(url, wait_until="domcontentloaded")
     page.wait_for_timeout(2000)
@@ -175,9 +225,10 @@ class LinkedInReader:
             page = context.pages[0] if context.pages else context.new_page()
             try:
                 for section in sections:
-                    _open(page, urls[section])
-                    _scroll_to_end(page, SECTION_MARKERS[section])
-                    result[section] = page.evaluate(BLOCKS_JS, SECTION_MARKERS[section])
+                    _open(page, urls[SECTION_PAGES.get(section, section)])
+                    _scroll_to_end(page, SECTION_TITLES[section])
+                    _expand_descriptions(page)
+                    result[section] = page.evaluate(BLOCKS_JS, SECTION_TITLES[section])
             finally:
                 context.close()
         return result

@@ -119,3 +119,166 @@ def certifications_text(groups: list[dict[str, Any]]) -> str:
                       item.get("description")]
             lines.append("\n".join(f for f in fields if f))
     return "\n\n".join(lines)
+
+
+# --- Experience, Education, Volunteering ------------------------------------------------------
+
+_PERIOD = re.compile(r"^(?P<start>[A-Z][a-z]{2} \d{4}|\d{4})\s*[-–]\s*(?P<end>[A-Z][a-z]{2} \d{4}|\d{4}|Present)\b")
+_EMPLOYMENT = {"Full-time", "Part-time", "Self-employed", "Freelance", "Contract", "Internship", "Apprenticeship",
+               "Seasonal", "Temporary", "Trainee"}
+_MODES = {"Remote": "remote", "Hybrid": "hybrid", "On-site": "onsite"}
+_SKILLS = re.compile(r"^Skills:|\+\d+ skills?$")
+_ATTACHMENT = re.compile(r"\.(pdf|docx?|pptx?|xlsx?|png|jpe?g)$", re.IGNORECASE)
+_TRUNCATED = re.compile(r"\s*(…|\.\.\.)\s*(see )?more$")
+_QUALIFIER = re.compile(r"^(?P<title>.+?)\s*\((?P<context>[^()]+)\)$")
+
+
+def _period(line: str) -> tuple[str, str] | None:
+    match = _PERIOD.match(line)
+    return (match.group("start"), match.group("end")) if match else None
+
+
+def _place(line: str) -> dict[str, str] | None:
+    """"São Paulo, Brazil · Hybrid" -> location e work_mode; "Remote" -> work_mode; outra coisa -> None."""
+    location, _, mode = line.rpartition(" · ")
+    if mode in _MODES:
+        return {"location": location, "work_mode": _MODES[mode]} if location else {"work_mode": _MODES[mode]}
+    if line in _MODES:
+        return {"work_mode": _MODES[line]}
+    if "," in line and len(line) < 80 and not line.endswith("."):
+        return {"location": line}
+    return None
+
+
+def _paragraphs(item_id: str, lines: list[str], warnings: list[str], where: str) -> tuple[list[dict], list[str]]:
+    paragraphs, attachments = [], []
+    for line in lines:
+        if _SKILLS.search(line):
+            continue
+        if _ATTACHMENT.search(line):
+            attachments.append(line)
+            continue
+        if _TRUNCATED.search(line):
+            line = _TRUNCATED.sub("", line).strip()
+            warnings.append(f"{where}: descrição cortada (\"… more\"); confira o texto completo no LinkedIn.")
+        if not line:
+            continue
+        paragraphs.append({"id": f"{item_id}-p{len(paragraphs) + 1}", "text": line})
+    return paragraphs, attachments
+
+
+def parse_experience(blocks: list[dict[str, Any]]) -> tuple[list[dict], dict[str, dict], list[str]]:
+    """Blocos de /details/experience/ -> itens de experience, extras (anexos por item) e avisos.
+    Uma empresa com vários cargos vem como cabeçalho + "roles"; cada cargo vira um item."""
+    items, extras, warnings, used = [], {}, [], set()
+
+    def role(lines: list[str], company: str | None, default_place: dict[str, str]) -> None:
+        if not lines:
+            return
+        title, rest = lines[0], lines[1:]
+        if company is None and rest:
+            company, _, _ = rest.pop(0).partition(" · ")
+        if rest and rest[0] in _EMPLOYMENT:
+            rest.pop(0)
+        if not rest or not (period := _period(rest[0])):
+            warnings.append(f"Experiência \"{title}\" sem período reconhecível; não importada.")
+            return
+        rest.pop(0)
+        place = dict(default_place)
+        if rest and (found := _place(rest[0])):
+            place.update(found)
+            rest.pop(0)
+        item: dict[str, Any] = {"company": company or "Unknown"}
+        if qualified := _QUALIFIER.match(title):
+            title, item["context"] = qualified.group("title"), qualified.group("context")
+        item_id = _unique(f"exp-{slug(item['company'], 24)}-{slug(title, 32)}", used)
+        item = {"id": item_id, **item, "title": title, **place, "start": period[0], "end": period[1]}
+        item["paragraphs"], attachments = _paragraphs(item_id, rest, warnings, f"Experiência \"{title}\"")
+        if not item["paragraphs"]:
+            warnings.append(f"Experiência \"{title}\" sem descrição no LinkedIn.")
+        if attachments:
+            extras[item_id] = {"attachments": attachments}
+        items.append(item)
+
+    for block in blocks:
+        if block.get("roles"):
+            header = block.get("lines", [])
+            company = header[0] if header else None
+            default_place = next((p for line in header[1:] if (p := _place(line))), {})
+            for sub in block["roles"]:
+                role(list(sub.get("lines", [])), company, default_place)
+        else:
+            role(list(block.get("lines", [])), None, {})
+    return items, extras, warnings
+
+
+def parse_education(blocks: list[dict[str, Any]], today: str) -> tuple[list[dict], list[str]]:
+    """Blocos de /details/education/ -> itens de education; término no futuro vira "Present" + previsão."""
+    items, warnings, used = [], [], set()
+    for block in blocks:
+        lines = list(block.get("lines", []))
+        if not lines:
+            continue
+        item: dict[str, Any] = {"institution": lines.pop(0)}
+        if lines and not _period(lines[0]):
+            degree, _, field = lines.pop(0).partition(", ")
+            item["degree"] = degree
+            if field:
+                item["field"] = field
+        else:
+            item["degree"] = "Unknown"
+            warnings.append(f"Formação em {item['institution']} sem grau no LinkedIn.")
+        notes = []
+        if lines and (period := _period(lines[0])):
+            lines.pop(0)
+            item["start"], item["end"] = period
+            end = month_year(period[1])
+            if end and end > today[:len(end)]:
+                item["end"] = "Present"
+                notes.append(f"Expected {period[1]}")
+        notes += [line for line in lines if not _SKILLS.search(line)]
+        if notes:
+            item["notes"] = "; ".join(notes)
+        item = {"id": _unique(f"edu-{slug(item['institution'], 24)}-{slug(item['degree'], 24)}", used), **item}
+        items.append(item)
+    return items, warnings
+
+
+def parse_volunteering(blocks: list[dict[str, Any]]) -> tuple[list[dict], list[str]]:
+    """Blocos de /details/volunteering-experiences/ -> itens de volunteering."""
+    items, warnings, used = [], [], set()
+    for block in blocks:
+        lines = list(block.get("lines", []))
+        if len(lines) < 2:
+            continue
+        role, organization, rest = lines[0], lines[1], lines[2:]
+        item_id = _unique(f"vol-{slug(organization, 24)}-{slug(role, 32)}", used)
+        item: dict[str, Any] = {"id": item_id, "organization": organization, "role": role}
+        if rest and (period := _period(rest[0])):
+            rest.pop(0)
+            item["start"], item["end"] = period
+        if rest and len(rest[0]) < 60 and not rest[0].endswith("."):
+            rest.pop(0)  # causa ("Education", "Civil Rights and Social Action")
+        item["paragraphs"], _ = _paragraphs(item_id, rest, warnings, f"Voluntariado \"{role}\"")
+        items.append(item)
+    return items, warnings
+
+
+def section_text(items: list[dict[str, Any]], extras: dict[str, dict] | None = None) -> str:
+    """Texto de uma seção para registro como fonte (todos os valores dos itens, anexos incluídos)."""
+    def values(value):
+        if isinstance(value, dict):
+            for key, inner in value.items():
+                if key != "id":
+                    yield from values(inner)
+        elif isinstance(value, list):
+            for inner in value:
+                yield from values(inner)
+        elif value is not None:
+            yield str(value)
+
+    blocks = []
+    for item in items:
+        lines = list(values(item)) + list(values((extras or {}).get(item.get("id"), {})))
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
