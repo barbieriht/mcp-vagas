@@ -238,7 +238,7 @@ Status possíveis: `a_aplicar` (vaga encontrada e triada, aguardando candidatura
 | `export_csv` | exporta todas as candidaturas para um CSV novo (separador `;`, abre no Excel e no Google Sheets) |
 | `get_history` | candidatura, linha do tempo e currículos vinculados |
 | `extract_resume_text` | extrai o texto do PDF do currículo (caminho Windows ou WSL) |
-| `save_resume_source` | registra o texto das seções do seu perfil do LinkedIn como fonte do currículo |
+| `save_resume_source` | registra como fonte do currículo as seções do seu LinkedIn ou o texto de um PDF (ex.: anexado no chat) |
 | `save_master_draft` | grava o rascunho YAML do currículo geral, com relatório de revisão contra todas as fontes |
 | `approve_master` | aprova o rascunho (só com aprovação explícita do usuário) |
 | `get_master_resume` | devolve o currículo geral aprovado |

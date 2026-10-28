@@ -138,3 +138,39 @@ def test_migration_keeps_existing_pdf_sources(tmp_path):
 
     assert result["sources"] == [{"kind": "pdf", "path": "/x/cv.pdf"}]
     assert result["review"] == []
+
+
+PDF_TEXT = ("Fulana de Tal\nAcme Analytics Feb 2024 – Sep 2025\nQuantitative Analyst\n"
+            "Maintained ETL pipelines in Python and SQL.")
+
+
+def test_pdf_text_can_be_registered_as_source(store):
+    result = store.save_resume_source("pdf", "Curriculo.pdf (anexo do chat)", text=PDF_TEXT)
+
+    assert result == {"source_id": result["source_id"], "chars": len(PDF_TEXT)}
+    draft = {"basics": {"name": "Fulana de Tal"}, "experience": [{
+        "id": "exp-acme-analyst", "company": "Acme Analytics", "title": "Quantitative Analyst",
+        "start": "Feb 2024", "end": "Sep 2025",
+        "paragraphs": [{"id": "exp-acme-analyst-p1", "text": "Maintained ETL pipelines in Python and SQL."}]}]}
+    saved = store.save_master_draft(draft)
+    assert saved["review"] == []
+    assert saved["sources"] == [{"kind": "pdf", "path": "Curriculo.pdf (anexo do chat)"}]
+
+
+def test_pdf_text_and_extracted_pdf_are_the_same_kind_latest_wins(store, pdf):
+    store.extract_resume_text(pdf)
+    store.save_resume_source("pdf", "anexo.pdf", text=PDF_TEXT)
+
+    assert store.save_master_draft({"basics": {"name": "Fulana de Tal"}})["sources"] == [
+        {"kind": "pdf", "path": "anexo.pdf"}]
+
+
+@pytest.mark.parametrize("kind, kwargs, message", [
+    ("pdf", {"sections": {"about": "x"}}, "text"),
+    ("pdf", {"text": "   "}, "text"),
+    ("pdf", {}, "text"),
+    ("linkedin", {"text": "x"}, "sections"),
+])
+def test_kind_and_content_must_match(store, kind, kwargs, message):
+    with pytest.raises(VagasError, match=message):
+        store.save_resume_source(kind, "x", **kwargs)

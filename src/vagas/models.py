@@ -19,7 +19,7 @@ Contract = Literal["clt", "pj", "desconhecido"]
 SalaryMode = Literal["minimo", "faixa"]
 
 # Fontes do currículo geral
-ResumeSourceKind = Literal["linkedin"]
+ResumeSourceKind = Literal["linkedin", "pdf"]
 LinkedInSection = Literal["about", "experience", "education", "certifications", "volunteering"]
 
 STATUSES: tuple[str, ...] = get_args(Status)
