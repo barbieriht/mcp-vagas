@@ -234,11 +234,18 @@ def build_server(
     def import_linkedin_profile(url: str) -> dict[str, Any]:
         """Lê o perfil do LinkedIn do PRÓPRIO usuário por código (sem a LLM transcrever a página).
 
+        Chamar SOMENTE quando o usuário pedir para montar ou atualizar o currículo geral; nunca como
+        efeito colateral de outros fluxos (busca, triagem, candidatura). A tool não altera o rascunho
+        nem o currículo aprovado: devolve os itens e registra o texto como fonte (kind linkedin).
+
         Usa a sessão salva pelo comando de login (`python -m vagas.linkedin login`, feito pelo usuário).
-        Hoje lê a seção Licenses & certifications por completo (rola e carrega todos os itens) e devolve
-        os itens já no formato do currículo geral, com mês de emissão, ID e link real da credencial;
-        o resultado é registrado como fonte do currículo (kind linkedin).
-        Retorna {"items": {"certifications": [grupos]}, "completeness", "warnings", "source_id"}.
+        Lê Experience, Education, Licenses & certifications e Volunteering por completo (rola e carrega
+        todos os itens, expande descrições cortadas) e devolve os itens já no formato do currículo geral:
+        cargos agrupados por empresa viram itens separados, qualificador do cargo vai para context,
+        Remote/Hybrid/On-site para work_mode, formação em andamento com end "Present" e previsão em
+        notes, certificações com mês de emissão, ID e link real da credencial.
+        Retorna {"items": {experience, education, certifications, volunteering}, "extras" (anexos por
+        experiência), "completeness", "warnings", "source_id"}.
         Se der erro (sessão expirada, verificação de segurança, intervalo mínimo entre leituras ou
         Playwright ausente), informe o usuário e use a leitura pelo navegador como plano B.
         """
