@@ -208,7 +208,7 @@ class Triage:
         discard = self._fixed_criteria(criteria, posting, reasons)
         match = None
         if discard is None:
-            match = self._match(posting["description"], needs)
+            match = self._match(posting, needs)
             discard = self._role(criteria, posting, match, reasons, needs)
         if discard is None:
             self._location(criteria, posting, reasons, needs)
@@ -261,9 +261,10 @@ class Triage:
         reasons.append("Empresa fora da lista de ignoradas e vaga não exclusiva para PcD.")
         return None
 
-    def _match(self, description: str, needs: list[dict[str, Any]]) -> dict[str, Any] | None:
+    def _match(self, posting: dict[str, Any], needs: list[dict[str, Any]]) -> dict[str, Any] | None:
         try:
-            match = self.resumes.score_job_match(description or "")
+            match = self.resumes.score_job_match(posting["description"] or "", company=posting["company"],
+                                                 title=posting["title"], location=posting["location"])
         except VagasError as exc:
             needs.append({"kind": "aderencia", "detail": f"Aderência não calculada: {exc}"})
             return None

@@ -424,19 +424,19 @@ def build_server(
             return t.triage_job(url, search_id=search_id, not_duplicate=not_duplicate)
 
     @server.tool()
-    def score_job_match(description: str) -> dict[str, Any]:
+    def score_job_match(description: str, company: str | None = None, title: str | None = None,
+                        location: str | None = None) -> dict[str, Any]:
         """Aderência de uma vaga ao currículo geral aprovado, a partir da descrição da vaga.
 
-        Extrai os termos técnicos da descrição (tecnologias, siglas, nomes próprios) e separa os
-        que aparecem no currículo geral ("matched") dos que não aparecem ("missing"). "score" é a
-        proporção de presentes, de 0 a 100 (null se a descrição não tiver termos técnicos).
-        A nota é INDICATIVA: nomes de cidades, empresas ou palavras capitalizadas podem aparecer
-        como ausentes, e termos ausentes no início de frase ou de item de lista podem não ser
-        detectados (a nota tende a sair um pouco otimista). Use-a para justificar a triagem e para escolher o que destacar no
-        currículo personalizado; a decisão de aplicar continua sendo da triagem completa.
+        Extrai só os termos técnicos da descrição (skills do currículo, tecnologias conhecidas,
+        siglas, nomes como PyTorch ou C++) e separa os que aparecem no currículo geral ("matched")
+        dos que não aparecem ("missing"). "score" é a proporção de presentes, de 0 a 100 (null se a
+        descrição não tiver termos técnicos). Passe company, title e location da vaga: palavras
+        deles são ignoradas. A nota é INDICATIVA: use-a para justificar a triagem e para escolher o
+        que destacar no currículo personalizado; a decisão de aplicar continua sendo da triagem.
         """
         with resumes() as s:
-            return s.score_job_match(description)
+            return s.score_job_match(description, company=company, title=title, location=location)
 
     @server.tool()
     def list_resumes(application_id: int | None = None) -> dict[str, Any]:
