@@ -42,15 +42,16 @@ def _plain(text: str) -> str:
 
 _SENIORITY = [
     ("estagio", r"\b(estagio|estagiari\w*|intern|internship)\b"),
-    ("especialista", r"\b(especialista|staff|principal|lead|lider)\b"),
+    ("especialista", r"\b(especialista|specialist|staff|principal|lead|lider)\b"),
     ("senior", r"\b(senior|sr)\b"),
     ("pleno", r"\b(pleno|pl|mid)\b"),
     ("junior", r"\b(junior|jr)\b"),
 ]
 _ROLES = [
-    ("ml_engineer", r"(machine learning|\bml\b).*(engineer|engenheir)|(engineer|engenheir).*(machine learning|\bml\b)|\bmle\b"),
-    ("ai_engineer", r"\b(ai|llm|genai)\b.*engineer|engenheir.*\b(ia|inteligencia artificial)\b"),
-    ("data_scientist", r"data scien|cientista de dados|ciencia de dados"),
+    ("ml_engineer", r"(machine learning|\bml\b).*(engineer|engenh|\beng\b)|(engineer|engenh|\beng\b).*(machine learning|\bml\b)"
+                    r"|\bmle\b|visao computacional|computer vision"),
+    ("ai_engineer", r"\b(ai|llm|genai)\b.*engineer|(engenh|desenvolvedor|developer)\w*.*\b(ia|ai|inteligencia artificial)\b"),
+    ("data_scientist", r"data scien|cientista (de )?dados|ciencia de dados"),
     ("data_engineer", r"data engineer|engenheir\w*(\(a\))? de dados"),
     ("data_analyst", r"data analyst|analista de (dados|bi)\b|\bbi analyst"),
 ]
@@ -60,6 +61,9 @@ def classify_role(title: str) -> tuple[str, str | None, bool]:
     """Título -> (role_key, senioridade ou None, certeza do role_key)."""
     text = _plain(title)
     seniority = next((level for level, pattern in _SENIORITY if re.search(pattern, text)), None)
+    if seniority is None:  # nível numérico no fim do título: "Data Scientist II", "Desenvolvedor IA III"
+        level = re.search(r"\b(i{1,3})\s*$", text)
+        seniority = {"i": "junior", "ii": "pleno", "iii": "senior"}.get(level.group(1)) if level else None
     role = next((key for key, pattern in _ROLES if re.search(pattern, text)), None)
     return (role or "outro", seniority, role is not None)
 
