@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sqlite3
+import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -57,6 +58,46 @@ TECH_FAMILIES: dict[str, tuple[str, ...]] = {
 }
 
 
+# Trechos de requisitos desejáveis: começam num marcador forte e vão até o próximo cabeçalho.
+_OPTIONAL_START = re.compile(
+    r"\b(diferenciais|nice[- ]to[- ]have|bonus points|preferred qualifications|nice to haves)\b"
+    r"|\b(diferencial|desejaveis|desejavel|sera um plus|e um plus|plus|bonus|preferred)\s*:")
+_SECTION_START = re.compile(
+    r"\b(requisitos|requirements|qualificacoes|qualifications|responsabilidades|responsibilities|atividades"
+    r"|beneficios|benefits|o que oferecemos|what we offer|what you bring|what you will do|sobre (a|o|nos)\b"
+    r"|about (us|the)|informacoes adicionais|etapas do processo|local de trabalho)\b")
+OPTIONAL_WEIGHT = 0.5
+
+
+def _fold(text: str) -> str:
+    """Minúsculas sem acento, com o mesmo comprimento (as posições continuam valendo no texto original)."""
+    out = []
+    for char in text:
+        ascii_char = unicodedata.normalize("NFKD", char).encode("ascii", "ignore").decode()
+        out.append((ascii_char[:1] or char).lower())
+    return "".join(out)
+
+
+def _optional_spans(text: str) -> list[tuple[int, int]]:
+    folded = _fold(text)
+    spans = []
+    for start in _OPTIONAL_START.finditer(folded):
+        end = _SECTION_START.search(folded, start.end())
+        spans.append((start.start(), end.start() if end else len(text)))
+    return spans
+
+
+def _only_optional(term: str, text: str, spans: list[tuple[int, int]]) -> bool:
+    places = [m.start() for m in re.finditer(rf"(?<!\w){re.escape(term)}(?!\w)", text, re.I)]
+    return bool(places) and all(any(a <= p < b for a, b in spans) for p in places)
+
+
+def _in_resume(name: str, corpus: set[str]) -> bool:
+    """Nome de uma palavra: o token inteiro ("W&B"); de várias: todas as palavras ("Power BI")."""
+    words = name.lower().split()
+    return words[0] in corpus if len(words) == 1 else all(w in corpus for w in words)
+
+
 def _related(missing: list[str], corpus: set[str]) -> dict[str, list[str]]:
     related: dict[str, list[str]] = {}
     for term in missing:
@@ -64,8 +105,7 @@ def _related(missing: list[str], corpus: set[str]) -> dict[str, list[str]]:
         for family in TECH_FAMILIES.values():
             if low not in {name.lower() for name in family}:
                 continue
-            found = [name for name in family if name.lower() != low
-                     and all(word in corpus for word in re.findall(r"[a-z0-9]+", name.lower()))]
+            found = [name for name in family if name.lower() != low and _in_resume(name, corpus)]
             if found:
                 related.setdefault(term, []).extend(n for n in found if n not in related.get(term, []))
     return related
@@ -314,11 +354,15 @@ class ResumeStore:
         missing = [t for t in terms if not present(t)]
         total = len(matched) + len(missing)
         if total == 0:
-            return {"score": None, "matched": [], "missing": [], "related": {},
+            return {"score": None, "matched": [], "missing": [], "related": {}, "optional": [],
                     "note": "A descrição não tem termos técnicos reconhecíveis (tecnologias, siglas, nomes "
                             "próprios); avalie a aderência pela leitura da vaga."}
-        return {"score": round(100 * len(matched) / total), "matched": matched, "missing": missing,
-                "related": _related(missing, corpus), "note": None}
+        spans = _optional_spans(description)
+        optional = [t for t in terms if spans and _only_optional(t, description, spans)]
+        weight = {t: OPTIONAL_WEIGHT if t in optional else 1.0 for t in terms}
+        score = round(100 * sum(weight[t] for t in matched) / sum(weight.values()))
+        return {"score": score, "matched": matched, "missing": missing, "related": _related(missing, corpus),
+                "optional": optional, "note": None}
 
     def list_resumes(self, application_id: int | None = None) -> list[dict[str, Any]]:
         rows = self.conn.execute(

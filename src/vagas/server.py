@@ -419,7 +419,7 @@ def build_server(
         Página bloqueada ou sem dados estruturados: erro; leia a vaga pelo navegador e faça a triagem
         pelos passos manuais da Skill.
         Retorna {decision, application, posting (sem a descrição), match ({score, matched, missing,
-        related}, como em score_job_match), salary, reasons, needs}.
+        related, optional}, como em score_job_match), salary, reasons, needs}.
         """
         with triages() as t:
             return t.triage_job(url, search_id=search_id, not_duplicate=not_duplicate)
@@ -435,7 +435,8 @@ def build_server(
         descrição não tiver termos técnicos). Passe company, title e location da vaga: palavras
         deles são ignoradas. "related" = {termo ausente: [termos da mesma família no currículo]}
         (ex.: XGBoost ausente, relacionado LightGBM): lacuna de ferramenta, não de competência; não
-        conta na nota. A nota é INDICATIVA: use-a para justificar a triagem e para escolher o que
+        conta na nota. "optional" = termos que só aparecem em trechos de requisitos desejáveis
+        ("Diferenciais", "Nice to have"): pesam metade na nota. A nota é INDICATIVA: use-a para justificar a triagem e para escolher o que
         destacar no currículo personalizado; a decisão de aplicar continua sendo da triagem.
         """
         with resumes() as s:
