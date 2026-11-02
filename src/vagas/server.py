@@ -555,8 +555,9 @@ def build_server(
 
         Combina os cargos alvo (e as "Senioridades buscadas", se houver) de criterios-triagem.md,
         em português e inglês, com os locais: remoto em todo o país e híbrido/presencial em cada
-        local aceito; acrescenta, por cargo, uma busca remota com a skill mais citada nas
-        experiências do currículo geral. recent=true: busca feita há pouco, pule.
+        local aceito, na Gupy e no LinkedIn (no LinkedIn, uma página e só vagas da última semana,
+        porque ele limita leituras seguidas); acrescenta, por cargo, uma busca remota na Gupy com a
+        skill mais citada nas experiências do currículo geral. recent=true: busca feita há pouco, pule.
         Retorna {"searches": [{query, source, location, filters, recent}], "skills", "note"}; passe
         cada busca (exceto as recentes) a search_jobs.
         """
@@ -573,13 +574,17 @@ def build_server(
     ) -> dict[str, Any]:
         """Executa uma busca de vagas no site por código e registra a busca (save_job_search).
 
-        Disponível para a Gupy; nos outros sites, erro: busque pelo navegador. Já consulta
-        find_job_search: busca equivalente recente volta com skipped=true e sem resultados (force=true
-        repete mesmo assim, só se o usuário pedir). location = cidade. filters: {"work_modes":
-        ["remoto"|"hibrido"|"presencial"], "state": "São Paulo", "max_pages": 1-5 (padrão 2, 12 vagas
-        por página)}. Bloqueio do site: erro; busque pelo navegador.
-        Retorna {skipped, previous, search_id, total, pages_read, results: [{title, company, url,
-        published_at, location, work_mode, contract, pcd_flag, registered: {id, status} | null}]}.
+        Disponível para a Gupy e o LinkedIn (página pública, sem login); Indeed e Glassdoor bloqueiam
+        leitura automática: erro, busque pelo navegador. Já consulta find_job_search: busca
+        equivalente recente volta com skipped=true e sem resultados (force=true repete mesmo assim,
+        só se o usuário pedir). location = cidade (LinkedIn sem location: Brasil inteiro).
+        filters: {"work_modes": ["remoto"|"hibrido"|"presencial"], "max_pages": 1-5 (padrão 2; Gupy
+        12 vagas por página, LinkedIn 10)}; só Gupy: "state"; só LinkedIn: "posted" ("24h", "week",
+        "month"). No LinkedIn os resultados vêm sem modalidade (o filtro do site não é confiável) e
+        cada página espera o intervalo do site (20 s). Bloqueio ou limite do site: erro; busque pelo
+        navegador. Retorna {skipped, previous, search_id, total, pages_read, results: [{title,
+        company, url, published_at, location, work_mode, contract, pcd_flag, salary, registered:
+        {id, status} | null}]}.
         Depois, chame triage_job com a url e o search_id de cada resultado com registered null.
         """
         with boards() as b:

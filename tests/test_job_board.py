@@ -55,7 +55,7 @@ def test_search_page_is_parsed_into_results():
     assert pagination == {"total": 30, "limit": 12, "offset": 0}
     assert jobs[0] == {"title": "Cientista de Dados", "company": "Acme", "url": "https://acme.gupy.io/jobs/1",
                        "published_at": "2026-10-30", "location": "São Paulo, São Paulo", "work_mode": "hibrido",
-                       "contract": "clt", "pcd_flag": True}
+                       "contract": "clt", "pcd_flag": True, "salary": None}
     assert (jobs[1]["work_mode"], jobs[1]["location"]) == ("presencial", "São Carlos, São Paulo")
 
 
@@ -157,14 +157,15 @@ def test_suggestions_combine_roles_skills_and_locations(conn, criteria, tmp_path
 
     result = jobs.suggest_job_searches()
 
-    combos = {(s["query"], s["location"], tuple(s["filters"].get("work_modes", []))) for s in result["searches"]}
+    combos = {(s["query"], s["location"], tuple(s["filters"].get("work_modes", []))) for s in result["searches"]
+              if s["source"] == "gupy"}
     assert ("cientista de dados", None, ("remoto",)) in combos
     assert ("data scientist", None, ("remoto",)) in combos
     assert ("machine learning engineer", "São Carlos", ("hibrido", "presencial")) in combos
     assert ("cientista de dados", "São Paulo", ("hibrido", "presencial")) in combos
     assert result["skills"] and set(result["skills"]) <= {"Python", "SQL", "C++", "C#"}
     assert (f"data scientist {result['skills'][0].lower()}", None, ("remoto",)) in combos
-    assert all(s["source"] == "gupy" and s["recent"] is False for s in result["searches"])
+    assert all(s["recent"] is False for s in result["searches"])
 
 
 def test_seniorities_from_criteria_become_query_variants(conn, tmp_path):
@@ -173,7 +174,7 @@ def test_seniorities_from_criteria_become_query_variants(conn, tmp_path):
 
     result = board(conn, Fetcher(), path, tmp_path).suggest_job_searches()
 
-    queries = {s["query"] for s in result["searches"]}
+    queries = {s["query"] for s in result["searches"] if s["source"] == "gupy"}
     assert {"cientista de dados pleno", "cientista de dados sênior", "data scientist pleno"} <= queries
     assert "cientista de dados" not in queries
 
@@ -184,7 +185,7 @@ def test_suggestions_flag_recent_searches_and_work_without_resume(conn, criteria
     result = board(conn, Fetcher(), criteria, tmp_path).suggest_job_searches()
 
     recent = [s for s in result["searches"] if s["recent"]]
-    assert [(s["query"], s["location"]) for s in recent] == [("cientista de dados", None)]
+    assert [(s["query"], s["source"], s["location"]) for s in recent] == [("cientista de dados", "gupy", None)]
     assert result["skills"] == [] and "currículo" in result["note"]
 
 
@@ -197,7 +198,7 @@ async def test_search_and_suggest_via_mcp(db_path, criteria, tmp_path, monkeypat
         found = (await client.call_tool("search_jobs", {
             "query": "cientista de dados", "source": "gupy", "filters": {"work_modes": ["remoto"]}})).structured_content
         suggested = (await client.call_tool("suggest_job_searches", {})).structured_content
-        bad = await client.call_tool("search_jobs", {"query": "x", "source": "glassdoor"})
+        bad = await client.call_tool("search_jobs", {"query": "x", "source": "glassdoor"})  # bloqueia leitura
 
     assert found["results"][0]["url"] == "https://acme.gupy.io/jobs/1" and found["search_id"] > 0
     assert suggested["searches"] and "triage_job" in tools["search_jobs"].description
