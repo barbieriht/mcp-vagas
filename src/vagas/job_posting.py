@@ -190,9 +190,93 @@ def _jsonld(url: str, page: str) -> dict[str, Any] | None:
             "published_at": (item.get("datePosted") or "")[:10] or None, "description": _text(item.get("description"))}
 
 
+# --- LinkedIn (página pública para visitantes, sem login) ---------------------------------------
+# Nem toda página traz JSON-LD; o HTML do cartão do topo, os critérios e a descrição sempre vêm.
+# A modalidade não é publicada (só "remoto" no JSON-LD, quando há): é inferida do texto.
+
+_LI_TITLE = re.compile(r'<h[12][^>]*class="[^"]*topcard__title[^"]*"[^>]*>(.*?)</h[12]>', re.S)
+_LI_COMPANY = re.compile(r'class="[^"]*topcard__org-name-link[^"]*"[^>]*>(.*?)</a>', re.S)
+_LI_LOCATION = re.compile(r'class="[^"]*topcard__flavor--bullet[^"]*"[^>]*>(.*?)</span>', re.S)
+_LI_DESCRIPTION = re.compile(r'class="[^"]*show-more-less-html__markup[^"]*"[^>]*>(.*?)</div>', re.S)
+_LI_CRITERIA = re.compile(r'job-criteria-subheader[^>]*>(.*?)</h3>\s*<span[^>]*>(.*?)</span>', re.S)
+_LI_SALARY = re.compile(r'class="[^"]*compensation__salary[^"]*"[^>]*>(.*?)</div>', re.S)
+_LI_SENIORITY = [("estagio", r"estagio|internship"), ("junior", r"entry level|junior|assistente|assistant")]
+_LI_PERIODS = [("mes", r"/\s*(mes|month|mo)\b"), ("ano", r"/\s*(ano|yr|year)\b"), ("hora", r"/\s*(hora|hr|hour|h)\b")]
+_REMOTE = r"\b(remot[oa]s?|remote|home office|work from home)\b"
+_HYBRID = r"\b(hibrid[oa]s?|hybrid)\b"
+_ONSITE = r"\b(presenci\w*|on-?site|in-office)\b"
+
+
+def infer_work_mode(text: str) -> str | None:
+    """Modalidade pelo texto da vaga; None se não houver menção ou se ela for ambígua."""
+    text = _plain(text)
+    if re.search(_HYBRID, text):
+        return "hibrido"
+    remote, onsite = re.search(_REMOTE, text), re.search(_ONSITE, text)
+    if remote and onsite:
+        return None
+    return "remoto" if remote else "presencial" if onsite else None
+
+
+def _amount(text: str) -> float:
+    if re.search(r",\d{2}$", text):
+        text = text.replace(".", "").replace(",", ".")
+    elif re.search(r"\.\d{2}$", text):
+        text = text.replace(",", "")
+    else:
+        text = text.replace(".", "").replace(",", "")
+    return float(text)
+
+
+def _linkedin_salary(text: str) -> dict[str, Any] | None:
+    text = " ".join(text.split())
+    amounts = [_amount(a) for a in re.findall(r"\d[\d.,]*\d|\d", text)]
+    if not amounts:
+        return None
+    currency = "BRL" if "R$" in text else "EUR" if "€" in text else "USD" if "$" in text else None
+    period = next((p for p, pattern in _LI_PERIODS if re.search(pattern, _plain(text))), None)
+    return {"currency": currency, "period": period, "min_value": min(amounts), "max_value": max(amounts)}
+
+
+def _linkedin(url: str, page: str) -> dict[str, Any] | None:
+    if _source(url) != "linkedin":
+        return None
+    ld = _jsonld(url, page)
+    title = _LI_TITLE.search(page)
+    if not title:
+        return ld
+    main = page.split("similar-jobs")[0]  # o resto da página são vagas semelhantes, de outras empresas
+    found_description = _LI_DESCRIPTION.search(main)
+    company, location, salary = _LI_COMPANY.search(main), _LI_LOCATION.search(main), _LI_SALARY.search(main)
+    criteria = {_plain(_text(k)): _plain(_text(v)) for k, v in _LI_CRITERIA.findall(main)}
+    level = criteria.get("seniority level") or criteria.get("nivel de experiencia") or ""
+    employment = criteria.get("employment type") or criteria.get("tipo de emprego") or ""
+
+    result = {**_base(url), "title": _text(title.group(1)),
+              "company": _text(company.group(1)) if company else (ld or {}).get("company", ""),
+              "location": (_text(location.group(1)) if location else None) or (ld or {}).get("location")}
+    role_key, seniority, certain = classify_role(result["title"])
+    seniority = seniority or next((s for s, pattern in _LI_SENIORITY if re.search(pattern, level)), None)
+    if "estagio" in employment or "internship" in employment:
+        seniority = "estagio"
+    contract = "pj" if re.search(r"\b(contract|contrato)\b", employment) else "desconhecido"
+    description = _text(found_description.group(1)) if found_description else (ld or {}).get("description", "")
+    work_mode, inferred = None, False
+    if ld:
+        contract = ld["contract"] if ld["contract"] != "desconhecido" else contract
+        work_mode = ld["work_mode"]
+    if work_mode is None:
+        work_mode = infer_work_mode(f"{result['title']} {description}")
+        inferred = work_mode is not None
+    return {**result, "work_mode": work_mode, "work_mode_inferred": inferred, "contract": contract,
+            "role_key": role_key, "seniority": seniority, "role_certain": certain,
+            "salary": _linkedin_salary(_text(salary.group(1))) if salary else (ld or {}).get("salary"),
+            "pcd_flag": None, "published_at": (ld or {}).get("published_at"), "description": description}
+
+
 def extract_job(url: str, page: str) -> dict[str, Any]:
     """HTML da página da vaga -> campos normalizados."""
-    for extractor in (_gupy, _jsonld):
+    for extractor in (_gupy, _linkedin, _jsonld):
         job = extractor(url, page)
         if job:
             return job
@@ -202,13 +286,31 @@ def extract_job(url: str, page: str) -> dict[str, Any]:
 
 # --- Acesso ------------------------------------------------------------------------------------
 
+def site_key(host: str) -> str:
+    """Subdomínios do mesmo site contam juntos no intervalo (br.linkedin.com = www.linkedin.com)."""
+    host = host.lower()
+    for site in ("linkedin.com", "gupy.io", "indeed.com", "glassdoor.com"):
+        if host == site or host.endswith("." + site) or f".{site}." in host:
+            return site
+    return host
+
+
+def min_interval(host: str) -> float:
+    """Segundos entre requisições ao mesmo site: VAGAS_SITE_MIN_SECONDS (3); LinkedIn mais espaçado
+    (VAGAS_LINKEDIN_JOBS_MIN_SECONDS, 20), porque ele limita leituras seguidas (429)."""
+    if site_key(host) == "linkedin.com":
+        return float(os.environ.get("VAGAS_LINKEDIN_JOBS_MIN_SECONDS") or 20)
+    return float(os.environ.get("VAGAS_SITE_MIN_SECONDS") or 3)
+
+
 def http_fetch(url: str) -> tuple[int, str]:
-    """GET com User-Agent honesto e intervalo mínimo por site (VAGAS_SITE_MIN_SECONDS, padrão 3)."""
+    """GET com User-Agent honesto e intervalo mínimo por site (min_interval)."""
     host = urlsplit(url).netloc.lower()
-    wait = float(os.environ.get("VAGAS_SITE_MIN_SECONDS") or 3) - (time.monotonic() - _last_request.get(host, -1e9))
+    key = site_key(host)
+    wait = min_interval(host) - (time.monotonic() - _last_request.get(key, -1e9))
     if wait > 0:
         time.sleep(wait)
-    _last_request[host] = time.monotonic()
+    _last_request[key] = time.monotonic()
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "text/html"})
     try:
         with urllib.request.urlopen(request, timeout=25) as response:
@@ -221,8 +323,18 @@ def http_fetch(url: str) -> tuple[int, str]:
 
 def read_job_posting(url: str, fetcher: Fetcher = http_fetch) -> dict[str, Any]:
     url = url.strip()
+    linkedin = _source(url) == "linkedin"
+    canonical = canonical_url(url) or url
+    if linkedin and "/jobs/view/" in canonical:
+        url = "https://www.linkedin.com/jobs/view/" + canonical.rsplit("/", 1)[1] + "/"
     status, page = fetcher(url)
     host = urlsplit(url).netloc
+    if linkedin and status in (429, 999):
+        raise JobPostingError("O LinkedIn limitou as leituras automáticas por enquanto; espere alguns minutos "
+                              "ou leia a vaga pelo navegador.")
+    if linkedin and ("authwall" in page or re.search(r"<title>[^<]*(Sign Up|Sign In|Entrar|Cadastre-se)[^<]*"
+                                                     r"\| LinkedIn", page)):
+        raise JobPostingError("O LinkedIn pediu login para mostrar a vaga; leia a vaga pelo navegador.")
     if status in (401, 403, 429) or _BLOCKED.search(page[:5000]):
         raise JobPostingError(
             f"O site {host} bloqueou a leitura automática (proteção anti-robô); leia a vaga pelo navegador.")

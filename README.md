@@ -72,6 +72,7 @@ uv pip install --reinstall-package vagas --python ~/.local/share/vagas/venv/bin/
 | `VAGAS_EXPORT_DIR` | pasta dos CSVs exportados (ex.: `/mnt/c/Users/<usuário>/Documents/vagas` para abrir no Windows) | `exports` ao lado do banco |
 | `VAGAS_LINKEDIN_MIN_MINUTES` | intervalo mínimo entre leituras do seu perfil do LinkedIn, em minutos | `60` |
 | `VAGAS_LINKEDIN_HEADLESS` | `0` mostra a janela do navegador durante a leitura | `1` (invisível) |
+| `VAGAS_LINKEDIN_JOBS_MIN_SECONDS` | intervalo mínimo entre leituras e buscas de vagas no LinkedIn, em segundos | `20` |
 | `VAGAS_SITE_MIN_SECONDS` | intervalo mínimo entre requisições ao mesmo site de vagas, em segundos | `3` |
 | `VAGAS_JOB_SEARCH_MIN_HOURS` | intervalo mínimo para repetir a mesma busca de vagas, em horas | `24` |
 
