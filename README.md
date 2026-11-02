@@ -26,6 +26,7 @@ Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor 
 | Estimativas salariais: cache de pesquisas (90 dias) | pronto |
 | Avaliação de pretensão salarial (`evaluate_salary`), com prioridade da faixa publicada na vaga | pronto |
 | Política salarial lida pelo MCP (faixa por modalidade, local e moeda) | pronto |
+| Busca de vagas por código na Gupy (`search_jobs`) e sugestão de buscas (`suggest_job_searches`) | pronto |
 | Triagem de uma vaga numa chamada (`triage_job`), com critérios fixos configuráveis | pronto |
 | Busca de vagas: registro de buscas (evita repetir em 24 h) | pronto |
 | Busca de vagas: aderência da vaga ao currículo (`score_job_match`) | pronto |
@@ -311,6 +312,8 @@ Status possíveis: `a_aplicar` (vaga encontrada e triada, aguardando candidatura
 | `list_resumes` / `get_resume` | consulta currículos personalizados gerados |
 | `find_salary_estimate` | consulta o cache de salários (empresa e mercado; chamar antes de pesquisar) |
 | `save_salary_estimate` | registra uma pesquisa de salários (inclusive "nada encontrado") |
+| `suggest_job_searches` | monta as buscas a partir dos cargos alvo, dos locais e das skills do currículo |
+| `search_jobs` | executa uma busca na Gupy, registra e marca as vagas já registradas (outros sites: navegador) |
 | `find_job_search` / `save_job_search` | consulta e registra buscas de vagas por site, consulta e local |
 | `evaluate_salary` | decide aplicar/não aplicar/pesquisar e o valor de pretensão; lê a política salarial e escolhe a faixa pela modalidade, local e moeda da vaga |
 

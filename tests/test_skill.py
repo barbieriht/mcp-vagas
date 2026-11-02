@@ -143,3 +143,9 @@ def test_triage_starts_with_triage_job_and_keeps_manual_steps_as_plan_b():
     assert triage.index("`triage_job`") < triage.index("plano B") < triage.index("`find_application`")
     # Critérios fixos ficam no arquivo pessoal, não no texto da Skill.
     assert "CI&T" not in text and "criterios-triagem.md" in triage
+
+
+def test_search_flow_uses_the_search_tools():
+    text = (SKILL_DIR / "buscar.md").read_text(encoding="utf-8")
+
+    assert text.index("`suggest_job_searches`") < text.index("`search_jobs`") < text.index("`triage_job`")

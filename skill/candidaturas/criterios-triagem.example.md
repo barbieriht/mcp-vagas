@@ -8,5 +8,8 @@ Lidos pelo MCP em `triage_job` (variável `VAGAS_TRIAGE_CRITERIA`). Listas separ
 - Empresas ignoradas: Empresa Exemplo
 - Termos de vaga exclusiva PcD: exclusiva para PcD, exclusiva PcD, exclusiva para pessoas com deficiência, vaga afirmativa para PcD
 - Locais aceitos para híbrido e presencial: São Paulo, Campinas
+- Senioridades buscadas:
 
 Cargos são os valores de `role_key`: data_scientist, ml_engineer, ai_engineer, data_engineer, data_analyst. Vagas remotas são sempre aceitas pelo local. Vaga híbrida ou presencial fora dos locais aceitos não é descartada: a triagem pede o seu julgamento (deslocamento viável?).
+
+"Senioridades buscadas" é opcional e só afeta `suggest_job_searches`: com valores (estagio, junior, pleno, senior, especialista), cada cargo vira uma busca por senioridade; vazio, busca sem senioridade.
