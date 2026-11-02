@@ -323,6 +323,26 @@ def build_server(
             return s.save_master_draft(resume, overwrite=overwrite)
 
     @server.tool()
+    def diff_master(items: dict[str, Any]) -> dict[str, Any]:
+        """Compara itens das fontes com o currículo geral aprovado, para a ATUALIZAÇÃO do currículo geral.
+
+        items: seções no formato do currículo geral (headline, summary, experience, education,
+        certifications, volunteering, languages, skills), como o "items" de import_linkedin_profile
+        ou itens montados a partir do PDF. Casa cada item por chave natural, tolerando grafias e
+        aliases de título: experience = empresa + cargo + início; certifications = credential_id
+        (senão nome + emissor); education = instituição + grau; volunteering = organização + papel;
+        languages = nome; skills = termo.
+        Retorna {new: {seção: itens novos, com IDs únicos; skills: {grupo: termos}}, changed:
+        [{section, id, fields: {campo: {old, new}}}], missing: {seção: [IDs do aprovado que não vieram
+        nas fontes]}, draft}. draft = currículo aprovado com os novos acrescentados e os IDs
+        preservados; as alterações (changed) NÃO são aplicadas e nada é removido (o currículo geral é
+        um superconjunto). Nada é salvo: revise com o usuário, aplique no draft o que ele aprovar e
+        chame save_master_draft. Seções ausentes de items não geram "missing".
+        """
+        with resumes() as s:
+            return s.diff_master(items)
+
+    @server.tool()
     def approve_master() -> dict[str, Any]:
         """Promove o rascunho atual (inclusive edições feitas à mão) a currículo geral aprovado.
 

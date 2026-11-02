@@ -149,3 +149,9 @@ def test_search_flow_uses_the_search_tools():
     text = (SKILL_DIR / "buscar.md").read_text(encoding="utf-8")
 
     assert text.index("`suggest_job_searches`") < text.index("`search_jobs`") < text.index("`triage_job`")
+
+
+def test_master_update_uses_diff_master():
+    text = (SKILL_DIR / "curriculo.md").read_text(encoding="utf-8")
+
+    assert text.index("`import_linkedin_profile`") < text.index("`diff_master`") < text.rindex("`approve_master`")

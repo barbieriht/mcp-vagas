@@ -26,7 +26,14 @@ O fluxo termina num destes estados:
       - leia o endereço (href) dos links "Show credential" pela árvore de acessibilidade da página (por exemplo, read_page ou find no Claude in Chrome), sem abrir cada credencial;
       - copie os títulos dos anexos junto com o texto da experiência;
       - chame `save_resume_source` (kind "linkedin") com a URL do perfil e o texto de cada seção, e feche a aba.
-4. **Combinar.** Monte o rascunho em inglês com a união das fontes:
+4. **Atualização: diferenças pelo MCP.** Se já existe um currículo geral aprovado, chame `diff_master` com os `items` de `import_linkedin_profile` (e os itens que só o PDF traz, no mesmo formato). Ela devolve:
+   - `new`: itens novos, já com IDs únicos, e termos novos de skills por grupo;
+   - `changed`: campos que mudaram em itens existentes, com o valor antigo e o novo;
+   - `missing`: itens aprovados que não vieram nas fontes. Eles nunca são removidos, porque o currículo geral é um superconjunto;
+   - `draft`: o aprovado com os novos acrescentados e os IDs preservados.
+
+   Mostre ao Thiago só as diferenças. Aplique no `draft` as alterações que ele aprovar, seguindo as regras dos passos 5 e 6, e grave com `save_master_draft`. Na criação (sem currículo aprovado), siga o passo de combinação abaixo.
+5. **Combinar.** Monte o rascunho em inglês com a união das fontes:
    - Itens vindos de `import_linkedin_profile` já estão no formato certo: use-os como base e acrescente o que só o PDF traz.
    - About vira o `summary`; headlines diferentes entre as fontes ficam em `headline_variants`, com a principal em `headline`.
    - Cada cargo de Experience vira um item próprio, inclusive cargos diferentes na mesma empresa, com descrição em parágrafos. Qualificadores do cargo ("EMBRAPII-funded project") vão em `context`. Outras formas do título usadas nas fontes ficam em `title_aliases`.
@@ -37,7 +44,7 @@ O fluxo termina num destes estados:
    - Skills e idiomas vêm do PDF.
 
    IDs são slugs legíveis e estáveis (`exp-empresa-cargo`, `exp-empresa-cargo-p1`).
-5. **Diferenças entre fontes.** Classifique cada diferença e resolva conforme o tipo:
+6. **Diferenças entre fontes.** Classifique cada diferença e resolva conforme o tipo:
 
    | Tipo | Exemplos | O que fazer |
    |---|---|---|
@@ -50,14 +57,14 @@ O fluxo termina num destes estados:
    - Uma frase que aparece em mais de um cargo fica em cada cargo onde a fonte a coloca.
    - Parágrafos equivalentes entre PDF e LinkedIn viram um só, com todos os termos técnicos que aparecem em qualquer das versões.
    - Credencial com o mesmo `credential_id` repetida na mesma fonte vira um item só, com a data de emissão mais antiga.
-   - Qualificadores, previsões e variantes vão para os campos próprios descritos no passo 4.
-6. **Rascunho.** Chame `save_master_draft`. Se ele recusar por haver edições do Thiago ainda não aprovadas, pergunte se pode sobrescrever.
-7. **Revisão.** Mostre ao Thiago:
+   - Qualificadores, previsões e variantes vão para os campos próprios descritos no passo 5.
+7. **Rascunho.** Chame `save_master_draft`. Se ele recusar por haver edições do Thiago ainda não aprovadas, pergunte se pode sobrescrever.
+8. **Revisão.** Mostre ao Thiago:
    - o caminho do arquivo;
    - cada item do `review` (números, datas, nomes e termos que não estão em nenhuma fonte), já corrigindo os que forem erro de transcrição;
-   - os conflitos factuais do passo 5, com a pergunta sobre cada um;
+   - os conflitos factuais do passo 6, com a pergunta sobre cada um;
    - as seções do LinkedIn cuja contagem não foi verificada.
 
    Peça que ele revise e edite o arquivo.
-8. **Erros na fonte.** Quando a leitura revelar erros no próprio LinkedIn ou no PDF (credenciais duplicadas, datas inconsistentes, títulos divergentes), sugira ao Thiago corrigi-los lá, além de resolver no rascunho.
-9. **Aprovação.** Quando o Thiago disser que revisou e aprova, chame `approve_master`.
+9. **Erros na fonte.** Quando a leitura revelar erros no próprio LinkedIn ou no PDF (credenciais duplicadas, datas inconsistentes, títulos divergentes), sugira ao Thiago corrigi-los lá, além de resolver no rascunho.
+10. **Aprovação.** Quando o Thiago disser que revisou e aprova, chame `approve_master`.
