@@ -21,7 +21,7 @@ from typing import Any
 
 from vagas.db import default_db_path
 from vagas.job_posting import Fetcher, JobPostingError, classify_role, http_fetch, read_job_posting
-from vagas.models import CURRENCIES, ROLE_KEYS
+from vagas.models import CURRENCIES, ROLE_KEYS, SENIORITIES
 from vagas.normalize import normalize_company, normalize_text
 from vagas.repo import Repo, VagasError
 from vagas.resume_repo import ResumeStore, default_draft_path
@@ -37,6 +37,7 @@ _KEYS = {
     "empresas ignoradas": "ignored_companies",
     "termos de vaga exclusiva pcd": "pcd_terms",
     "locais aceitos para hibrido e presencial": "accepted_locations",
+    "senioridades buscadas": "search_seniorities",
 }
 
 
@@ -48,6 +49,8 @@ class TriageCriteria:
     ignored_companies: tuple[str, ...] = ()  # normalizados como empresa
     pcd_terms: tuple[str, ...] = ()  # normalizados como texto
     accepted_locations: tuple[str, ...] = ()  # normalizados como texto
+    location_names: tuple[str, ...] = ()  # locais aceitos como escritos, para as buscas
+    search_seniorities: tuple[str, ...] = ()  # usadas só em suggest_job_searches
 
 
 def default_criteria_path(db_path: Path | str | None = None) -> Path:
@@ -97,6 +100,15 @@ def parse_criteria(text: str, source: str = "criterios-triagem.md") -> TriageCri
             values[field] = int(value)
         elif field == "ignored_companies":
             values[field] = tuple(normalize_company(v) for v in items)
+        elif field == "search_seniorities":
+            unknown = [v for v in items if v not in SENIORITIES]
+            if unknown:
+                raise VagasError(f"Senioridade desconhecida em {where}: {', '.join(unknown)}. Use: "
+                                 f"{', '.join(SENIORITIES)}.")
+            values[field] = tuple(items)
+        elif field == "accepted_locations":
+            values[field] = tuple(normalize_text(v) for v in items)
+            values["location_names"] = tuple(items)
         else:
             values[field] = tuple(normalize_text(v) for v in items)
     if not values.get("target_roles"):

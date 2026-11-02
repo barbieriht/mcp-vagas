@@ -65,3 +65,12 @@ def test_default_path_is_env_or_next_to_db(tmp_path, monkeypatch):
     assert default_criteria_path(tmp_path / "vagas.db") == tmp_path / "criterios-triagem.md"
     monkeypatch.setenv("VAGAS_TRIAGE_CRITERIA", str(tmp_path / "c.md"))
     assert default_criteria_path(tmp_path / "vagas.db") == tmp_path / "c.md"
+
+
+def test_search_seniorities_and_location_names():
+    c = parse_criteria(CRITERIA + "- Senioridades buscadas: pleno, senior\n")
+
+    assert c.search_seniorities == ("pleno", "senior")
+    assert c.location_names == ("São Carlos", "São Paulo")
+    with pytest.raises(VagasError, match="mestre"):
+        parse_criteria(CRITERIA + "- Senioridades buscadas: mestre\n")

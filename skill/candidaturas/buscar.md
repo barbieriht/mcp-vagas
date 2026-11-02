@@ -7,16 +7,10 @@ A busca termina quando:
 
 ## Passos
 
-1. **Montar as buscas.** Chame `get_master_resume` e leia a [politica-salarial.md](politica-salarial.md). Monte consultas combinando:
-   - cargos alvo: Data Scientist, Machine Learning Engineer, AI Engineer, Data Engineer e Data Analyst;
-   - variações em português dos cargos;
-   - a senioridade que o currículo sustenta;
-   - de uma a três tecnologias centrais do currículo.
-
-   Use estes locais: remoto, São Carlos e São Paulo. Use estes sites: LinkedIn, Gupy, Indeed e Glassdoor. Se o Thiago pediu algo específico (cargo, empresa, local), use isso.
-2. **Evitar repetição.** Para cada consulta, site e local, chame `find_job_search`. Se `recent` for verdadeiro, pule essa combinação.
-3. **Executar.** Faça a busca no site, filtrando por vagas recentes quando o site permitir. Registre com `save_job_search`, incluindo os filtros usados e `results_count`, também quando não houver resultados. Guarde o `search_id`.
-4. **Triar cada resultado.** Faça a triagem do [SKILL.md](SKILL.md) de cada vaga, passando o `search_id` para `triage_job`. A triagem já lê e registra a vaga; abra a vaga no navegador só quando a triagem automática falhar.
+1. **Montar as buscas.** Chame `suggest_job_searches`. Ela combina os cargos alvo, os locais dos critérios de triagem e as skills mais citadas no currículo geral. Se o Thiago pediu algo específico (cargo, empresa, local), ajuste as consultas ou acrescente outras.
+2. **Executar na Gupy.** Para cada busca sugerida sem `recent`, chame `search_jobs` com a consulta, o site, o local e os filtros. Ela já consulta `find_job_search`, registra a busca e devolve o `search_id`. Se voltar `skipped`, a busca foi feita há pouco: pule.
+3. **Outros sites (LinkedIn, Indeed, Glassdoor).** Enquanto `search_jobs` não os atende, busque pelo navegador. Antes, chame `find_job_search`; se `recent` for verdadeiro, pule. Filtre por vagas recentes quando o site permitir e registre com `save_job_search`, incluindo os filtros e `results_count`, também quando não houver resultados.
+4. **Triar cada resultado.** Faça a triagem do [SKILL.md](SKILL.md) de cada vaga com `registered` vazio, passando o `search_id` para `triage_job`. As que já têm `registered` entram no resumo com o status atual. A triagem já lê e registra a vaga; abra a vaga no navegador só quando a triagem automática falhar.
 5. **Resumo.** Apresente ao Thiago:
    - as novas vagas `a_aplicar`, da maior para a menor aderência, com empresa, cargo, modalidade, `match_score`, os principais termos ausentes e a pretensão sugerida;
    - as descartadas, com o motivo de cada uma;
