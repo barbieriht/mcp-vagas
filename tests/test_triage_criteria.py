@@ -74,3 +74,39 @@ def test_search_seniorities_and_location_names():
     assert c.location_names == ("São Carlos", "São Paulo")
     with pytest.raises(VagasError, match="mestre"):
         parse_criteria(CRITERIA + "- Senioridades buscadas: mestre\n")
+
+
+def test_values_are_read_the_way_people_write_them():
+    c = parse_criteria(
+        "- Cargos alvo: Data Scientist, ML-Engineer, cientista de dados.\n"
+        "- Cargos condicionados à aderência: Engenheiro de Dados;\n"
+        "- Aderência mínima: 60%.\n"
+        "- Empresas ignoradas: CI&T.\n"
+        "- Termos de vaga exclusiva PcD: Exclusiva para PcD.\n"
+        "- Locais aceitos para híbrido e presencial: São Carlos, São Paulo.\n"
+        "- Senioridades buscadas: Pleno, Sênior, Júnior, Estágio.\n"
+    )
+
+    assert c.target_roles == ("data_scientist", "ml_engineer")
+    assert c.conditional_roles == ("data_engineer",)
+    assert c.min_match == 60
+    assert c.ignored_companies == ("ci&t",)
+    assert c.pcd_terms == ("exclusiva para pcd",)
+    assert c.location_names == ("São Carlos", "São Paulo")
+    assert c.search_seniorities == ("pleno", "senior", "junior", "estagio")
+
+
+def test_errors_list_the_accepted_values():
+    with pytest.raises(VagasError, match=r"astronauta.*data_scientist.*data_analyst"):
+        parse_criteria("- Cargos alvo: astronauta\n")
+    with pytest.raises(VagasError, match=r"mestre.*estagio.*especialista"):
+        parse_criteria("- Cargos alvo: data_scientist\n- Senioridades buscadas: mestre\n")
+
+
+def test_example_documents_every_accepted_value():
+    from vagas.models import ROLE_KEYS, SENIORITIES
+
+    text = EXAMPLE.read_text(encoding="utf-8")
+    values = text[text.index("## Valores aceitos"):]
+    assert all(f"`{v}`" in values for v in (*ROLE_KEYS, *SENIORITIES) if v != "outro")
+    assert "0 a 100" in values

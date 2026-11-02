@@ -20,7 +20,7 @@ from urllib.parse import quote, urlencode
 
 from vagas.job_posting import Fetcher, JobPostingError, http_fetch, parse_salary_text
 from vagas.job_search import JobSearchStore
-from vagas.models import WORK_MODES
+from vagas.models import ROLE_NAMES, WORK_MODES
 from vagas.normalize import canonical_url
 from vagas.repo import Repo, VagasError
 from vagas.resume_repo import ResumeStore, default_draft_path
@@ -39,13 +39,7 @@ _TO_GUPY_MODE = {"remoto": "remote", "hibrido": "hybrid", "presencial": "on-site
 _FROM_GUPY_MODE = {"remote": "remoto", "hybrid": "hibrido", "on-site": "presencial", "onsite": "presencial"}
 _GUPY_CONTRACTS = {"vacancy_type_effective": "clt", "vacancy_type_legal_entity": "pj"}
 
-ROLE_QUERIES = {
-    "data_scientist": ("cientista de dados", "data scientist"),
-    "ml_engineer": ("engenheiro de machine learning", "machine learning engineer"),
-    "ai_engineer": ("engenheiro de ia", "ai engineer"),
-    "data_engineer": ("engenheiro de dados", "data engineer"),
-    "data_analyst": ("analista de dados", "data analyst"),
-}
+ROLE_QUERIES = ROLE_NAMES
 SENIORITY_WORDS = {"estagio": "estágio", "junior": "júnior", "pleno": "pleno", "senior": "sênior",
                    "especialista": "especialista"}
 
