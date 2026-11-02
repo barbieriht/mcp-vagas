@@ -418,7 +418,8 @@ def build_server(
         Se o julgamento reprovar a vaga, use update_application com status "descartada".
         Página bloqueada ou sem dados estruturados: erro; leia a vaga pelo navegador e faça a triagem
         pelos passos manuais da Skill.
-        Retorna {decision, application, posting (sem a descrição), match, salary, reasons, needs}.
+        Retorna {decision, application, posting (sem a descrição), match ({score, matched, missing,
+        related}, como em score_job_match), salary, reasons, needs}.
         """
         with triages() as t:
             return t.triage_job(url, search_id=search_id, not_duplicate=not_duplicate)
@@ -432,8 +433,10 @@ def build_server(
         siglas, nomes como PyTorch ou C++) e separa os que aparecem no currículo geral ("matched")
         dos que não aparecem ("missing"). "score" é a proporção de presentes, de 0 a 100 (null se a
         descrição não tiver termos técnicos). Passe company, title e location da vaga: palavras
-        deles são ignoradas. A nota é INDICATIVA: use-a para justificar a triagem e para escolher o
-        que destacar no currículo personalizado; a decisão de aplicar continua sendo da triagem.
+        deles são ignoradas. "related" = {termo ausente: [termos da mesma família no currículo]}
+        (ex.: XGBoost ausente, relacionado LightGBM): lacuna de ferramenta, não de competência; não
+        conta na nota. A nota é INDICATIVA: use-a para justificar a triagem e para escolher o que
+        destacar no currículo personalizado; a decisão de aplicar continua sendo da triagem.
         """
         with resumes() as s:
             return s.score_job_match(description, company=company, title=title, location=location)

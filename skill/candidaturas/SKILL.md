@@ -43,7 +43,7 @@ Toda vaga passa pela triagem antes de qualquer outra ação. Ela termina com a v
    - **Prioridade:** vagas júnior em empresas grandes ou conhecidas merecem atenção extra.
 
    Se o julgamento reprovar a vaga, chame `update_application` com status `descartada` e `discard_reason` explicando o critério.
-4. **Resumo.** Informe ao Thiago a decisão, os motivos (`reasons`), a aderência e, se houver, o valor de pretensão (`value_to_inform`).
+4. **Resumo.** Informe ao Thiago a decisão, os motivos (`reasons`), a aderência e, se houver, o valor de pretensão (`value_to_inform`). Termos ausentes com relacionados (`related`) são diferença de ferramenta, não de competência: mostre-os assim ("XGBoost: você tem LightGBM").
 
 ### Triagem manual (plano B)
 

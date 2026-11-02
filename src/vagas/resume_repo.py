@@ -33,6 +33,7 @@ def default_draft_path(db_path: Path | str | None = None) -> Path:
 # Tecnologias reconhecidas mesmo no início de frase e sem marcas de sigla (minúsculas).
 TECH_TERMS = frozenset("""
 python sql spark pyspark kafka airflow pandas numpy scipy polars docker kubernetes terraform ansible tableau looker
+prefect dagster luigi wandb chromadb pgvector milvus catboost
 statsmodels sklearn scikit-learn matplotlib seaborn plotly optuna ray dask
 databricks snowflake bigquery redshift athena glue lambda sagemaker vertex mlflow kubeflow dbt hadoop hive scala java
 kotlin rust go golang julia matlab elixir javascript typescript react node django flask fastapi streamlit pytorch
@@ -40,6 +41,36 @@ tensorflow keras jax xgboost lightgbm catboost langchain langgraph llamaindex hu
 anthropic bedrock qdrant pinecone weaviate chroma faiss elasticsearch opensearch postgres postgresql mysql mongodb
 redis cassandra neo4j git github gitlab jenkins linux bash azure gcp aws excel powerbi grafana prometheus kibana
 """.split())
+# Famílias de ferramentas equivalentes: um termo ausente da vaga aponta os da mesma família presentes no
+# currículo ("relacionados"), sem contar como presente na nota.
+TECH_FAMILIES: dict[str, tuple[str, ...]] = {
+    "gradient boosting": ("XGBoost", "LightGBM", "CatBoost"),
+    "mlops": ("MLflow", "Weights & Biases", "W&B", "wandb", "Kubeflow", "SageMaker", "Vertex AI"),
+    "nuvem": ("AWS", "Azure", "GCP"),
+    "bancos vetoriais": ("Qdrant", "Pinecone", "Weaviate", "ChromaDB", "Chroma", "PGVector", "Milvus", "FAISS"),
+    "orquestração": ("Airflow", "Prefect", "Dagster", "Luigi"),
+    "deep learning": ("PyTorch", "TensorFlow", "Keras", "JAX"),
+    "bi": ("Power BI", "PowerBI", "Tableau", "Looker", "Metabase", "Superset"),
+    "data warehouse": ("BigQuery", "Redshift", "Snowflake", "Databricks", "Synapse"),
+    "llm frameworks": ("LangChain", "LangGraph", "LlamaIndex", "Haystack"),
+    "streaming": ("Kafka", "Kinesis", "Pub/Sub", "RabbitMQ"),
+}
+
+
+def _related(missing: list[str], corpus: set[str]) -> dict[str, list[str]]:
+    related: dict[str, list[str]] = {}
+    for term in missing:
+        low = term.lower()
+        for family in TECH_FAMILIES.values():
+            if low not in {name.lower() for name in family}:
+                continue
+            found = [name for name in family if name.lower() != low
+                     and all(word in corpus for word in re.findall(r"[a-z0-9]+", name.lower()))]
+            if found:
+                related.setdefault(term, []).extend(n for n in found if n not in related.get(term, []))
+    return related
+
+
 # Siglas e palavras em maiúsculas que não são tecnologia.
 _COMMON_CAPS = frozenset("""
 clt pj pf rh sp rj mg pr sc rs br usa eua ltda sa me gptw todos para com nos voce voces ceo cto cfo we you our the
@@ -283,10 +314,11 @@ class ResumeStore:
         missing = [t for t in terms if not present(t)]
         total = len(matched) + len(missing)
         if total == 0:
-            return {"score": None, "matched": [], "missing": [],
+            return {"score": None, "matched": [], "missing": [], "related": {},
                     "note": "A descrição não tem termos técnicos reconhecíveis (tecnologias, siglas, nomes "
                             "próprios); avalie a aderência pela leitura da vaga."}
-        return {"score": round(100 * len(matched) / total), "matched": matched, "missing": missing, "note": None}
+        return {"score": round(100 * len(matched) / total), "matched": matched, "missing": missing,
+                "related": _related(missing, corpus), "note": None}
 
     def list_resumes(self, application_id: int | None = None) -> list[dict[str, Any]]:
         rows = self.conn.execute(

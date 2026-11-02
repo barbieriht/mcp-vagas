@@ -122,3 +122,38 @@ def test_noise_from_real_descriptions_is_ignored(store):
 
     assert result["missing"] == ["Statsmodels", "Spark"]
     assert "C++" in result["matched"] and "C#" in result["matched"]
+
+
+@pytest.fixture
+def ml_store(db_path, tmp_path):
+    conn = connect(db_path)
+    s = ResumeStore(conn, tmp_path / "curriculo.yaml")
+    resume = fictitious_resume()
+    resume["skills"].append({"id": "skills-ml", "label": "Machine Learning", "terms": ["LightGBM", "AWS", "Qdrant"]})
+    s.save_master_draft(resume)
+    s.approve_master()
+    yield s
+    conn.close()
+
+
+def test_missing_terms_point_to_related_ones_in_the_resume(ml_store):
+    result = ml_store.score_job_match("Requisitos: Python, XGBoost, Azure, Pinecone, MLflow e Kafka.")
+
+    assert result["missing"] == ["XGBoost", "Azure", "Pinecone", "MLflow", "Kafka"]
+    assert result["related"] == {"XGBoost": ["LightGBM"], "Azure": ["AWS"], "Pinecone": ["Qdrant"]}
+    assert result["score"] == 17  # relacionados não contam como presentes
+
+
+def test_no_related_when_nothing_missing_or_no_description_terms(ml_store):
+    assert ml_store.score_job_match("Python e LightGBM.")["related"] == {}
+    assert ml_store.score_job_match("we are a friendly team.")["related"] == {}
+
+
+@pytest.mark.anyio
+async def test_related_is_documented_in_the_tool(server):
+    from mcp import Client
+
+    async with Client(server) as client:
+        tools = {t.name: t for t in (await client.list_tools()).tools}
+
+    assert "related" in tools["score_job_match"].description and "related" in tools["triage_job"].description
