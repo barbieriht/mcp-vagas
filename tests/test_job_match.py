@@ -157,3 +157,47 @@ async def test_related_is_documented_in_the_tool(server):
         tools = {t.name: t for t in (await client.list_tools()).tools}
 
     assert "related" in tools["score_job_match"].description and "related" in tools["triage_job"].description
+
+
+def test_optional_terms_weigh_half_gupy_style(store):
+    result = store.score_job_match("Requisitos: Python e SQL. Diferenciais: Kafka, Spark e Airflow. "
+                                   "Benefícios: VR e Docker no dia a dia.")
+
+    assert result["missing"] == ["Kafka", "Spark", "Airflow", "Docker"]
+    assert result["optional"] == ["Kafka", "Spark", "Airflow"]
+    assert result["score"] == 44  # 2 / (2 + 1,5 + 1)
+
+
+def test_optional_terms_weigh_half_linkedin_style(store):
+    result = store.score_job_match("What you bring • Python • SQL • Kafka Nice to have • Spark • Airflow "
+                                   "Benefits • Health insurance")
+
+    assert result["optional"] == ["Spark", "Airflow"]
+    assert result["score"] == 50  # 2 / (2 + 1 + 0,5 + 0,5)
+
+
+def test_term_also_required_is_not_optional(store):
+    result = store.score_job_match("Requisitos: Kafka. Diferenciais: Kafka e Spark.")
+
+    assert result["optional"] == ["Spark"]
+
+
+def test_inline_desejavel_without_colon_is_not_a_section(store):
+    result = store.score_job_match("Python e Kafka. Inglês desejável. Spark é usado no time.")
+
+    assert result["optional"] == []
+    assert result["score"] == 33
+
+
+def test_short_family_names_are_matched_whole_not_by_letters(db_path, tmp_path):
+    conn = connect(db_path)
+    s = ResumeStore(conn, tmp_path / "curriculo.yaml")
+    resume = fictitious_resume()
+    resume["skills"].append({"id": "skills-letras", "label": "Letras", "terms": ["W", "B", "Power BI"]})
+    s.save_master_draft(resume)
+    s.approve_master()
+
+    result = s.score_job_match("Requisitos: Python, MLflow e Tableau.")
+    conn.close()
+
+    assert result["related"] == {"Tableau": ["Power BI"]}  # sem "MLflow: W&B" vindo das letras soltas
