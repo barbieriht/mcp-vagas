@@ -20,12 +20,12 @@ from pathlib import Path
 from typing import Any
 
 from vagas.db import default_db_path
-from vagas.job_posting import Fetcher, JobPostingError, classify_role, http_fetch, read_job_posting
+from vagas.job_posting import Fetcher, JobPostingError, http_fetch, read_job_posting
 from vagas.models import CURRENCIES, ROLE_KEYS, ROLE_NAMES, SENIORITIES
 from vagas.normalize import normalize_company, normalize_text
 from vagas.repo import Repo, VagasError
 from vagas.resume_repo import ResumeStore, default_draft_path
-from vagas.salary import SalaryStore
+from vagas.salary import SalaryStore, _city
 from vagas.salary_policy import default_policy_path
 
 _ITEM = re.compile(r"^\s{0,1}[-*]\s+(?P<key>[^:]+?)\s*:\s*(?P<value>.*?)\s*$")
@@ -135,6 +135,30 @@ def parse_criteria(text: str, source: str = "criterios-triagem.md") -> TriageCri
     return TriageCriteria(**values)
 
 
+_REF = re.compile(r"\bref\s*#?\s*(\d+)", re.I)
+_STOPWORDS = {"de", "da", "do", "das", "dos", "e", "em", "a", "o", "para", "com", "and", "of", "the", "in"}
+
+
+def _title_terms(title: str) -> set[str]:
+    base = re.split(r"\s+[|–—-]\s+|\s*\|", title)[0]
+    return set(re.findall(r"[a-z0-9]+", normalize_text(base))) - _STOPWORDS
+
+
+def _same_title(a: str, b: str) -> bool:
+    """Títulos equivalentes: mesmos termos (Jaccard >= 0,8) e, se ambos tiverem código REF#, o mesmo código."""
+    refs = _REF.search(a), _REF.search(b)
+    if all(refs) and refs[0].group(1) != refs[1].group(1):
+        return False
+    ta, tb = _title_terms(a), _title_terms(b)
+    return bool(ta and tb) and len(ta & tb) / len(ta | tb) >= 0.8
+
+
+def _same_place(a: str | None, b: str | None) -> bool:
+    """Mesma cidade, ou uma das vagas sem cidade (Brasil, remoto)."""
+    ca, cb = _city(a), _city(b)
+    return ca is None or cb is None or normalize_text(ca) == normalize_text(cb)
+
+
 def _contains(text: str, term: str) -> bool:
     return re.search(rf"(?<!\w){re.escape(term)}(?!\w)", text) is not None
 
@@ -171,7 +195,7 @@ class Triage:
         role_key, seniority = posting["role_key"], posting["seniority"]
 
         if not not_duplicate:
-            similar = self._similar(company, role_key, seniority)
+            similar = self._similar(posting)
             if similar:
                 return self._result("possivel_duplicata", None, posting, None, None, [], [{
                     "kind": "possivel_duplicata",
@@ -213,14 +237,16 @@ class Triage:
 
     # --- Etapas ---------------------------------------------------------------------------------
 
-    def _similar(self, company: str, role_key: str, seniority: str | None) -> list[dict[str, Any]]:
+    def _similar(self, posting: dict[str, Any]) -> list[dict[str, Any]]:
+        """Vagas da mesma empresa que podem ser esta, publicada em outra plataforma: título equivalente
+        e local compatível. Mesmo título em outra cidade, ou outro código de vaga (REF#), é outra vaga."""
+        company = posting["company"]
         if not company:
             return []
         similar = []
         for app in self.repo.find_application(company=company):
-            other_role, other_seniority, _ = classify_role(app["role"])
-            if (other_role, other_seniority) == (role_key, seniority):
-                similar.append({k: app[k] for k in ("id", "company", "role", "source", "url", "status")})
+            if _same_title(app["role"], posting["title"]) and _same_place(app["location"], posting["location"]):
+                similar.append({k: app[k] for k in ("id", "company", "role", "location", "source", "url", "status")})
         return similar
 
     @staticmethod
@@ -319,9 +345,11 @@ class Triage:
             return None
         if result["decision"] == "pesquisar" or result["needs_research"]:
             scope = "da empresa e de mercado" if result["decision"] == "pesquisar" else "da empresa"
-            needs.append({"kind": "pesquisa_salarial", "detail": (
-                f"Pesquise salários {scope} ({role_key}, {seniority}, {currency}), registre com "
-                "save_salary_estimate e chame evaluate_salary de novo com o application_id.")})
+            needs.append({"kind": "pesquisa_salarial", "queries": result["research_queries"], "detail": (
+                f"Pesquise salários {scope} ({role_key}, {seniority}, {currency}) com as consultas de queries, "
+                "na ordem (cargo e empresa primeiro, mercado por último). Registre com save_salary_estimate: dado "
+                "da empresa com company; nada encontrado na empresa também (points vazio, com company), para não "
+                "repetir; dado de mercado sem company. Depois chame evaluate_salary de novo com o application_id.")})
         return result
 
     def _save_published(self, app, posting, currency, published, needs) -> None:

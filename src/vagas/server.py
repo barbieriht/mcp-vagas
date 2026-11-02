@@ -413,7 +413,8 @@ def build_server(
         - "a_aplicar": registrada na lista de trabalho; resolva cada item de needs.
         needs = o que as regras não decidem, cada um {kind, detail} com a ação a tomar: "cargo" (cargo
         não reconhecido), "aderencia", "local" (híbrido/presencial fora dos locais aceitos), "modalidade",
-        "senioridade", "pesquisa_salarial" (pesquise e chame evaluate_salary de novo), "salario".
+        "senioridade", "pesquisa_salarial" (pesquise com as consultas em queries, as research_queries de
+        evaluate_salary, e chame evaluate_salary de novo), "salario".
         Se o julgamento reprovar a vaga, use update_application com status "descartada".
         Página bloqueada ou sem dados estruturados: erro; leia a vaga pelo navegador e faça a triagem
         pelos passos manuais da Skill.
@@ -527,7 +528,13 @@ def build_server(
         vaga como descartada usando reason como motivo) ou "pesquisar" (pesquise salários e chame
         save_salary_estimate antes). needs_research=true sugere pesquisar também a empresa.
         Retorna {decision, value_to_inform, basis, contract, median, range, sources, confidence,
-        needs_research, reason, policy: {band, mode, my_min, my_max, pj_multiplier}}.
+        needs_research, reason, policy: {band, mode, my_min, my_max, pj_multiplier}, research_queries}.
+        research_queries: quando faltam dados (decision "pesquisar" ou needs_research), consultas de
+        pesquisa prontas, da mais específica à mais geral: cargo da vaga + empresa + cidade, cargo +
+        empresa, empresa no Levels.fyi, mercado na cidade e no Brasil. Use na ordem e registre com
+        save_salary_estimate: dado da empresa com company; empresa pesquisada sem dados também, com
+        points vazio e company (evita repetir a busca); dado de mercado sem company. Remuneração total
+        anual (ex.: Levels.fyi) vai com period "ano".
         """
         with salaries() as s:
             return s.evaluate_salary(
