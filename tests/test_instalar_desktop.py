@@ -110,3 +110,16 @@ def test_command_zips_have_one_folder_each(tmp_path):
     assert [z.name for z in zips] == ["apply.zip", "screen.zip"]
     with zipfile.ZipFile(zips[0]) as z:
         assert z.namelist() == ["apply/SKILL.md"]
+
+
+def test_policy_link_is_created_kept_and_never_replaces_a_real_file(skill, tmp_path):
+    data = tmp_path / "data"
+
+    assert inst.link_policy(data, skill) == "criado"
+    assert (data / "politica-salarial.md").read_text() == "- Modo: minimo\n"
+    assert inst.link_policy(data, skill) == "ok"
+
+    (data / "politica-salarial.md").unlink()
+    write(data / "politica-salarial.md", "própria\n")
+    assert "mantido" in inst.link_policy(data, skill)
+    assert (data / "politica-salarial.md").read_text() == "própria\n"

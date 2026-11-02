@@ -48,3 +48,10 @@ def test_mcp_registration_detection(tmp_path):
     assert inst.mcp_registered(claude_json) is False
     claude_json.write_text('{"mcpServers": {"vagas": {}}}')
     assert inst.mcp_registered(claude_json) is True
+
+
+def test_policy_link_points_from_next_to_the_db_to_the_skill(tmp_path):
+    link, target = inst.policy_link(tmp_path / "data", REPO)
+
+    assert link == tmp_path / "data" / "politica-salarial.md"
+    assert target == REPO / "skill" / "candidaturas" / "politica-salarial.md"

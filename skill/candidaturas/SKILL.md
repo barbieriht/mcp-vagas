@@ -7,7 +7,7 @@ description: Vagas de emprego do Thiago com o MCP "vagas". Use para buscar vagas
 
 Fontes da verdade:
 - **Currículo geral aprovado** (`get_master_resume`) para experiência, formação, trabalho voluntário, certificações, skills e idiomas.
-- [politica-salarial.md](politica-salarial.md) para a política salarial.
+- [politica-salarial.md](politica-salarial.md) para a política salarial. O MCP a lê sozinho em `evaluate_salary`.
 - [perfil.md](perfil.md) para os dados de formulário. Ele é carregado só na hora de preencher.
 - **MCP "vagas"** como registro de tudo o que acontece com cada vaga.
 
@@ -46,7 +46,7 @@ Toda vaga passa pela triagem antes de qualquer outra ação. Ela termina com a v
 6. **Salário.** Mapeie o cargo para `role_key` (Data Scientist: `data_scientist`; ML Engineer: `ml_engineer`; AI Engineer: `ai_engineer`; engenheiro de dados: `data_engineer`; analista de dados: `data_analyst`) e a senioridade para o enum do MCP.
    1. Se a vaga publica faixa salarial: chame `save_salary_estimate` com source "vaga", a empresa e o `application_id`.
    2. Senão, chame `find_salary_estimate` com a empresa. Para o escopo que não estiver fresco (`fresh_company`, `fresh_market`), pesquise salários na web (Glassdoor, LinkedIn Salary, guias salariais) e registre com `save_salary_estimate`, uma linha por dado, com fonte e URL. Se não encontrar nada, registre a pesquisa com a lista de pontos vazia.
-   3. Chame `evaluate_salary` com o `application_id` e a política de [politica-salarial.md](politica-salarial.md): `my_min` e `my_max` da faixa da modalidade da vaga, o modo e o `pj_multiplier`.
+   3. Chame `evaluate_salary` com o `application_id`, o regime (`contract`) e a moeda da vaga. O MCP lê a política salarial e escolhe a faixa pela modalidade e pelo local da candidatura; não passe valores da política. Se o local não estiver coberto pela política, o erro diz isso: confira o local com o Thiago.
       - `pesquisar`: complete a pesquisa do passo anterior e avalie de novo.
       - `nao_aplicar`: chame `update_application` com status `descartada` e `discard_reason` igual ao `reason`.
       - `aplicar`: a vaga segue na lista de trabalho, e o `value_to_inform` será a pretensão informada.

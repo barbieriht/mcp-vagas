@@ -127,3 +127,10 @@ async def test_commands_cite_only_identifiers_the_server_knows(server):
     unknown = {(p.parent.name, i) for p in COMMANDS for i in SNAKE_IN_BACKTICKS.findall(p.read_text()) if i not in known}
 
     assert unknown == set()
+
+
+def test_triage_lets_the_mcp_read_the_salary_policy():
+    text = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    step = next(line for line in text.splitlines() if "Chame `evaluate_salary`" in line)
+
+    assert "my_min" not in step and "pj_multiplier" not in step

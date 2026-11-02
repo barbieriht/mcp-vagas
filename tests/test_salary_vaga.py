@@ -157,7 +157,8 @@ def test_evaluation_is_recorded_on_the_application(store, app, conn):
     assert saved["decision"] == result["decision"] == "aplicar"
     assert saved["value_to_inform"] == 13000
     assert saved["evaluated_at"] == T0.isoformat(timespec="seconds")
-    assert saved["policy"] == {"mode": "minimo", "my_min": 10000, "my_max": 14000, "pj_multiplier": 1.4}
+    assert saved["policy"] == {"band": None, "mode": "minimo", "my_min": 10000, "my_max": 14000,
+                               "pj_multiplier": 1.4}
 
 
 def test_latest_evaluation_replaces_previous(store, app, conn):

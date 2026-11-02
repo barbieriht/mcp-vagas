@@ -84,6 +84,20 @@ def unfilled(skill_dir: Path) -> list[str]:
     return problems
 
 
+def link_policy(data_dir: Path, skill_dir: Path) -> str:
+    """Symlink da política salarial ao lado do banco para a da Skill; nunca substitui um arquivo real."""
+    link, target = data_dir / "politica-salarial.md", skill_dir / "politica-salarial.md"
+    if link.is_symlink() and link.resolve() == target.resolve():
+        return "ok"
+    if link.exists() and not link.is_symlink():
+        return f"{link} é um arquivo próprio (mantido; o MCP usa esse)"
+    if link.is_symlink():
+        link.unlink()
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(target)
+    return "criado"
+
+
 def build_command_zips(commands_dir: Path, dest_dir: Path) -> list[Path]:
     """Um zip por comando (pasta com o SKILL.md do comando)."""
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -198,6 +212,9 @@ def main(argv: list[str] | None = None) -> None:
         print(f"    já estava atualizado: {config_path}")
     for key, value in env.items():
         print(f"    {key}={value}")
+
+    step("Ligando a política salarial lida pelo MCP")
+    print(f"    {link_policy(Path(env['VAGAS_DB']).parent, SKILL_DIR)}")
 
     step("Testando o servidor como o Desktop vai chamá-lo")
     smoke_test(distro, python)

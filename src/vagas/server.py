@@ -26,6 +26,7 @@ from vagas.job_posting import JobPostingError, http_fetch, read_job_posting as f
 from vagas.job_search import JobSearchStore
 from vagas.linkedin_import import LinkedInImporter
 from vagas.salary import SalaryPoint, SalaryStore
+from vagas.salary_policy import default_policy_path
 from vagas.resume_repo import ResumeStore, default_draft_path
 
 
@@ -62,7 +63,7 @@ def build_server(
         return store(lambda conn: ResumeStore(conn, draft_path or default_draft_path(db_path)))
 
     def salaries():
-        return store(SalaryStore)
+        return store(lambda conn: SalaryStore(conn, policy_path=default_policy_path(db_path)))
 
     def job_searches():
         return store(JobSearchStore)
@@ -460,32 +461,38 @@ def build_server(
         seniority: Seniority,
         currency: Currency,
         contract: Contract,
-        my_min: float,
+        work_mode: WorkMode | None = None,
+        location: str | None = None,
+        my_min: float | None = None,
         my_max: float | None = None,
-        mode: SalaryMode = "minimo",
+        mode: SalaryMode | None = None,
         pj_multiplier: float | None = None,
         company: str | None = None,
         application_id: int | None = None,
     ) -> dict[str, Any]:
         """Triagem salarial de uma vaga e valor de pretensão a informar no formulário.
 
-        Use a política do perfil.md: my_min/my_max = faixa MENSAL em CLT da modalidade da vaga,
-        mode ("minimo": aplicar se a mediana >= mínimo; "faixa": só se estiver dentro da faixa) e
-        pj_multiplier. contract = regime da vaga (desconhecido é tratado como CLT); para vaga PJ a
-        faixa é multiplicada e o valor sai em PJ. Base: faixa publicada na vaga (application_id),
-        senão dados frescos da empresa, senão de mercado. Com application_id, a avaliação fica
-        gravada na candidatura (salary_evaluation, visível em get_history).
+        Informe a modalidade (work_mode) e o local (location) da vaga: o MCP lê a política salarial
+        (politica-salarial.md, em VAGAS_SALARY_POLICY) e escolhe sozinho a faixa, o modo e o
+        multiplicador PJ; não leia nem interprete o arquivo. Com application_id, work_mode e
+        location vêm da candidatura quando omitidos. my_min/my_max (faixa MENSAL em CLT), mode e
+        pj_multiplier só para sobrepor a política. contract = regime da vaga (desconhecido é tratado
+        como CLT); para vaga PJ a faixa CLT é multiplicada e o valor sai em PJ. Base: faixa
+        publicada na vaga (application_id), senão dados frescos da empresa, senão de mercado. Com
+        application_id, a avaliação fica gravada na candidatura (salary_evaluation, em get_history).
+        Local não coberto pela política ou arquivo ausente/incompleto: erro dizendo o que corrigir.
 
         decision: "aplicar" (use value_to_inform no campo de pretensão), "nao_aplicar" (registre a
         vaga como descartada usando reason como motivo) ou "pesquisar" (pesquise salários e chame
         save_salary_estimate antes). needs_research=true sugere pesquisar também a empresa.
         Retorna {decision, value_to_inform, basis, contract, median, range, sources, confidence,
-        needs_research, reason}.
+        needs_research, reason, policy: {band, mode, my_min, my_max, pj_multiplier}}.
         """
         with salaries() as s:
             return s.evaluate_salary(
                 role_key, seniority, currency, contract, my_min, my_max=my_max, mode=mode,
                 pj_multiplier=pj_multiplier, company=company, application_id=application_id,
+                work_mode=work_mode, location=location,
             )
 
     @server.tool()

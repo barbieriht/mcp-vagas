@@ -12,6 +12,7 @@ import sqlite3
 import statistics
 from collections.abc import Callable
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from pydantic import Field, ValidationError, model_validator
@@ -20,6 +21,7 @@ from vagas.models import CONTRACTS, CURRENCIES, ROLE_KEYS, SALARY_MODES, SENIORI
 from vagas.normalize import normalize_company
 from vagas.repo import VagasError, _require_choice, _utcnow
 from vagas.resume_model import Text, _Model, describe_errors
+from vagas.salary_policy import default_policy_path, load_policy
 
 DEFAULT_TTL_DAYS = 90
 HOURS_PER_MONTH = 160
@@ -87,9 +89,11 @@ def _ttl_days() -> int:
 
 
 class SalaryStore:
-    def __init__(self, conn: sqlite3.Connection, now: Callable[[], str] = _utcnow):
+    def __init__(self, conn: sqlite3.Connection, now: Callable[[], str] = _utcnow,
+                 policy_path: Path | str | None = None):
         self.conn = conn
         self.now = now
+        self.policy_path = Path(policy_path) if policy_path is not None else default_policy_path()
         self.ttl = timedelta(days=_ttl_days())
 
     def save_salary_estimate(
@@ -188,27 +192,45 @@ class SalaryStore:
         seniority: str,
         currency: str,
         contract: str,
-        my_min: float,
+        my_min: float | None = None,
         my_max: float | None = None,
-        mode: str = "minimo",
+        mode: str | None = None,
         pj_multiplier: float | None = None,
         company: str | None = None,
         application_id: int | None = None,
+        work_mode: str | None = None,
+        location: str | None = None,
     ) -> dict[str, Any]:
         """Decide se a vaga passa na triagem salarial e qual valor informar, no regime da vaga.
 
-        my_min/my_max são mensais em CLT; numa vaga PJ são multiplicados por pj_multiplier.
+        Sem my_min, a faixa vem da política salarial (politica-salarial.md), escolhida por
+        work_mode, location e moeda (da candidatura, se não informados); mode e pj_multiplier
+        explícitos têm prioridade sobre os da política. my_min/my_max são mensais em CLT; numa vaga
+        PJ são multiplicados por pj_multiplier (faixas da política sem "CLT" não são).
         Base: faixa publicada na vaga (application_id) -> dados frescos da empresa -> de mercado ->
         pesquisa de mercado fresca sem dados (aplicar com o mínimo) -> nada fresco (pesquisar).
         Com application_id, a avaliação fica gravada na candidatura.
         """
-        if application_id is not None:
-            self._require_application(application_id)
+        app = self._require_application(application_id) if application_id is not None else None
+        band, scale_pj = None, True
+        if my_min is None:
+            work_mode = work_mode or (app or {}).get("work_mode")
+            location = location or (app or {}).get("location")
+            if not work_mode:
+                raise VagasError("Informe 'work_mode' (e 'location' para vagas híbridas ou presenciais) para usar "
+                                 "a política salarial, ou 'my_min'/'my_max'.")
+            policy = load_policy(self.policy_path)
+            band = policy.band_for(work_mode, location, currency)
+            my_min, my_max, scale_pj = band.min, band.max, band.clt
+            mode = mode or policy.mode
+            pj_multiplier = pj_multiplier if pj_multiplier is not None else policy.pj_multiplier
+        mode = mode or "minimo"
         result = self._evaluate(role_key, seniority, currency, contract, my_min, my_max, mode,
-                                pj_multiplier, company, application_id)
+                                pj_multiplier, company, application_id, scale_pj)
+        result["policy"] = {"band": band.label if band else None, "mode": mode, "my_min": my_min,
+                            "my_max": my_max, "pj_multiplier": pj_multiplier}
         if application_id is not None:
-            record = {**result, "evaluated_at": self.now(),
-                      "policy": {"mode": mode, "my_min": my_min, "my_max": my_max, "pj_multiplier": pj_multiplier}}
+            record = {**result, "evaluated_at": self.now()}
             with self.conn:
                 self.conn.execute(
                     "UPDATE applications SET salary_evaluation = ? WHERE id = ?",
@@ -217,7 +239,7 @@ class SalaryStore:
         return result
 
     def _evaluate(self, role_key, seniority, currency, contract, my_min, my_max, mode, pj_multiplier,
-                  company, application_id) -> dict[str, Any]:
+                  company, application_id, scale_pj=True) -> dict[str, Any]:
         _require_choice("mode", mode, SALARY_MODES)
         _require_choice("contract", contract, CONTRACTS)
         if my_min < 0:
@@ -248,8 +270,9 @@ class SalaryStore:
         def fmt(v: float) -> str:
             return f"{currency} {v:,.0f}".replace(",", ".")
 
-        lo = my_min * (factor() if job == "pj" else 1)
-        hi = None if my_max is None else my_max * (factor() if job == "pj" else 1)
+        scale = factor() if job == "pj" and scale_pj else 1
+        lo = my_min * scale
+        hi = None if my_max is None else my_max * scale
         result: dict[str, Any] = {
             "decision": None, "value_to_inform": None, "basis": None, "contract": job, "median": None,
             "range": None, "sources": 0, "confidence": None,
@@ -321,9 +344,12 @@ class SalaryStore:
         ).fetchone()
         return dict(row) if row else None
 
-    def _require_application(self, application_id: int) -> None:
-        if not self.conn.execute("SELECT 1 FROM applications WHERE id = ?", (application_id,)).fetchone():
+    def _require_application(self, application_id: int) -> dict[str, Any]:
+        row = self.conn.execute("SELECT work_mode, location FROM applications WHERE id = ?",
+                                (application_id,)).fetchone()
+        if not row:
             raise VagasError(f"Candidatura {application_id} não existe.")
+        return dict(row)
 
     @staticmethod
     def _summary(searches: list[dict[str, Any]]) -> dict[str, Any]:
