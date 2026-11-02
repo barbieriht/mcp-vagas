@@ -18,6 +18,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 SKILLS_HOME = Path.home() / ".claude" / "skills"
 STABLE_PYTHON = Path.home() / ".local/share/vagas/venv/bin/python"
+DATA_DIR = Path.home() / ".local/share/vagas"
 
 
 def skill_dirs(repo: Path) -> list[Path]:
@@ -38,6 +39,11 @@ def ensure_link(link: Path, target: Path) -> str:
     link.parent.mkdir(parents=True, exist_ok=True)
     link.symlink_to(target)
     return "criado"
+
+
+def policy_link(data_dir: Path, repo: Path) -> tuple[Path, Path]:
+    """Symlink da política salarial ao lado do banco (padrão de VAGAS_SALARY_POLICY) para a da Skill."""
+    return data_dir / "politica-salarial.md", repo / "skill" / "candidaturas" / "politica-salarial.md"
 
 
 def mcp_registered(claude_json: Path) -> bool:
@@ -77,6 +83,15 @@ def main() -> None:
     print(f"    {STABLE_PYTHON} (com o leitor do LinkedIn)")
     if not (Path.home() / ".local/share/vagas/linkedin-browser").exists():
         print(f"    para o leitor do LinkedIn, faça login uma vez: {STABLE_PYTHON} -m vagas.linkedin login")
+
+    print("\n==> Política salarial lida pelo MCP")
+    link, target = policy_link(DATA_DIR, REPO)
+    try:
+        print(f"    {link} -> {target}: {ensure_link(link, target)}")
+    except FileExistsError as exc:
+        print(f"    AVISO: {exc}")
+    if not target.exists():
+        print(f"    crie {target} a partir de politica-salarial.example.md")
 
     print("\n==> MCP \"vagas\" no Claude Code")
     if mcp_registered(Path.home() / ".claude.json"):

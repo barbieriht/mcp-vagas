@@ -25,6 +25,7 @@ Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor 
 | Exportação CSV | pronto |
 | Estimativas salariais: cache de pesquisas (90 dias) | pronto |
 | Avaliação de pretensão salarial (`evaluate_salary`), com prioridade da faixa publicada na vaga | pronto |
+| Política salarial lida pelo MCP (faixa por modalidade, local e moeda) | pronto |
 | Busca de vagas: registro de buscas (evita repetir em 24 h) | pronto |
 | Busca de vagas: aderência da vaga ao currículo (`score_job_match`) | pronto |
 | Busca de vagas: status `a_aplicar` com busca de origem e aderência | pronto |
@@ -63,6 +64,7 @@ uv pip install --reinstall-package vagas --python ~/.local/share/vagas/venv/bin/
 | `VAGAS_DB` | arquivo do banco SQLite | `~/.local/share/vagas/vagas.db` |
 | `VAGAS_MASTER_RESUME` | arquivo YAML editável do currículo geral | `curriculo.yaml` ao lado do banco |
 | `VAGAS_RESUME_OUT` | pasta onde os PDFs de currículo são gerados | nenhum (obrigatória para gerar PDF) |
+| `VAGAS_SALARY_POLICY` | política salarial lida por `evaluate_salary` | `politica-salarial.md` ao lado do banco (o instalador cria um symlink para o da Skill) |
 | `VAGAS_SALARY_TTL_DAYS` | validade do cache de salários, em dias | `90` |
 | `VAGAS_EXPORT_DIR` | pasta dos CSVs exportados (ex.: `/mnt/c/Users/<usuário>/Documents/vagas` para abrir no Windows) | `exports` ao lado do banco |
 | `VAGAS_LINKEDIN_MIN_MINUTES` | intervalo mínimo entre leituras do seu perfil do LinkedIn, em minutos | `60` |
@@ -196,7 +198,7 @@ A Skill diz ao Claude quando e em que ordem usar as tools. É ela que garante, p
 | `buscar.md` | busca de vagas a partir do currículo | sim |
 | `curriculo.md` | montar ou atualizar o currículo geral a partir do PDF e do LinkedIn | sim |
 | `perfil.md` | dados para formulários (contato, respostas padrão) | não (use `perfil.example.md`) |
-| `politica-salarial.md` | faixas CLT por modalidade, modo e multiplicador PJ | não (use `politica-salarial.example.md`) |
+| `politica-salarial.md` | faixas por modalidade, local e moeda, modo e multiplicador PJ; lida pelo MCP em `evaluate_salary` | não (use `politica-salarial.example.md`) |
 
 Quando um formulário pede um dado que ainda não está no perfil, a Skill acrescenta o campo no `perfil.md` (com a sua resposta, depois que você responde) e no `perfil.example.md` (com valor fictício). Assim o campo fica documentado para as próximas candidaturas. Dados sensíveis (CPF, RG, senhas, dados bancários) entram só como campo, com o valor "informar manualmente". O `perfil.example.md` é versionado: faça commit dele de vez em quando.
 
@@ -305,7 +307,7 @@ Status possíveis: `a_aplicar` (vaga encontrada e triada, aguardando candidatura
 | `find_salary_estimate` | consulta o cache de salários (empresa e mercado; chamar antes de pesquisar) |
 | `save_salary_estimate` | registra uma pesquisa de salários (inclusive "nada encontrado") |
 | `find_job_search` / `save_job_search` | consulta e registra buscas de vagas por site, consulta e local |
-| `evaluate_salary` | decide aplicar/não aplicar/pesquisar e o valor de pretensão, pela política do `perfil.md` |
+| `evaluate_salary` | decide aplicar/não aplicar/pesquisar e o valor de pretensão; lê a política salarial e escolhe a faixa pela modalidade, local e moeda da vaga |
 
 ## Desenvolvimento
 
