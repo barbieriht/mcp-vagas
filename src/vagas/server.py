@@ -27,6 +27,7 @@ from vagas.job_search import JobSearchStore
 from vagas.linkedin_import import LinkedInImporter
 from vagas.salary import SalaryPoint, SalaryStore
 from vagas.salary_policy import default_policy_path
+from vagas.triage import Triage, default_criteria_path
 from vagas.resume_repo import ResumeStore, default_draft_path
 
 
@@ -67,6 +68,11 @@ def build_server(
 
     def job_searches():
         return store(JobSearchStore)
+
+    def triages():
+        return store(lambda conn: Triage(
+            conn, fetcher=job_fetcher or http_fetch, criteria_path=default_criteria_path(db_path),
+            policy_path=default_policy_path(db_path), draft_path=draft_path or default_draft_path(db_path)))
 
     @server.tool()
     def find_application(url: str | None = None, company: str | None = None) -> dict[str, Any]:
@@ -380,6 +386,31 @@ def build_server(
             return fetch_job(url, fetcher=job_fetcher or http_fetch)
         except JobPostingError as exc:
             raise ToolError(str(exc)) from exc
+
+    @server.tool()
+    def triage_job(url: str, search_id: int | None = None, not_duplicate: bool = False) -> dict[str, Any]:
+        """Triagem completa de uma vaga numa chamada. Use SEMPRE para triar uma vaga a partir da URL.
+
+        Encadeia, sem você repetir as etapas: find_application (URL), read_job_posting, critérios
+        fixos do arquivo criterios-triagem.md (empresas ignoradas, vaga exclusiva PcD, cargos alvo,
+        locais aceitos), score_job_match, add_application (a_aplicar ou descartada, com search_id),
+        faixa publicada (save_salary_estimate) e evaluate_salary pela política salarial.
+        decision:
+        - "ja_registrada": URL já registrada; siga pelo status de application, como em find_application;
+        - "possivel_duplicata": nada registrado; a mesma empresa tem vaga de cargo e senioridade iguais
+          (needs[0].matches). Pergunte ao usuário; se for outra vaga, chame de novo com not_duplicate=true;
+        - "descartada": registrada como descartada (motivo em application.discard_reason);
+        - "a_aplicar": registrada na lista de trabalho; resolva cada item de needs.
+        needs = o que as regras não decidem, cada um {kind, detail} com a ação a tomar: "cargo" (cargo
+        não reconhecido), "aderencia", "local" (híbrido/presencial fora dos locais aceitos), "modalidade",
+        "senioridade", "pesquisa_salarial" (pesquise e chame evaluate_salary de novo), "salario".
+        Se o julgamento reprovar a vaga, use update_application com status "descartada".
+        Página bloqueada ou sem dados estruturados: erro; leia a vaga pelo navegador e faça a triagem
+        pelos passos manuais da Skill.
+        Retorna {decision, application, posting (sem a descrição), match, salary, reasons, needs}.
+        """
+        with triages() as t:
+            return t.triage_job(url, search_id=search_id, not_duplicate=not_duplicate)
 
     @server.tool()
     def score_job_match(description: str) -> dict[str, Any]:

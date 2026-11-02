@@ -10,7 +10,7 @@ pytestmark = pytest.mark.anyio
 
 SKILL_DIR = Path(__file__).resolve().parents[1] / "skill" / "candidaturas"
 # Arquivos de dados pessoais (e seus exemplos) não são instruções da Skill.
-INSTRUCTIONS = sorted(p for p in SKILL_DIR.glob("*.md") if not p.name.startswith(("perfil", "politica-salarial")))
+INSTRUCTIONS = sorted(p for p in SKILL_DIR.glob("*.md") if not p.name.startswith(("perfil", "politica-salarial", "criterios-triagem")))
 SNAKE_IN_BACKTICKS = re.compile(r"`([a-z][a-z0-9]*(?:_[a-z0-9]+)+)`")
 SNAKE = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
 
@@ -134,3 +134,12 @@ def test_triage_lets_the_mcp_read_the_salary_policy():
     step = next(line for line in text.splitlines() if "Chame `evaluate_salary`" in line)
 
     assert "my_min" not in step and "pj_multiplier" not in step
+
+
+def test_triage_starts_with_triage_job_and_keeps_manual_steps_as_plan_b():
+    text = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    triage = text[text.index("## Triagem"):]
+
+    assert triage.index("`triage_job`") < triage.index("plano B") < triage.index("`find_application`")
+    # Critérios fixos ficam no arquivo pessoal, não no texto da Skill.
+    assert "CI&T" not in text and "criterios-triagem.md" in triage

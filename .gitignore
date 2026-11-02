@@ -4,3 +4,4 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 skill/candidaturas/politica-salarial.md
+skill/candidaturas/criterios-triagem.md

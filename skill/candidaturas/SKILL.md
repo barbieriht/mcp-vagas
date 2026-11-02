@@ -8,6 +8,7 @@ description: Vagas de emprego do Thiago com o MCP "vagas". Use para buscar vagas
 Fontes da verdade:
 - **Currículo geral aprovado** (`get_master_resume`) para experiência, formação, trabalho voluntário, certificações, skills e idiomas.
 - [politica-salarial.md](politica-salarial.md) para a política salarial. O MCP a lê sozinho em `evaluate_salary`.
+- [criterios-triagem.md](criterios-triagem.md) para os critérios fixos da triagem. O MCP os lê sozinho em `triage_job`.
 - [perfil.md](perfil.md) para os dados de formulário. Ele é carregado só na hora de preencher.
 - **MCP "vagas"** como registro de tudo o que acontece com cada vaga.
 
@@ -22,23 +23,34 @@ Fontes da verdade:
 
 Toda vaga passa pela triagem antes de qualquer outra ação. Ela termina com a vaga registrada no MCP como `a_aplicar` ou `descartada`, ou identificada como já registrada.
 
+1. **Triagem automática.** Chame `triage_job` com a URL e, se a vaga veio de uma busca, o `search_id`. Ela verifica duplicata, lê a vaga, aplica os critérios fixos de [criterios-triagem.md](criterios-triagem.md), calcula a aderência, registra a vaga e avalia o salário pela política. Não refaça essas etapas.
+2. **Resultado.** Siga pelo `decision`:
+   - `ja_registrada`: veja o status da `application`. Em `pendente_usuario`, retome pelo que está em `pending`. Em `a_aplicar`, siga para o próximo passo do fluxo. Em qualquer outro status, informe o status ao Thiago e encerre a vaga.
+   - `possivel_duplicata`: nada foi registrado. Mostre ao Thiago as vagas em `matches` e pergunte se é a mesma vaga. Se não for, chame `triage_job` de novo com `not_duplicate` igual a true.
+   - `descartada`: informe o motivo (`discard_reason`) e encerre a vaga.
+   - `a_aplicar`: resolva cada item de `needs`. O `detail` de cada item diz o que fazer.
+3. **Julgamento dos `needs`.**
+   - `cargo`: o título não foi reconhecido. Confirme a família pela descrição: Data Scientist (júnior a sênior) e AI/ML Engineer entram; analista ou engenheiro de dados, só com boa aderência ao currículo.
+   - `local`: híbrido com deslocamento viável a partir de São Carlos é aceito.
+   - `pesquisa_salarial`: pesquise salários na web (Glassdoor, LinkedIn Salary, guias salariais) para o escopo indicado e registre com `save_salary_estimate`, uma linha por dado, com fonte e URL. Se não encontrar nada, registre a pesquisa com a lista de pontos vazia. Depois chame `evaluate_salary` com o `application_id`, o regime (`contract`) e a moeda da vaga. Se o resultado for `nao_aplicar`, chame `update_application` com status `descartada` e `discard_reason` igual ao `reason`.
+   - `modalidade`, `senioridade`, `aderencia` e `salario`: siga o `detail`.
+   - **Experiência exigida:** vagas que pedem 5 anos ou mais seguem quando a aderência técnica é alta.
+   - **Prioridade:** vagas júnior em empresas grandes ou conhecidas merecem atenção extra.
+
+   Se o julgamento reprovar a vaga, chame `update_application` com status `descartada` e `discard_reason` explicando o critério.
+4. **Resumo.** Informe ao Thiago a decisão, os motivos (`reasons`), a aderência e, se houver, o valor de pretensão (`value_to_inform`).
+
+### Triagem manual (plano B)
+
+Use só quando `triage_job` der erro (o site bloqueou a leitura, a página não tem dados estruturados ou falta um arquivo de critérios). Leia a vaga pelo navegador e faça as etapas à mão:
+
 1. **Duplicata.** Chame `find_application` com a URL e a empresa.
    - `pendente_usuario`: retome a candidatura pelo que está em `pending`.
    - `a_aplicar`: a vaga já foi triada. Siga para o próximo passo do fluxo com esse registro.
    - Qualquer outro status: informe o status atual ao Thiago e encerre a vaga.
    - Mesma empresa com outra vaga de cargo e senioridade parecidos, possivelmente de outra plataforma: pergunte ao Thiago se é a mesma vaga.
 2. **Leitura da vaga.** Registre cargo, senioridade, modalidade, local, regime (CLT, PJ ou desconhecido), moeda, faixa salarial publicada (se houver) e a descrição completa.
-3. **Critérios.**
-   - **Cargos:** Data Scientist (júnior a sênior) e AI/ML Engineer. Analista ou engenheiro de dados entram quando a aderência ao currículo for boa.
-   - **Locais:**
-     - remoto, inclusive internacional;
-     - São Carlos-SP;
-     - híbrido com deslocamento viável a partir de São Carlos;
-     - híbrido ou presencial em São Paulo e região, usando a faixa salarial de SP.
-   - **Experiência exigida:** vagas que pedem 5 anos ou mais seguem na triagem quando a aderência técnica é alta.
-   - **Prioridade:** vagas júnior em empresas grandes ou conhecidas merecem atenção extra.
-   - **Descarte direto:** vagas da CI&T e vagas exclusivas para PcD.
-   - **Avaliação normal:** BairesDev e vagas presenciais seguem os mesmos critérios das demais.
+3. **Critérios.** Aplique os de [criterios-triagem.md](criterios-triagem.md) (cargos alvo, empresas ignoradas, vagas exclusivas PcD, locais aceitos) e os julgamentos do passo 3 acima.
 
    Se a vaga reprovar aqui, chame `add_application` com status `descartada` e `discard_reason` explicando o critério, e encerre a vaga.
 4. **Aderência.** Chame `score_job_match` com a descrição. Os termos em `match_terms` (`matched`) guiam o currículo personalizado, e os de `missing` mostram lacunas. A nota é indicativa e complementa os critérios.

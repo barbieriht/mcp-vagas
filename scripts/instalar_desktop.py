@@ -28,8 +28,10 @@ SKILL_DIR = REPO / "skill" / "candidaturas"
 COMMANDS_DIR = REPO / "skill" / "comandos"
 STABLE_VENV = Path.home() / ".local/share/vagas/venv"
 ENV_KEYS = ("VAGAS_DB", "VAGAS_RESUME_OUT", "VAGAS_EXPORT_DIR")
-SKILL_FILES = ("SKILL.md", "candidatar.md", "buscar.md", "curriculo.md", "perfil.md", "politica-salarial.md")
-PERSONAL_FILES = ("perfil.md", "politica-salarial.md")
+SKILL_FILES = ("SKILL.md", "candidatar.md", "buscar.md", "curriculo.md", "perfil.md", "politica-salarial.md",
+               "criterios-triagem.md")
+PERSONAL_FILES = ("perfil.md", "politica-salarial.md", "criterios-triagem.md")
+MCP_FILES = ("politica-salarial.md", "criterios-triagem.md")  # lidos pelo servidor, ao lado do banco
 
 
 # --- Partes puras (testadas) ---------------------------------------------------------------
@@ -84,9 +86,9 @@ def unfilled(skill_dir: Path) -> list[str]:
     return problems
 
 
-def link_policy(data_dir: Path, skill_dir: Path) -> str:
-    """Symlink da política salarial ao lado do banco para a da Skill; nunca substitui um arquivo real."""
-    link, target = data_dir / "politica-salarial.md", skill_dir / "politica-salarial.md"
+def link_personal(data_dir: Path, skill_dir: Path, name: str) -> str:
+    """Symlink de um arquivo pessoal lido pelo MCP, ao lado do banco, para o da Skill; nunca substitui um arquivo real."""
+    link, target = data_dir / name, skill_dir / name
     if link.is_symlink() and link.resolve() == target.resolve():
         return "ok"
     if link.exists() and not link.is_symlink():
@@ -213,8 +215,9 @@ def main(argv: list[str] | None = None) -> None:
     for key, value in env.items():
         print(f"    {key}={value}")
 
-    step("Ligando a política salarial lida pelo MCP")
-    print(f"    {link_policy(Path(env['VAGAS_DB']).parent, SKILL_DIR)}")
+    step("Ligando a política salarial e os critérios de triagem lidos pelo MCP")
+    for name in MCP_FILES:
+        print(f"    {name}: {link_personal(Path(env['VAGAS_DB']).parent, SKILL_DIR, name)}")
 
     step("Testando o servidor como o Desktop vai chamá-lo")
     smoke_test(distro, python)

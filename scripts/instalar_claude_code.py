@@ -41,9 +41,12 @@ def ensure_link(link: Path, target: Path) -> str:
     return "criado"
 
 
-def policy_link(data_dir: Path, repo: Path) -> tuple[Path, Path]:
-    """Symlink da política salarial ao lado do banco (padrão de VAGAS_SALARY_POLICY) para a da Skill."""
-    return data_dir / "politica-salarial.md", repo / "skill" / "candidaturas" / "politica-salarial.md"
+PERSONAL_FILES = ("politica-salarial.md", "criterios-triagem.md")
+
+
+def personal_links(data_dir: Path, repo: Path) -> list[tuple[Path, Path]]:
+    """Symlinks ao lado do banco (padrão de VAGAS_SALARY_POLICY e VAGAS_TRIAGE_CRITERIA) para os arquivos da Skill."""
+    return [(data_dir / name, repo / "skill" / "candidaturas" / name) for name in PERSONAL_FILES]
 
 
 def mcp_registered(claude_json: Path) -> bool:
@@ -84,14 +87,14 @@ def main() -> None:
     if not (Path.home() / ".local/share/vagas/linkedin-browser").exists():
         print(f"    para o leitor do LinkedIn, faça login uma vez: {STABLE_PYTHON} -m vagas.linkedin login")
 
-    print("\n==> Política salarial lida pelo MCP")
-    link, target = policy_link(DATA_DIR, REPO)
-    try:
-        print(f"    {link} -> {target}: {ensure_link(link, target)}")
-    except FileExistsError as exc:
-        print(f"    AVISO: {exc}")
-    if not target.exists():
-        print(f"    crie {target} a partir de politica-salarial.example.md")
+    print("\n==> Política salarial e critérios de triagem lidos pelo MCP")
+    for link, target in personal_links(DATA_DIR, REPO):
+        try:
+            print(f"    {link} -> {target}: {ensure_link(link, target)}")
+        except FileExistsError as exc:
+            print(f"    AVISO: {exc}")
+        if not target.exists():
+            print(f"    crie {target} a partir de {target.stem}.example.md")
 
     print("\n==> MCP \"vagas\" no Claude Code")
     if mcp_registered(Path.home() / ".claude.json"):

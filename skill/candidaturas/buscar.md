@@ -16,7 +16,7 @@ A busca termina quando:
    Use estes locais: remoto, São Carlos e São Paulo. Use estes sites: LinkedIn, Gupy, Indeed e Glassdoor. Se o Thiago pediu algo específico (cargo, empresa, local), use isso.
 2. **Evitar repetição.** Para cada consulta, site e local, chame `find_job_search`. Se `recent` for verdadeiro, pule essa combinação.
 3. **Executar.** Faça a busca no site, filtrando por vagas recentes quando o site permitir. Registre com `save_job_search`, incluindo os filtros usados e `results_count`, também quando não houver resultados. Guarde o `search_id`.
-4. **Triar cada resultado.** Abra cada vaga, leia a descrição completa e faça a triagem do [SKILL.md](SKILL.md) passando o `search_id`. A triagem já registra a vaga.
+4. **Triar cada resultado.** Faça a triagem do [SKILL.md](SKILL.md) de cada vaga, passando o `search_id` para `triage_job`. A triagem já lê e registra a vaga; abra a vaga no navegador só quando a triagem automática falhar.
 5. **Resumo.** Apresente ao Thiago:
    - as novas vagas `a_aplicar`, da maior para a menor aderência, com empresa, cargo, modalidade, `match_score`, os principais termos ausentes e a pretensão sugerida;
    - as descartadas, com o motivo de cada uma;

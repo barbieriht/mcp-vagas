@@ -50,8 +50,8 @@ def test_mcp_registration_detection(tmp_path):
     assert inst.mcp_registered(claude_json) is True
 
 
-def test_policy_link_points_from_next_to_the_db_to_the_skill(tmp_path):
-    link, target = inst.policy_link(tmp_path / "data", REPO)
+def test_personal_links_point_from_next_to_the_db_to_the_skill(tmp_path):
+    links = inst.personal_links(tmp_path / "data", REPO)
 
-    assert link == tmp_path / "data" / "politica-salarial.md"
-    assert target == REPO / "skill" / "candidaturas" / "politica-salarial.md"
+    assert links == [(tmp_path / "data" / name, REPO / "skill" / "candidaturas" / name)
+                     for name in ("politica-salarial.md", "criterios-triagem.md")]

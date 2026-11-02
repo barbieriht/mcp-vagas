@@ -69,10 +69,11 @@ def test_env_defaults_without_claude_code_registration(tmp_path):
 def skill(tmp_path):
     d = tmp_path / "candidaturas"
     for name in ("SKILL.md", "candidatar.md", "buscar.md", "curriculo.md", "perfil.example.md",
-                 "politica-salarial.example.md"):
+                 "politica-salarial.example.md", "criterios-triagem.example.md"):
         write(d / name)
     write(d / "perfil.md", "- Nome: Thiago\n")
     write(d / "politica-salarial.md", "- Modo: minimo\n")
+    write(d / "criterios-triagem.md", "- Cargos alvo: data_scientist\n")
     return d
 
 
@@ -96,7 +97,8 @@ def test_zip_has_skill_folder_with_personal_files_and_without_examples(skill, tm
     with zipfile.ZipFile(dest) as z:
         assert sorted(z.namelist()) == [
             "candidaturas/SKILL.md", "candidaturas/buscar.md", "candidaturas/candidatar.md",
-            "candidaturas/curriculo.md", "candidaturas/perfil.md", "candidaturas/politica-salarial.md",
+            "candidaturas/criterios-triagem.md", "candidaturas/curriculo.md", "candidaturas/perfil.md",
+            "candidaturas/politica-salarial.md",
         ]
 
 
@@ -112,14 +114,14 @@ def test_command_zips_have_one_folder_each(tmp_path):
         assert z.namelist() == ["apply/SKILL.md"]
 
 
-def test_policy_link_is_created_kept_and_never_replaces_a_real_file(skill, tmp_path):
+def test_personal_link_is_created_kept_and_never_replaces_a_real_file(skill, tmp_path):
     data = tmp_path / "data"
 
-    assert inst.link_policy(data, skill) == "criado"
+    assert inst.link_personal(data, skill, "politica-salarial.md") == "criado"
     assert (data / "politica-salarial.md").read_text() == "- Modo: minimo\n"
-    assert inst.link_policy(data, skill) == "ok"
+    assert inst.link_personal(data, skill, "politica-salarial.md") == "ok"
 
     (data / "politica-salarial.md").unlink()
     write(data / "politica-salarial.md", "própria\n")
-    assert "mantido" in inst.link_policy(data, skill)
+    assert "mantido" in inst.link_personal(data, skill, "politica-salarial.md")
     assert (data / "politica-salarial.md").read_text() == "própria\n"
