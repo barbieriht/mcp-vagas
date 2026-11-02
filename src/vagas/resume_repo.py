@@ -18,6 +18,7 @@ from vagas.models import LINKEDIN_SECTIONS, RESUME_SOURCE_KINDS
 from vagas.normalize import normalize_text
 from vagas.repo import VagasError, _require_choice, _require_text, _utcnow
 from vagas.resume_extract import extract_pages, review_draft, wsl_path
+from vagas.resume_diff import diff_master
 from vagas.resume_model import MasterResume, describe_errors
 from vagas.resume_render import render_resume
 from vagas.resume_tailor import TailoredSelection, resolve
@@ -330,6 +331,18 @@ class ResumeStore:
                  json.dumps(resolved, ensure_ascii=False), rendered["path"], rendered["pages"], self.now()),
             )
         return {"id": cursor.lastrowid, **rendered}
+
+    def diff_master(self, items: dict[str, Any]) -> dict[str, Any]:
+        """Compara itens das fontes com o currículo geral aprovado (ver resume_diff). Não salva nada."""
+        if not isinstance(items, dict):
+            raise VagasError("'items' deve ser um objeto com as seções do currículo (ex.: o items de "
+                             "import_linkedin_profile).")
+        result = diff_master(self.get_master_resume()["resume"], items)
+        try:
+            MasterResume.model_validate(result["draft"])
+        except ValidationError as exc:
+            raise VagasError(describe_errors(exc, "O rascunho resultante ficou inválido; corrija os itens")) from exc
+        return result
 
     def score_job_match(self, description: str, company: str | None = None, title: str | None = None,
                         location: str | None = None) -> dict[str, Any]:
