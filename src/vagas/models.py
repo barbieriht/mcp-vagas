@@ -18,6 +18,15 @@ Period = Literal["hora", "mes", "ano"]
 Contract = Literal["clt", "pj", "desconhecido"]
 SalaryMode = Literal["minimo", "faixa"]
 
+# Nomes de cada família de cargo (português, inglês): consultas de busca e valores aceitos nos critérios.
+ROLE_NAMES: dict[str, tuple[str, str]] = {
+    "data_scientist": ("cientista de dados", "data scientist"),
+    "ml_engineer": ("engenheiro de machine learning", "machine learning engineer"),
+    "ai_engineer": ("engenheiro de ia", "ai engineer"),
+    "data_engineer": ("engenheiro de dados", "data engineer"),
+    "data_analyst": ("analista de dados", "data analyst"),
+}
+
 # Fontes do currículo geral
 ResumeSourceKind = Literal["linkedin", "pdf"]
 LinkedInSection = Literal[

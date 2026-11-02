@@ -116,6 +116,8 @@ def parse_policy(text: str, source: str = "politica-salarial.md") -> SalaryPolic
 
     for number, line in enumerate(text.splitlines(), start=1):
         where = f"{source}, linha {number}"
+        if line.startswith("## Valores aceitos"):
+            break  # documentação dos campos, não política
         if "<PREENCHER" in line:
             raise VagasError(f"Preencha o campo em {where}: {line.strip()}")
         item = _ITEM.match(line)
@@ -124,9 +126,11 @@ def parse_policy(text: str, source: str = "politica-salarial.md") -> SalaryPolic
         key, value = item["key"], item["value"]
         norm_key = normalize_text(key)
         if norm_key == "modo":
-            mode = normalize_text(value).split()[0] if value.strip() else ""
+            words = normalize_text(value).strip(" .;").split()
+            mode = words[0].rstrip(".;") if words else ""
             if mode not in SALARY_MODES:
-                raise VagasError(f"'Modo' inválido em {where}: {value!r}. Use um de: {', '.join(SALARY_MODES)}.")
+                raise VagasError(f"'Modo' inválido em {where}: {value!r}. Valores aceitos: "
+                                 f"{', '.join(SALARY_MODES)}.")
             continue
         if norm_key == "multiplicador pj":
             try:

@@ -103,3 +103,26 @@ def test_default_path_is_env_or_next_to_db(tmp_path, monkeypatch):
     assert default_policy_path(tmp_path / "vagas.db") == tmp_path / "politica-salarial.md"
     monkeypatch.setenv("VAGAS_SALARY_POLICY", str(tmp_path / "x.md"))
     assert default_policy_path(tmp_path / "vagas.db") == tmp_path / "x.md"
+
+
+def test_values_are_read_the_way_people_write_them():
+    policy = parse_policy("- Modo: Mínimo.\n- Multiplicador PJ: 1,4.\n"
+                          "- Remoto nacional (brl, clt): mínimo R$ 8.000,00.\n"
+                          "- Presencial em São Carlos (BRL, CLT): usar a faixa do remoto nacional.\n")
+
+    assert (policy.mode, policy.pj_multiplier) == ("minimo", 1.4)
+    assert policy.band_for("presencial", "São Carlos", "BRL").min == 8000
+
+
+def test_invalid_mode_lists_the_accepted_values():
+    with pytest.raises(VagasError, match=r"as vezes.*minimo.*faixa"):
+        parse_policy("- Modo: as vezes\n- Remoto (BRL, CLT): mínimo 8000\n")
+
+
+def test_example_documents_every_accepted_value():
+    from vagas.models import CURRENCIES, SALARY_MODES, WORK_MODES
+
+    text = EXAMPLE.read_text(encoding="utf-8")
+    values = text[text.index("## Valores aceitos"):]
+    assert all(f"`{v}`" in values for v in (*SALARY_MODES, *CURRENCIES, "CLT"))
+    assert all(word in values for word in ("remoto", "híbrido", "presencial"))

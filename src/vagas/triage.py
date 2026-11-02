@@ -21,7 +21,7 @@ from typing import Any
 
 from vagas.db import default_db_path
 from vagas.job_posting import Fetcher, JobPostingError, classify_role, http_fetch, read_job_posting
-from vagas.models import CURRENCIES, ROLE_KEYS, SENIORITIES
+from vagas.models import CURRENCIES, ROLE_KEYS, ROLE_NAMES, SENIORITIES
 from vagas.normalize import normalize_company, normalize_text
 from vagas.repo import Repo, VagasError
 from vagas.resume_repo import ResumeStore, default_draft_path
@@ -72,40 +72,59 @@ def load_criteria(path: Path | str) -> TriageCriteria:
     return parse_criteria(text, source=path.name)
 
 
-def _roles(value: str, where: str) -> tuple[str, ...]:
-    roles = tuple(r.strip() for r in value.split(",") if r.strip())
-    unknown = [r for r in roles if r not in ROLE_KEYS]
+def _clean(text: str) -> str:
+    """Sem espaços nas pontas nem pontuação final ("Sênior." -> "Sênior")."""
+    return text.strip().rstrip(".;").strip()
+
+
+def _role(item: str) -> str | None:
+    """"data_scientist", "Data Scientist", "ML-Engineer" ou "cientista de dados" -> role_key."""
+    norm = normalize_text(item)
+    key = re.sub(r"[\s-]+", "_", norm)
+    if key in ROLE_KEYS and key != "outro":
+        return key
+    return next((k for k, names in ROLE_NAMES.items() if norm in names), None)
+
+
+def _roles(items: list[str], where: str) -> tuple[str, ...]:
+    roles = {item: _role(item) for item in items}
+    unknown = [item for item, role in roles.items() if role is None]
     if unknown:
-        raise VagasError(f"Cargo desconhecido em {where}: {', '.join(unknown)}. Use valores de role_key: "
-                         f"{', '.join(ROLE_KEYS)}.")
-    return roles
+        accepted = [k for k in ROLE_KEYS if k != "outro"]
+        raise VagasError(f"Cargo desconhecido em {where}: {', '.join(unknown)}. Valores aceitos: "
+                         f"{', '.join(accepted)} (ou o nome em português ou inglês, ex.: cientista de dados).")
+    return tuple(dict.fromkeys(roles.values()))
 
 
 def parse_criteria(text: str, source: str = "criterios-triagem.md") -> TriageCriteria:
     values: dict[str, Any] = {}
     for number, line in enumerate(text.splitlines(), start=1):
         where = f"{source}, linha {number}"
+        if line.startswith("## Valores aceitos"):
+            break  # documentação dos campos, não critérios
         if "<PREENCHER" in line:
             raise VagasError(f"Preencha o campo em {where}: {line.strip()}")
         item = _ITEM.match(line)
         if not item or (field := _KEYS.get(normalize_text(item["key"]))) is None:
             continue
-        value = item["value"]
-        items = [v.strip() for v in value.split(",") if v.strip()]
+        value = _clean(item["value"])
+        items = [_clean(v) for v in value.split(",") if _clean(v)]
         if field in ("target_roles", "conditional_roles"):
-            values[field] = _roles(value, where)
+            values[field] = _roles(items, where)
         elif field == "min_match":
-            if not value.isdigit() or not 0 <= int(value) <= 100:
+            number = value.rstrip("%").strip()
+            if not number.isdigit() or not 0 <= int(number) <= 100:
                 raise VagasError(f"'Aderência mínima' inválida em {where}: {value!r} (número de 0 a 100).")
-            values[field] = int(value)
+            values[field] = int(number)
         elif field == "ignored_companies":
             values[field] = tuple(normalize_company(v) for v in items)
         elif field == "search_seniorities":
-            unknown = [v for v in items if v not in SENIORITIES]
+            levels = [normalize_text(v) for v in items]  # "Sênior" -> "senior"
+            unknown = [v for v, level in zip(items, levels) if level not in SENIORITIES]
             if unknown:
-                raise VagasError(f"Senioridade desconhecida em {where}: {', '.join(unknown)}. Use: "
-                                 f"{', '.join(SENIORITIES)}.")
-            values[field] = tuple(items)
+                raise VagasError(f"Senioridade desconhecida em {where}: {', '.join(unknown)}. Valores aceitos: "
+                                 f"{', '.join(SENIORITIES)} (maiúsculas e acentos são ignorados).")
+            values[field] = tuple(dict.fromkeys(levels))
         elif field == "accepted_locations":
             values[field] = tuple(normalize_text(v) for v in items)
             values["location_names"] = tuple(items)
