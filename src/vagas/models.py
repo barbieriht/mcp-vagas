@@ -27,6 +27,10 @@ ROLE_NAMES: dict[str, tuple[str, str]] = {
     "data_analyst": ("analista de dados", "data analyst"),
 }
 
+# Senioridade como se escreve nas buscas.
+SENIORITY_LABELS: dict[str, str] = {"estagio": "estágio", "junior": "júnior", "pleno": "pleno", "senior": "sênior",
+                                    "especialista": "especialista"}
+
 # Fontes do currículo geral
 ResumeSourceKind = Literal["linkedin", "pdf"]
 LinkedInSection = Literal[

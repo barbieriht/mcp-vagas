@@ -20,7 +20,7 @@ from urllib.parse import quote, urlencode
 
 from vagas.job_posting import Fetcher, JobPostingError, http_fetch, parse_salary_text
 from vagas.job_search import JobSearchStore
-from vagas.models import ROLE_NAMES, WORK_MODES
+from vagas.models import ROLE_NAMES, SENIORITY_LABELS, WORK_MODES
 from vagas.normalize import canonical_url
 from vagas.repo import Repo, VagasError
 from vagas.resume_repo import ResumeStore, default_draft_path
@@ -40,8 +40,7 @@ _FROM_GUPY_MODE = {"remote": "remoto", "hybrid": "hibrido", "on-site": "presenci
 _GUPY_CONTRACTS = {"vacancy_type_effective": "clt", "vacancy_type_legal_entity": "pj"}
 
 ROLE_QUERIES = ROLE_NAMES
-SENIORITY_WORDS = {"estagio": "estágio", "junior": "júnior", "pleno": "pleno", "senior": "sênior",
-                   "especialista": "especialista"}
+SENIORITY_WORDS = SENIORITY_LABELS
 
 
 # --- Gupy (funções puras) ----------------------------------------------------------------------

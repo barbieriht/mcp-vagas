@@ -32,7 +32,12 @@ Toda vaga passa pela triagem antes de qualquer outra ação. Ela termina com a v
 3. **Julgamento dos `needs`.**
    - `cargo`: o título não foi reconhecido. Confirme a família pela descrição: Data Scientist (júnior a sênior) e AI/ML Engineer entram; analista ou engenheiro de dados, só com boa aderência ao currículo.
    - `local`: híbrido com deslocamento viável a partir de São Carlos é aceito.
-   - `pesquisa_salarial`: pesquise salários na web (Glassdoor, LinkedIn Salary, guias salariais) para o escopo indicado e registre com `save_salary_estimate`, uma linha por dado, com fonte e URL. Se não encontrar nada, registre a pesquisa com a lista de pontos vazia. Depois chame `evaluate_salary` com o `application_id`, o regime (`contract`) e a moeda da vaga. Se o resultado for `nao_aplicar`, chame `update_application` com status `descartada` e `discard_reason` igual ao `reason`.
+   - `pesquisa_salarial`: pesquise salários na web com as consultas de `queries`, na ordem: primeiro o cargo da vaga com a empresa e a cidade, depois a empresa no Levels.fyi, por último o mercado. Registre com `save_salary_estimate`, uma linha por dado, com fonte e URL:
+     - dado da própria empresa: com `company`. Remuneração total anual (Levels.fyi) vai com período `ano`;
+     - empresa pesquisada sem dados do cargo: registre com `company` e a lista de pontos vazia, para a busca não se repetir;
+     - dado de mercado: sem `company`. Se não encontrar nada, registre a pesquisa com a lista de pontos vazia.
+
+     Use só dados do mesmo cargo: salário de outro cargo da empresa (por exemplo, engenheiro de software genérico) não serve. Depois chame `evaluate_salary` com o `application_id`, o regime (`contract`) e a moeda da vaga. Se o resultado for `nao_aplicar`, chame `update_application` com status `descartada` e `discard_reason` igual ao `reason`.
    - `modalidade`, `senioridade`, `aderencia` e `salario`: siga o `detail`.
    - **Experiência exigida:** vagas que pedem 5 anos ou mais seguem quando a aderência técnica é alta.
    - **Prioridade:** vagas júnior em empresas grandes ou conhecidas merecem atenção extra.

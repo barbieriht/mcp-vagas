@@ -200,8 +200,9 @@ def test_no_salary_data_asks_for_research(triage, fetcher):
 
 
 def test_possible_duplicate_on_another_platform_is_not_registered(triage, fetcher, conn):
-    Repo(conn).add_application(company="Acme Ltda", role="Data Scientist Pleno", source="linkedin",
-                               url="https://www.linkedin.com/jobs/view/99/", status="a_aplicar")
+    Repo(conn).add_application(company="Acme Ltda", role="Cientista de Dados Pleno", source="linkedin",
+                               location="São Paulo, SP", url="https://www.linkedin.com/jobs/view/99/",
+                               status="a_aplicar")
     url = fetcher.add(gupy(14))
 
     first = triage.triage_job(url)
@@ -266,3 +267,37 @@ def test_inferred_work_mode_is_used_and_flagged(triage, fetcher):
 
     assert result["application"]["work_mode"] == "hibrido"
     assert any("inferida" in r for r in result["reasons"]) and "modalidade" not in kinds(result)
+
+
+def test_salary_research_need_brings_job_and_company_queries(triage, fetcher):
+    result = triage.triage_job(fetcher.add(gupy(30, company="Zeta", mode="remote")))
+
+    need = next(n for n in result["needs"] if n["kind"] == "pesquisa_salarial")
+    assert need["queries"][0] == 'salário "Cientista de Dados Pleno" Zeta São Paulo'
+    assert need["queries"][-1] == "salário cientista de dados pleno Brasil"
+
+
+@pytest.mark.parametrize("registered, new, duplicate", [
+    # mesma vaga em outra plataforma: título equivalente, mesma cidade
+    (("Data Scientist Pleno", "São Paulo, SP"), ("Cientista de Dados Pleno", "São Paulo"), False),
+    (("Cientista de Dados Pleno", "São Paulo, SP"), ("Cientista de Dados Pleno", "São Paulo"), True),
+    (("Cientista de Dados Pleno - Remoto", "Brasil"), ("Cientista de Dados Pleno", "São Paulo"), True),
+    # mesmo título, cidades diferentes
+    (("Cientista de Dados Pleno", "Belo Horizonte, MG"), ("Cientista de Dados Pleno", "São Paulo"), False),
+    # títulos diferentes na mesma empresa
+    (("Cientista de Dados Pleno - Crédito", "São Paulo"), ("Cientista de Dados Pleno - Marketing", "São Paulo"),
+     True),  # o sufixo depois de " - " não conta: confirmar com o usuário
+    (("Cientista de Dados Pleno de Crédito e Risco", "São Paulo"), ("Cientista de Dados Pleno", "São Paulo"), False),
+    # códigos de vaga diferentes
+    (("Cientista de Dados Pleno | REF#100", "Brasil"), ("Cientista de Dados Pleno | REF#200", "São Paulo"), False),
+])
+def test_possible_duplicate_needs_equivalent_title_and_compatible_place(triage, fetcher, conn, registered, new,
+                                                                        duplicate):
+    role, place = registered
+    Repo(conn).add_application(company="Acme", role=role, location=place, source="linkedin",
+                               url="https://www.linkedin.com/jobs/view/99/", status="a_aplicar")
+    title, city = new
+
+    result = triage.triage_job(fetcher.add(gupy(40, name=title, city=city)))
+
+    assert (result["decision"] == "possivel_duplicata") is duplicate

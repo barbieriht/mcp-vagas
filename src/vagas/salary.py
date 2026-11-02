@@ -7,6 +7,7 @@ pontos registra "nada encontrado" e conta como fresca, para não ser repetida an
 
 import json
 import math
+import re
 import os
 import sqlite3
 import statistics
@@ -17,8 +18,10 @@ from typing import Any
 
 from pydantic import Field, ValidationError, model_validator
 
-from vagas.models import CONTRACTS, CURRENCIES, ROLE_KEYS, SALARY_MODES, SENIORITIES, Contract, Period
-from vagas.normalize import normalize_company
+from vagas.models import (
+    CONTRACTS, CURRENCIES, ROLE_KEYS, ROLE_NAMES, SALARY_MODES, SENIORITIES, SENIORITY_LABELS, Contract, Period,
+)
+from vagas.normalize import normalize_company, normalize_text
 from vagas.repo import VagasError, _require_choice, _utcnow
 from vagas.resume_model import Text, _Model, describe_errors
 from vagas.salary_policy import default_policy_path, load_policy
@@ -49,6 +52,45 @@ class SalaryPoint(_Model):
         if avg is not None and ((lo is not None and avg < lo) or (hi is not None and avg > hi)):
             raise ValueError(f"avg_value ({avg}) fora do intervalo entre min_value e max_value")
         return self
+
+
+_NO_CITY = {"brasil", "brazil", "remoto", "remote", "latam", "latin america"}
+
+
+def _short_title(title: str) -> str:
+    """Cargo sem sufixos de anúncio ("Cientista de Dados Sênior - Search | REF#1" -> "Cientista de Dados Sênior")."""
+    return re.split(r"\s+[|–—-]\s+|\s*\|", title.replace('"', ""))[0].strip()
+
+
+def _city(location: str | None) -> str | None:
+    if not location:
+        return None
+    first = re.sub(r"^Greater\s+|\s+Area$", "", location.split(",")[0].strip())
+    return None if normalize_text(first) in _NO_CITY else first
+
+
+def research_queries(title: str | None, company: str | None, location: str | None, role_key: str,
+                     seniority: str | None, company_scope: bool = True, market_scope: bool = True) -> list[str]:
+    """Consultas de pesquisa salarial, da mais específica à mais geral: cargo da vaga + empresa + cidade,
+    cargo + empresa, empresa no Levels.fyi, e mercado (família e senioridade) na cidade e no Brasil."""
+    pt, en = ROLE_NAMES.get(role_key, (None, None))
+    title = _short_title(title) if title else None
+    city = _city(location)
+    level = SENIORITY_LABELS.get(seniority or "", "")
+    company = company.strip() if company and company.strip() and not company.startswith("(") else None
+    queries: list[str] = []
+    if company and company_scope:
+        job = title or " ".join(p for p in (pt, level) if p)
+        if city:
+            queries.append(f'salário "{job}" {company} {city}')
+        queries.append(f'salário "{job}" {company}')
+        queries.append(f"{company} {en or job} salary Brazil levels.fyi")
+    if market_scope:
+        family = " ".join(p for p in (pt or title, level) if p)
+        if city:
+            queries.append(f"salário {family} {city}")
+        queries.append(f"salário {family} Brasil")
+    return queries
 
 
 def monthly(value: float, period: str, contract: str, currency: str) -> float:
@@ -229,6 +271,11 @@ class SalaryStore:
                                 pj_multiplier, company, application_id, scale_pj)
         result["policy"] = {"band": band.label if band else None, "mode": mode, "my_min": my_min,
                             "my_max": my_max, "pj_multiplier": pj_multiplier}
+        market_missing = result["decision"] == "pesquisar"
+        result["research_queries"] = research_queries(
+            (app or {}).get("role"), company or (app or {}).get("company"), location or (app or {}).get("location"),
+            role_key, seniority, company_scope=result["needs_research"], market_scope=market_missing,
+        ) if result["needs_research"] or market_missing else []
         if application_id is not None:
             record = {**result, "evaluated_at": self.now()}
             with self.conn:
@@ -345,7 +392,7 @@ class SalaryStore:
         return dict(row) if row else None
 
     def _require_application(self, application_id: int) -> dict[str, Any]:
-        row = self.conn.execute("SELECT work_mode, location FROM applications WHERE id = ?",
+        row = self.conn.execute("SELECT role, company, work_mode, location FROM applications WHERE id = ?",
                                 (application_id,)).fetchone()
         if not row:
             raise VagasError(f"Candidatura {application_id} não existe.")
