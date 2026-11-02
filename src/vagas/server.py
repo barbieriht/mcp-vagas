@@ -381,11 +381,14 @@ def build_server(
     def read_job_posting(url: str) -> dict[str, Any]:
         """Lê a página de uma vaga por código e devolve os campos já normalizados, sem você transcrever.
 
-        Funciona com a Gupy e com páginas que publicam dados estruturados de vaga (LinkedIn Jobs e
-        muitos sites de carreira). Retorna {url, url_canonical, source, title, company, location,
-        work_mode (remoto/hibrido/presencial), contract (clt/pj/desconhecido), role_key, seniority,
-        role_certain, salary ({currency, period, min_value, max_value} se publicada), pcd_flag,
-        published_at, description}. role_certain=false: confirme cargo e família pela descrição.
+        Funciona com a Gupy, o LinkedIn Jobs (página pública, sem login) e páginas que publicam dados
+        estruturados de vaga (muitos sites de carreira). Retorna {url, url_canonical, source, title,
+        company, location, work_mode (remoto/hibrido/presencial), contract (clt/pj/desconhecido),
+        role_key, seniority, role_certain, salary ({currency, period, min_value, max_value} se
+        publicada; period null = confira na vaga), pcd_flag, published_at, description}; no LinkedIn
+        também work_mode_inferred=true quando a modalidade veio do texto da descrição (confira).
+        role_certain=false: confirme cargo e família pela descrição. LinkedIn limitou as leituras ou
+        pediu login: erro; espere ou leia pelo navegador.
         Indeed e Glassdoor bloqueiam leitura automática: nesse caso (ou se a página não tiver dados
         estruturados) a tool devolve erro e você lê a vaga pelo navegador.
         """

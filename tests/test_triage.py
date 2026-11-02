@@ -252,3 +252,17 @@ async def test_triage_job_via_mcp(db_path, files, fetcher, monkeypatch):
 
 
 pytestmark = pytest.mark.anyio
+
+
+def test_inferred_work_mode_is_used_and_flagged(triage, fetcher):
+    page = ('<html><h1 class="top-card-layout__title topcard__title">Cientista de Dados Pleno</h1>'
+            '<a class="topcard__org-name-link" href="#">Gama</a>'
+            '<span class="topcard__flavor--bullet">São Paulo, SP</span>'
+            '<div class="show-more-less-html__markup">Python e SQL. Modelo híbrido.</div></html>')
+    url = "https://www.linkedin.com/jobs/view/12345/"
+    fetcher.pages[url] = page
+
+    result = triage.triage_job(url)
+
+    assert result["application"]["work_mode"] == "hibrido"
+    assert any("inferida" in r for r in result["reasons"]) and "modalidade" not in kinds(result)

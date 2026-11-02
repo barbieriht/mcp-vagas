@@ -261,6 +261,8 @@ class Triage:
                 "A página não informa a modalidade (remoto, híbrido, presencial). Confira na vaga e chame "
                 "evaluate_salary com work_mode, location e o application_id.")})
             return
+        if posting.get("work_mode_inferred"):
+            reasons.append(f"Modalidade {mode} inferida do texto da vaga (a página não publica); confira na vaga.")
         if mode == "remoto":
             reasons.append("Vaga remota.")
             return
