@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import re
 import sqlite3
 from collections.abc import Callable
 from pathlib import Path
@@ -13,6 +14,7 @@ from pydantic import ValidationError
 
 from vagas.db import default_db_path
 from vagas.models import LINKEDIN_SECTIONS, RESUME_SOURCE_KINDS
+from vagas.normalize import normalize_text
 from vagas.repo import VagasError, _require_choice, _require_text, _utcnow
 from vagas.resume_extract import extract_pages, review_draft, wsl_path
 from vagas.resume_model import MasterResume, describe_errors
@@ -26,6 +28,50 @@ def default_draft_path(db_path: Path | str | None = None) -> Path:
         return Path(env)
     db = Path(db_path) if db_path is not None else default_db_path()
     return db.parent / "curriculo.yaml"
+
+
+# Tecnologias reconhecidas mesmo no início de frase e sem marcas de sigla (minúsculas).
+TECH_TERMS = frozenset("""
+python sql spark pyspark kafka airflow pandas numpy scipy polars docker kubernetes terraform ansible tableau looker
+statsmodels sklearn scikit-learn matplotlib seaborn plotly optuna ray dask
+databricks snowflake bigquery redshift athena glue lambda sagemaker vertex mlflow kubeflow dbt hadoop hive scala java
+kotlin rust go golang julia matlab elixir javascript typescript react node django flask fastapi streamlit pytorch
+tensorflow keras jax xgboost lightgbm catboost langchain langgraph llamaindex huggingface transformers openai
+anthropic bedrock qdrant pinecone weaviate chroma faiss elasticsearch opensearch postgres postgresql mysql mongodb
+redis cassandra neo4j git github gitlab jenkins linux bash azure gcp aws excel powerbi grafana prometheus kibana
+""".split())
+# Siglas e palavras em maiúsculas que não são tecnologia.
+_COMMON_CAPS = frozenset("""
+clt pj pf rh sp rj mg pr sc rs br usa eua ltda sa me gptw todos para com nos voce voces ceo cto cfo we you our the
+and pcd lgbt lgbtqia lgbtqi lgbtqia+ lgbtqi+ esg ti home office vr va plr ppr dia jr sr pl ii iii usd brl eur latam
+emea apac kpi kpis okr okrs lgpd cmn dna p&l sesc senai
+totalpass gympass wellhub alelo sodexo flash caju swile zenklub
+""".split())
+
+
+def _technical(term: str, skills: set[str], excluded: set[str]) -> str | None:
+    """O termo na forma a mostrar, se for técnico; senão None."""
+    term = term.strip("®™©")
+    if re.search(r"[a-z]\.[A-Z][a-z]", term):  # ponto sem espaço entre frases: "Statsmodels.Conhecimento"
+        term = term.split(".")[0]
+    low = term.lower()
+    words = set(re.findall(r"[a-z0-9]+", normalize_text(term)))
+    if not term or term.startswith("#") or (words and words <= excluded):
+        return None
+    if low in skills or low in TECH_TERMS:
+        return term
+    if low in _COMMON_CAPS:
+        return None
+    if re.fullmatch(r"[A-Za-z]{1,2}(\+\+|#)", term):  # C++, C#, F#
+        return term
+    if re.fullmatch(r"\d+[a-z]{0,2}", low):  # 3x, 24h, 5k
+        return None
+    if any(c.isdigit() for c in term) or re.search(r"[A-Za-z]\.[A-Za-z]", term) or term.startswith("."):
+        return term
+    letters = re.sub(r"[^A-Za-z]", "", term)
+    if letters.isupper() and 2 <= len(letters) <= 5:
+        return term
+    return term if re.search(r"[a-z][A-Z]", term) or re.match(r"[A-Z]{2,}[a-z]", term) else None
 
 
 class _Dumper(yaml.SafeDumper):
@@ -214,12 +260,27 @@ class ResumeStore:
             )
         return {"id": cursor.lastrowid, **rendered}
 
-    def score_job_match(self, description: str) -> dict[str, Any]:
-        """Aderência da vaga ao currículo geral: termos técnicos da descrição presentes e ausentes."""
+    def score_job_match(self, description: str, company: str | None = None, title: str | None = None,
+                        location: str | None = None) -> dict[str, Any]:
+        """Aderência da vaga ao currículo geral: termos técnicos da descrição presentes e ausentes.
+
+        Só contam tecnologias (skills do currículo, TECH_TERMS, siglas, CamelCase, nomes com dígitos
+        ou símbolos); palavras da empresa, do título e do local da vaga são ignoradas.
+        """
         description = _require_text("description", description)
         master = self.get_master_resume()["resume"]
-        vocabulary = term_set(term for group in master.get("skills", []) for term in group["terms"])
-        matched, missing = match_terms(description, term_set(strings(master)), vocabulary)
+        skills = term_set(term for group in master.get("skills", []) for term in group["terms"])
+        corpus = term_set(strings(master))
+        matched, missing = match_terms(description, corpus, skills | TECH_TERMS)
+        excluded = {w for text in (company, title, location) if text
+                    for w in re.findall(r"[a-z0-9]+", normalize_text(text)) if len(w) > 1}
+        terms = list(dict.fromkeys(t for t in (_technical(t, skills, excluded) for t in matched + missing) if t))
+
+        def present(term: str) -> bool:  # termos de início de frase não passam pela checagem de match_terms
+            return term.lower() in corpus or all(p.lower() in corpus for p in term.split("-") if p)
+
+        matched = [t for t in terms if present(t)]
+        missing = [t for t in terms if not present(t)]
         total = len(matched) + len(missing)
         if total == 0:
             return {"score": None, "matched": [], "missing": [],

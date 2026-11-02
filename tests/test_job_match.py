@@ -26,9 +26,9 @@ def store(db_path, tmp_path):
 def test_matched_and_missing_terms_with_score(store):
     result = store.score_job_match(JOB)
 
-    assert result["matched"] == ["Data", "Scientist", "Python", "SQL", "AWS", "Terraform", "C++", "OR-Tools", "SCIP"]
+    assert result["matched"] == ["Python", "SQL", "AWS", "Terraform", "C++", "OR-Tools", "SCIP"]
     assert result["missing"] == ["Spark", "Kafka"]
-    assert result["score"] == 82
+    assert result["score"] == 78
     assert result["note"] is None
 
 
@@ -80,4 +80,45 @@ def test_list_markers_and_single_letters_are_not_terms(store):
     result = store.score_job_match(description)
 
     assert result["matched"] == ["Python"]
-    assert result["missing"] == ["Testing", "Spark"]
+    assert result["missing"] == ["Spark"]
+
+
+LINKEDIN = (
+    "A BairesDev® é um time apaixonado por inovação. Somos globais, somos GPTW. #VemSerBairesDev "
+    "Description We are looking for a Senior Data Scientist in São Paulo. What You Bring: Python, SQL, "
+    "Spark and PyTorch. Experience with Kafka, MLOps and LLM applications. Nosso Jeito: TODOS juntos. "
+    "Benefícios: Gympass, Vale Refeição. Contrato CLT, modelo Híbrido em São Paulo."
+)
+
+
+def test_only_technical_terms_count(store):
+    result = store.score_job_match(LINKEDIN, company="BairesDev", title="Senior Data Scientist",
+                                   location="São Paulo, São Paulo, Brazil")
+
+    assert result["matched"] == ["Python", "SQL"]
+    assert result["missing"] == ["Spark", "PyTorch", "Kafka", "MLOps", "LLM"]
+    assert result["score"] == 29
+
+
+def test_company_and_title_words_are_ignored(store):
+    result = store.score_job_match("Cientista de Dados na Leega. Buscamos TODOS com Python e Airflow.",
+                                   company="Leega Consultoria", title="Cientista de Dados Sênior")
+
+    assert (result["matched"], result["missing"]) == (["Python"], ["Airflow"])
+
+
+def test_known_technologies_count_at_sentence_start(store):
+    result = store.score_job_match("Docker é essencial. Snowflake também. Tableau é diferencial.")
+
+    assert result["missing"] == ["Docker", "Snowflake", "Tableau"]
+
+
+def test_noise_from_real_descriptions_is_ignored(store):
+    description = ("Modelo híbrido 3x por semana, 24h de suporte. Ambiente LGBTQIA+ e PcD. Salário em USD. "
+                   "Benefícios: TotalPass, Gympass. Metas e KPIs. Conhecimento em Statsmodels.Conhecimento em C# "
+                   "e C++ e Spark.")
+
+    result = store.score_job_match(description)
+
+    assert result["missing"] == ["Statsmodels", "Spark"]
+    assert "C++" in result["matched"] and "C#" in result["matched"]
