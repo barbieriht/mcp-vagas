@@ -228,7 +228,8 @@ def _amount(text: str) -> float:
     return float(text)
 
 
-def _linkedin_salary(text: str) -> dict[str, Any] | None:
+def parse_salary_text(text: str) -> dict[str, Any] | None:
+    """"R$ 8.000,00/mês - R$ 12.000,00/mês" -> {currency, period (ou None), min_value, max_value}."""
     text = " ".join(text.split())
     amounts = [_amount(a) for a in re.findall(r"\d[\d.,]*\d|\d", text)]
     if not amounts:
@@ -270,7 +271,7 @@ def _linkedin(url: str, page: str) -> dict[str, Any] | None:
         inferred = work_mode is not None
     return {**result, "work_mode": work_mode, "work_mode_inferred": inferred, "contract": contract,
             "role_key": role_key, "seniority": seniority, "role_certain": certain,
-            "salary": _linkedin_salary(_text(salary.group(1))) if salary else (ld or {}).get("salary"),
+            "salary": parse_salary_text(_text(salary.group(1))) if salary else (ld or {}).get("salary"),
             "pcd_flag": None, "published_at": (ld or {}).get("published_at"), "description": description}
 
 
