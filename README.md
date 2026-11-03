@@ -28,6 +28,7 @@ Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor 
 | Política salarial lida pelo MCP (faixa por modalidade, local e moeda) | pronto |
 | Busca de vagas por código na Gupy e no LinkedIn (`search_jobs`) e sugestão de buscas (`suggest_job_searches`) | pronto |
 | Currículo e perfil por tools: diferenças na atualização (`diff_master`), campos do perfil (`add_profile_field`), seleção sugerida (`suggest_tailored_selection`) | pronto |
+| Cofre local de dados sensíveis (DPAPI) e entrega condicionada para formulários | pronto |
 | Triagem de uma vaga numa chamada (`triage_job`), com critérios fixos configuráveis | pronto |
 | Busca de vagas: registro de buscas (evita repetir em 24 h) | pronto |
 | Busca de vagas: aderência da vaga ao currículo (`score_job_match`) | pronto |
@@ -312,6 +313,7 @@ Status possíveis: `a_aplicar` (vaga encontrada e triada, aguardando candidatura
 | `create_tailored_resume` | valida e gera um currículo personalizado |
 | `read_job_posting` | lê a página de uma vaga (Gupy, LinkedIn Jobs e sites com dados estruturados) e devolve os campos normalizados; Indeed e Glassdoor bloqueiam leitura automática |
 | `triage_job` | triagem inteira de uma vaga numa chamada: duplicata, leitura, critérios fixos, aderência, registro e salário; devolve o que ainda exige julgamento ou pesquisa |
+| `get_sensitive_field` | entrega um dado do cofre (CPF, RG...) para um formulário confiável de uma candidatura triada, com a sua confirmação; registra o uso sem o valor |
 | `suggest_tailored_selection` | propõe a seleção inicial do currículo personalizado de uma candidatura, pelos termos da vaga |
 | `add_profile_field` | acrescenta um campo de formulário ao `perfil.md` e ao `perfil.example.md` (dados sensíveis só como "informar manualmente") |
 | `diff_master` | compara itens das fontes com o currículo geral aprovado: novos, alterados e ausentes, com IDs preservados |
@@ -371,4 +373,11 @@ O cadastro é feito só por você, no terminal do WSL. O valor é digitado sem a
 ~/.local/share/vagas/venv/bin/python -m vagas.sensitive remove cpf
 ```
 
-Campos aceitos: `cpf`, `rg`, `rg_orgao_emissor`, `cnh`, `pis`, `ctps`, `titulo_eleitor`, `passaporte` e `nome_mae`. O CPF tem os dígitos verificadores conferidos.
+Campos aceitos: `cpf`, `rg`, `rg_orgao_emissor`, `cnh`, `pis`, `ctps`, `titulo_eleitor`, `passaporte` e `nome_mae`. O CPF tem os dígitos verificadores conferidos. O comando marca no `perfil.md` os campos que estão no cofre ("no cofre"), sem o valor.
+
+Na candidatura, o Claude só recebe um dado do cofre (`get_sensitive_field`) quando três condições valem:
+- a candidatura foi triada e está aberta (`a_aplicar` ou `pendente_usuario`);
+- o formulário está em https, no domínio da vaga, na Gupy ou no LinkedIn;
+- você confirmou aquele uso na revisão antes do envio.
+
+Cada uso fica no histórico da candidatura (campo, domínio, data), sem o valor. Se algo não bater, a candidatura fica `pendente_usuario` com o motivo.

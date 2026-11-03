@@ -77,9 +77,23 @@ class _Profile:
         self.lines.insert(last + 1, line)
 
 
+VAULT = "no cofre (get_sensitive_field)"
+
+
 class ProfileFiles:
     def __init__(self, skill_dir: Path | str):
         self.dir = Path(skill_dir)
+
+    def mark_vault(self, label: str, stored: bool) -> None:
+        """No perfil.md, o campo sensível fica "no cofre" ou volta a "informar manualmente" (nunca o valor)."""
+        perfil = _Profile(self.dir / "perfil.md")
+        if perfil.find(label) is None:
+            self.add_profile_field(label, sensitive=True)
+            perfil = _Profile(self.dir / "perfil.md")
+        index = perfil.find(label)
+        current = _ITEM.match(perfil.lines[index])
+        perfil.lines[index] = f"- {current['label']}: {VAULT if stored else MANUAL}"
+        perfil.save()
 
     def add_profile_field(self, label: str, section: str | None = None, value: str | None = None,
                           sensitive: bool = False) -> dict[str, Any]:

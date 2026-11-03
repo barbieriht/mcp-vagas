@@ -28,6 +28,7 @@ from vagas.job_search import JobSearchStore
 from vagas.linkedin_import import LinkedInImporter
 from vagas.salary import SalaryPoint, SalaryStore
 from vagas.profile_fields import ProfileFiles, default_skill_dir
+from vagas.sensitive import DpapiBackend, SensitiveAccess, Vault, default_vault_path
 from vagas.salary_policy import default_policy_path
 from vagas.triage import Triage, default_criteria_path
 from vagas.resume_repo import ResumeStore, default_draft_path
@@ -48,6 +49,7 @@ def build_server(
     linkedin_reader: Any = None,
     job_fetcher: Any = None,
     job_search_fetcher: Any = None,
+    vault: Any = None,
 ) -> MCPServer:
     server = MCPServer("vagas")
 
@@ -322,6 +324,27 @@ def build_server(
         """
         with resumes() as s:
             return s.save_master_draft(resume, overwrite=overwrite)
+
+    @server.tool()
+    def get_sensitive_field(field: str, application_id: int, form_url: str) -> dict[str, Any]:
+        """Entrega um dado do cofre (CPF, RG...) para preencher um formulário de candidatura.
+
+        SÓ chame depois de o usuário confirmar explicitamente, nesta conversa, este uso: qual dado, em
+        qual vaga e empresa e em qual domínio ("vou preencher o seu CPF na vaga X da empresa Y,
+        domínio Z"). Sem essa confirmação, não chame. Digite o valor apenas no campo do formulário:
+        nunca o escreva na conversa, em resumos, notas ou arquivos.
+        field: cpf, rg, rg_orgao_emissor, cnh, pis, ctps, titulo_eleitor, passaporte ou nome_mae.
+        form_url: endereço https da página do formulário aberta agora. Condições: candidatura em
+        a_aplicar ou pendente_usuario, e domínio do formulário igual ao da vaga, à Gupy ou ao LinkedIn.
+        O uso fica registrado no histórico da candidatura, sem o valor. Em qualquer recusa (domínio,
+        status, campo fora do cofre), não preencha: registre a candidatura como pendente_usuario com
+        o motivo. Retorna {field, label, value, domain}.
+        """
+        def access(conn):
+            return SensitiveAccess(Repo(conn), vault or Vault(default_vault_path(db_path), DpapiBackend()))
+
+        with store(access) as a:
+            return a.get_sensitive_field(field, application_id, form_url)
 
     @server.tool()
     def add_profile_field(label: str, section: str | None = None, value: str | None = None,
