@@ -22,6 +22,8 @@ python3 scripts/instalar_claude_code.py     # Claude Code: Skill, comandos e MCP
 python3 scripts/instalar_desktop.py         # Claude Desktop (opcional): MCP, configuração e zip da Skill
 ```
 
+Para o Claude preencher formulários sozinho, veja [Navegador](#navegador-para-preencher-formulários); no WSL, a melhor opção é o Claude Desktop.
+
 **2. Crie os seus arquivos pessoais** a partir dos exemplos e preencha os campos `<PREENCHER>`:
 
 ```bash
@@ -216,6 +218,20 @@ wsl.exe -d <distro> -e /home/<usuário-wsl>/.local/share/vagas/venv/bin/python -
 ```
 
 **6. Instale a Skill no Desktop** pelo zip descrito na seção [Skill "candidaturas"](#skill-candidaturas).
+
+### Navegador (para preencher formulários)
+
+Quase tudo funciona sem navegador: busca, triagem, lista de trabalho, currículos em PDF e registro. Só **abrir a vaga, preencher o formulário e anexar o PDF** exige uma ferramenta de navegador no cliente. Sem ela, o Claude te guia campo a campo e você envia.
+
+A extensão **Claude in Chrome** (Chrome ou Edge) dá essa ferramenta, mas **não funciona com o Claude Code dentro do WSL** ([documentação](https://code.claude.com/docs/en/chrome)): o `/chrome` não conecta e a sessão fica sem navegador.
+
+| Como você usa | Melhor opção |
+|---|---|
+| Windows + WSL (o caso deste guia) | **Claude Desktop** com a extensão Claude in Chrome. O instalador do Desktop já registra o MCP; a Skill vai pelo zip. O Claude Code no WSL continua ótimo para busca, triagem e currículos. |
+| Claude Code direto no Windows, Linux ou macOS | `claude --chrome` (ou `/chrome`) com a extensão instalada e logada na mesma conta. |
+| Sem navegador conectado | Use o Claude Code normalmente e preencha os formulários com a ajuda dele (preenchimento guiado). |
+
+Em todos os casos o Claude para antes do botão de envio e espera a sua confirmação.
 
 ## Leitor do LinkedIn
 
