@@ -162,3 +162,12 @@ def test_application_flow_uses_profile_and_selection_tools():
 
     assert text.index("`suggest_tailored_selection`") < text.index("`create_tailored_resume`")
     assert "`add_profile_field`" in text[text.index("## Campos novos do perfil"):]
+
+
+def test_vault_use_requires_confirmation_in_the_review_step():
+    text = (SKILL_DIR / "candidatar.md").read_text(encoding="utf-8")
+    review = text[text.index("5. **Revisão antes do envio.**"):text.index("6. **Registro final.**")]
+
+    assert "confirmar explicitamente" in review
+    assert review.index("confirmar explicitamente") < review.index("`get_sensitive_field`")
+    assert "`pendente_usuario`" in review

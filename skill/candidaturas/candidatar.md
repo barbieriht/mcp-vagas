@@ -19,7 +19,7 @@ A candidatura termina num destes dois estados:
    - **Anexo:** anexe o PDF personalizado.
    - **Pretensão salarial:** use o `value_to_inform` da avaliação salarial. Se não estiver à mão, ele está em `salary_evaluation`, no `get_history`.
    - **Consentimentos:** marque os de privacidade e LGPD exigidos pelo formulário.
-4. **Bloqueios.** Se o formulário exigir criar conta com senha, CPF, outro documento ou dado sensível, ou uma resposta que não está no perfil nem no currículo:
+4. **Bloqueios.** Documentos marcados no [perfil.md](perfil.md) como "no cofre (get_sensitive_field)" não bloqueiam: eles são preenchidos na revisão (passo 5), com a confirmação do Thiago. Se o formulário exigir criar conta com senha, um documento ou dado sensível que não está no cofre, ou uma resposta que não está no perfil nem no currículo:
    - registre cada campo novo no perfil (seção "Campos novos do perfil" abaixo);
    - preencha todo o resto e deixe a aba aberta;
    - chame `update_application` com status `pendente_usuario`, `pending` listando cada item que falta e o `resume_id`;
@@ -28,7 +28,12 @@ A candidatura termina num destes dois estados:
    - a vaga;
    - o currículo anexado;
    - a pretensão informada;
-   - as respostas abertas.
+   - as respostas abertas;
+   - os dados do cofre que o formulário pede, um por linha: "vou preencher o seu CPF na vaga X da empresa Y (domínio Z)".
+
+   Dados do cofre:
+   - Só depois que o Thiago confirmar explicitamente, chame `get_sensitive_field` com o campo, o `application_id` e a URL atual do formulário (`form_url`). Digite o valor só no campo do formulário: nunca o escreva na conversa.
+   - Se a tool recusar (domínio diferente do da vaga, candidatura não triada, campo fora do cofre), não preencha. Chame `update_application` com status `pendente_usuario`, `pending` dizendo qual dado falta e o motivo da recusa, e avise o Thiago.
 
    Clique em enviar somente depois que ele confirmar.
 6. **Registro final.** Depois do envio confirmado, chame `update_application` com status `aplicada`, `pending` vazio, o `resume_id` e uma nota com a data e a plataforma.
@@ -39,7 +44,7 @@ Todo dado pedido por um formulário que ainda não está no [perfil.md](perfil.m
 
 1. **Registrar o campo.** Chame `add_profile_field` com o rótulo como o formulário pede e, se o assunto combinar com uma seção existente (contato, respostas padrão), a `section`. Ela grava o campo no [perfil.md](perfil.md) e no [perfil.example.md](perfil.example.md), no formato certo; sem `section`, o campo vai para "Outros campos de formulário". Se a opção é de lista fechada (por exemplo, "Como soube da vaga?"), inclua as opções oferecidas no rótulo.
 2. **Guardar a resposta.** Quando o Thiago responder, chame `add_profile_field` de novo com o mesmo rótulo e a resposta em `value`: ela troca o `<PREENCHER>` pela resposta.
-3. **Dados sensíveis.** Para CPF, RG, passaporte, senhas e dados bancários, chame `add_profile_field` sem `value` (com `sensitive` true se o rótulo não deixar claro). O campo fica como `informar manualmente`, e o valor é digitado pelo Thiago no formulário.
+3. **Dados sensíveis.** Para CPF, RG, passaporte, senhas e dados bancários, chame `add_profile_field` sem `value` (com `sensitive` true se o rótulo não deixar claro). O campo fica como `informar manualmente`, e o valor é digitado pelo Thiago no formulário. Documentos da lista do cofre (CPF, RG, CNH, PIS, CTPS, título de eleitor, passaporte, nome da mãe) podem ir para o cofre: sugira ao Thiago cadastrar pelo terminal (`python -m vagas.sensitive set cpf`). Nunca peça o valor na conversa. Senhas e dados bancários ficam sempre manuais.
 
 Se a tool der erro por não achar a pasta da Skill (por exemplo, na Skill instalada por zip no Desktop), mostre ao Thiago as linhas exatas a acrescentar em cada arquivo, no formato `- <rótulo>: <valor>`.
 

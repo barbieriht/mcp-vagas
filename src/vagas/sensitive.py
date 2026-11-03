@@ -23,6 +23,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Protocol
+from urllib.parse import urlsplit
 
 from vagas.db import default_db_path
 from vagas.repo import VagasError
@@ -149,6 +150,61 @@ class Vault:
         return sorted(self._load())
 
 
+TRUSTED_SITES = ("gupy.io", "linkedin.com")
+OPEN_STATUSES = ("a_aplicar", "pendente_usuario")
+_SECOND_LEVEL = {"com", "org", "net", "gov", "edu", "co", "art", "ind", "inf"}
+
+
+def site(host: str) -> str:
+    """Domínio registrável: acme.gupy.io -> gupy.io; jobs.empresa.com.br -> empresa.com.br."""
+    parts = host.lower().strip(".").split(".")
+    if len(parts) >= 3 and len(parts[-1]) == 2 and parts[-2] in _SECOND_LEVEL:
+        return ".".join(parts[-3:])
+    return ".".join(parts[-2:])
+
+
+class SensitiveAccess:
+    """Entrega condicionada de um dado do cofre para um formulário de candidatura."""
+
+    def __init__(self, repo, vault: Vault):
+        self.repo = repo
+        self.vault = vault
+
+    def get_sensitive_field(self, field: str, application_id: int, form_url: str) -> dict[str, str]:
+        field = check_field(field)
+        app = self.repo.get(application_id)
+        if app["status"] not in OPEN_STATUSES:
+            raise VagasError(f"A candidatura {application_id} está com status {app['status']!r}: dados do cofre só "
+                             "vão para candidaturas triadas e abertas (a_aplicar ou pendente_usuario).")
+        parts = urlsplit((form_url or "").strip())
+        if parts.scheme != "https" or not parts.hostname:
+            raise VagasError("O formulário precisa estar num endereço https (informe a URL completa da página do "
+                             "formulário).")
+        form_site = site(parts.hostname)
+        job_host = urlsplit(app["url"] or "").hostname
+        allowed = {*TRUSTED_SITES, *([site(job_host)] if job_host else [])}
+        if form_site not in allowed:
+            raise VagasError(f"O domínio do formulário ({parts.hostname}) não é o da vaga nem Gupy/LinkedIn "
+                             f"(permitidos: {', '.join(sorted(allowed))}). Não preencha: registre como "
+                             "pendente_usuario com este motivo.")
+        value = self.vault.get(field)
+        self.repo.update_application(application_id, note=(
+            f"Dado do cofre informado: {ALLOWED_FIELDS[field]} no formulário em {parts.hostname}, com confirmação "
+            "do usuário."))
+        return {"field": field, "label": ALLOWED_FIELDS[field], "value": value, "domain": parts.hostname}
+
+
+def _mark_profile(field: str, stored: bool) -> str | None:
+    """Indica no perfil.md se o campo está no cofre; devolve um aviso se a pasta da Skill não for encontrada."""
+    from vagas.profile_fields import ProfileFiles, default_skill_dir
+
+    try:
+        ProfileFiles(default_skill_dir()).mark_vault(ALLOWED_FIELDS[field], stored)
+    except VagasError as exc:
+        return f"perfil.md não atualizado: {exc}"
+    return None
+
+
 def main(argv: list[str] | None = None, backend: Backend | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m vagas.sensitive", description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -166,9 +222,14 @@ def main(argv: list[str] | None = None, backend: Backend | None = None) -> None:
                 sys.exit("Os valores não conferem: nada foi guardado.")
             vault.set(field, first)
             print(f"{ALLOWED_FIELDS[field]} guardado no cofre ({vault.path}).")
+            if warning := _mark_profile(field, stored=True):
+                print(warning)
         elif args.command == "remove":
-            removed = vault.remove(args.field)
-            print(f"{args.field}: {'removido' if removed else 'não estava no cofre'}.")
+            field = check_field(args.field)
+            removed = vault.remove(field)
+            print(f"{field}: {'removido' if removed else 'não estava no cofre'}.")
+            if removed and (warning := _mark_profile(field, stored=False)):
+                print(warning)
         else:
             fields = vault.list()
             print("\n".join(f"{f} ({ALLOWED_FIELDS.get(f, f)})" for f in fields) or "Cofre vazio.")
