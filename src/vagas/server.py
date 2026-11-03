@@ -27,6 +27,7 @@ from vagas.job_board import JobBoard
 from vagas.job_search import JobSearchStore
 from vagas.linkedin_import import LinkedInImporter
 from vagas.salary import SalaryPoint, SalaryStore
+from vagas.profile_fields import ProfileFiles, default_skill_dir
 from vagas.salary_policy import default_policy_path
 from vagas.triage import Triage, default_criteria_path
 from vagas.resume_repo import ResumeStore, default_draft_path
@@ -321,6 +322,29 @@ def build_server(
         """
         with resumes() as s:
             return s.save_master_draft(resume, overwrite=overwrite)
+
+    @server.tool()
+    def add_profile_field(label: str, section: str | None = None, value: str | None = None,
+                          sensitive: bool = False) -> dict[str, Any]:
+        """Acrescenta um campo de formulário ao perfil (perfil.md e perfil.example.md da Skill).
+
+        Use quando um formulário pedir um dado que não está no perfil nem no currículo geral, em vez
+        de editar os arquivos à mão. label: rótulo como o formulário pede. section: seção existente do
+        perfil (ex.: "Contato e identificação", "Respostas padrão"); sem ela, "Outros campos de
+        formulário". value: a resposta do usuário; sem ela, o perfil recebe <PREENCHER> e o exemplo
+        <...>. Campo já existente não é recriado; com value, um <PREENCHER> existente recebe a
+        resposta (valor já preenchido não é trocado). Dados sensíveis (CPF, RG, CNH, passaporte,
+        senhas, dados bancários, ou sensitive=true) nunca guardam valor e ficam como
+        "informar manualmente"; enviar value para eles é erro.
+        A pasta da Skill vem de VAGAS_SKILL_DIR (ou do symlink da política salarial criado pelo
+        instalador). No Claude Desktop, que usa uma cópia da Skill enviada em zip, reenvie o zip
+        depois. Retorna {created: {perfil, example}, updated, section, line}.
+        """
+        try:
+            files = ProfileFiles(default_skill_dir(db_path))
+            return files.add_profile_field(label, section=section, value=value, sensitive=sensitive)
+        except VagasError as exc:
+            raise ToolError(str(exc)) from exc
 
     @server.tool()
     def diff_master(items: dict[str, Any]) -> dict[str, Any]:
