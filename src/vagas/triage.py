@@ -38,7 +38,22 @@ _KEYS = {
     "termos de vaga exclusiva pcd": "pcd_terms",
     "locais aceitos para hibrido e presencial": "accepted_locations",
     "senioridades buscadas": "search_seniorities",
+    "anos por senioridade": "years_by_level",
+    "estados aceitos para hibrido e presencial": "accepted_states",
 }
+_STATES = {
+    "AC": "acre", "AL": "alagoas", "AP": "amapa", "AM": "amazonas", "BA": "bahia", "CE": "ceara",
+    "DF": "distrito federal", "ES": "espirito santo", "GO": "goias", "MA": "maranhao", "MT": "mato grosso",
+    "MS": "mato grosso do sul", "MG": "minas gerais", "PA": "para", "PB": "paraiba", "PR": "parana",
+    "PE": "pernambuco", "PI": "piaui", "RJ": "rio de janeiro", "RN": "rio grande do norte",
+    "RS": "rio grande do sul", "RO": "rondonia", "RR": "roraima", "SC": "santa catarina", "SP": "sao paulo",
+    "SE": "sergipe", "TO": "tocantins",
+}
+DEFAULT_YEARS = (("junior", 0), ("pleno", 3), ("senior", 5))
+MAX_YEARS_REQUIRED = 15  # acima disso é história da empresa ("for over 50 years"), não requisito
+_YEARS = re.compile(
+    r"(?:(?:at least|minimum of|mínimo de|minimo de|pelo menos|mais de|over)\s+)?"
+    r"(\d{1,2})\s*(?:\+|(?:a|to|-|–)\s*\d{1,2})?\s*(?:anos|years?|yrs)\b", re.I)
 
 
 @dataclass(frozen=True)
@@ -51,6 +66,8 @@ class TriageCriteria:
     accepted_locations: tuple[str, ...] = ()  # normalizados como texto
     location_names: tuple[str, ...] = ()  # locais aceitos como escritos, para as buscas
     search_seniorities: tuple[str, ...] = ()  # usadas só em suggest_job_searches
+    years_by_level: tuple[tuple[str, int], ...] = DEFAULT_YEARS  # anos mínimos pedidos -> senioridade
+    accepted_states: tuple[str, ...] = ()  # UFs aceitas para híbrido e presencial (vazio = não filtra)
 
 
 def default_criteria_path(db_path: Path | str | None = None) -> Path:
@@ -125,6 +142,10 @@ def parse_criteria(text: str, source: str = "criterios-triagem.md") -> TriageCri
                 raise VagasError(f"Senioridade desconhecida em {where}: {', '.join(unknown)}. Valores aceitos: "
                                  f"{', '.join(SENIORITIES)} (maiúsculas e acentos são ignorados).")
             values[field] = tuple(dict.fromkeys(levels))
+        elif field == "years_by_level":
+            values[field] = _years_by_level(items, where)
+        elif field == "accepted_states":
+            values[field] = tuple(_state(v, where) for v in items)
         elif field == "accepted_locations":
             values[field] = tuple(normalize_text(v) for v in items)
             values["location_names"] = tuple(items)
@@ -159,6 +180,57 @@ def _same_place(a: str | None, b: str | None) -> bool:
     return ca is None or cb is None or normalize_text(ca) == normalize_text(cb)
 
 
+def _years_by_level(items: list[str], where: str) -> tuple[tuple[str, int], ...]:
+    pairs = []
+    for item in items:
+        match = re.fullmatch(r"(\w+)\s+(\d{1,2})", normalize_text(item))
+        if not match:
+            raise VagasError(f"'Anos por senioridade' inválido em {where}: {item!r} (ex.: 'pleno 3').")
+        if match[1] not in SENIORITIES:
+            raise VagasError(f"Senioridade desconhecida em {where}: {match[1]}. Valores aceitos: "
+                             f"{', '.join(SENIORITIES)}.")
+        pairs.append((match[1], int(match[2])))
+    return tuple(sorted(pairs, key=lambda p: p[1]))
+
+
+def _state(value: str, where: str) -> str:
+    norm = normalize_text(value)
+    for uf, name in _STATES.items():
+        if norm in (uf.lower(), name):
+            return uf
+    raise VagasError(f"Estado desconhecido em {where}: {value!r}. Use a sigla (ex.: SP) ou o nome do estado.")
+
+
+def state_of(location: str | None) -> str | None:
+    """UF do local da vaga ("Barueri, São Paulo, Brazil" -> SP), ou None se não der para saber."""
+    if not location:
+        return None
+    parts = [normalize_text(re.sub(r"^Greater\s+|\s+Area$", "", p.strip())) for p in location.split(",")]
+    for part in reversed(parts):
+        for uf, name in _STATES.items():
+            if part in (uf.lower(), name):
+                return uf
+    return None
+
+
+def years_required(text: str | None) -> int | None:
+    """Anos de experiência pedidos na descrição (o menor de uma faixa), só perto de "experiência"."""
+    text = text or ""
+    for match in _YEARS.finditer(text):
+        start = max(text.rfind(c, 0, match.start()) for c in ".!?;\n•") + 1
+        ends = [i for i in (text.find(c, match.end()) for c in ".!?;\n•") if i >= 0]
+        sentence = normalize_text(text[start:min(ends) if ends else len(text)])
+        if "experien" in sentence and int(match.group(1)) <= MAX_YEARS_REQUIRED:
+            return int(match.group(1))
+    return None
+
+
+def level_for_years(years: int, table: tuple[tuple[str, int], ...]) -> str:
+    """Maior senioridade cujo mínimo de anos cabe nos anos pedidos (abaixo de todos: a primeira)."""
+    eligible = [level for level, minimum in table if years >= minimum]
+    return eligible[-1] if eligible else table[0][0]
+
+
 def _contains(text: str, term: str) -> bool:
     return re.search(rf"(?<!\w){re.escape(term)}(?!\w)", text) is not None
 
@@ -191,6 +263,9 @@ class Triage:
 
         reasons: list[str] = []
         needs: list[dict[str, Any]] = []
+        if posting["seniority"] is None and (years := years_required(posting["description"])) is not None:
+            posting = {**posting, "seniority": level_for_years(years, criteria.years_by_level)}
+            reasons.append(f"Senioridade {posting['seniority']} pelos {years} anos de experiência pedidos na vaga.")
         title, company = posting["title"], posting["company"]
         role_key, seniority = posting["role_key"], posting["seniority"]
 
@@ -211,7 +286,7 @@ class Triage:
             match = self._match(posting, needs)
             discard = self._role(criteria, posting, match, reasons, needs)
         if discard is None:
-            self._location(criteria, posting, reasons, needs)
+            discard = self._location(criteria, posting, reasons, needs)
 
         app = self.repo.add_application(
             company=company or "(empresa não informada)", role=title, source=posting["source"], url=url,
@@ -300,7 +375,7 @@ class Triage:
 
     @staticmethod
     def _location(criteria: TriageCriteria, posting: dict[str, Any], reasons: list[str],
-                  needs: list[dict[str, Any]]) -> None:
+                  needs: list[dict[str, Any]]) -> str | None:
         mode, location = posting["work_mode"], posting["location"]
         if mode is None:
             needs.append({"kind": "modalidade", "detail": (
@@ -312,11 +387,16 @@ class Triage:
         if mode == "remoto":
             reasons.append("Vaga remota.")
             return
-        place = normalize_text(location or "")
-        accepted = next((c for c in criteria.accepted_locations if _contains(place, c)), None)
+        # Só a cidade (1ª parte): "Campinas, São Paulo, Brasil" não é a cidade de São Paulo.
+        city = re.sub(r"^greater\s+|\s+area$", "", normalize_text((location or "").split(",")[0]))
+        accepted = next((c for c in criteria.accepted_locations if _contains(city, c)), None)
         if accepted:
             reasons.append(f"Vaga {_MODE_LABELS[mode]} em local aceito ({location}).")
-            return
+            return None
+        state = state_of(location)
+        if criteria.accepted_states and state and state not in criteria.accepted_states:
+            return (f"Vaga {_MODE_LABELS[mode]} em {location} ({state}), fora dos estados aceitos para híbrido e "
+                    f"presencial ({', '.join(criteria.accepted_states)}).")
         needs.append({"kind": "local", "detail": (
             f"Vaga {_MODE_LABELS[mode]} em {location or 'local não informado'}, fora dos locais aceitos. Julgue se o "
             "deslocamento é viável; se não for, descarte com update_application.")})

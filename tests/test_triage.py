@@ -301,3 +301,42 @@ def test_possible_duplicate_needs_equivalent_title_and_compatible_place(triage, 
     result = triage.triage_job(fetcher.add(gupy(40, name=title, city=city)))
 
     assert (result["decision"] == "possivel_duplicata") is duplicate
+
+
+def test_seniority_comes_from_the_years_asked(triage, fetcher, conn):
+    market(conn, 12000, seniority="pleno")
+    url = fetcher.add(gupy(50, name="Cientista de Dados", mode="remote",
+                           description="<p>Python e SQL. Requisitos: 4+ years of experience.</p>"))
+
+    result = triage.triage_job(url)
+
+    assert result["application"]["seniority"] == "pleno"
+    assert "senioridade" not in kinds(result)
+    assert any("4 anos" in r for r in result["reasons"])
+    assert result["salary"]["decision"] == "aplicar"
+
+
+def test_hybrid_outside_accepted_states_is_discarded(conn, files, fetcher, approved, monkeypatch):
+    monkeypatch.delenv("VAGAS_SALARY_TTL_DAYS", raising=False)
+    (files / "criterios-triagem.md").write_text(
+        CRITERIA + "- Estados aceitos para híbrido e presencial: SP\n", encoding="utf-8")
+    triage = Triage(conn, fetcher=fetcher, criteria_path=files / "criterios-triagem.md",
+                    policy_path=files / "politica-salarial.md", draft_path=files / "curriculo.yaml")
+    out_url, out_page = gupy(51, city="Florianópolis")
+    outside = fetcher.add((out_url, out_page.replace('"addressState": "SP"', '"addressState": "Santa Catarina"')))
+    page_url, page = gupy(52, city="Campinas")
+    inside = fetcher.add((page_url, page.replace('"addressState": "SP"', '"addressState": "São Paulo"')))
+
+    far = triage.triage_job(outside)
+    near = triage.triage_job(inside)
+
+    assert far["decision"] == "descartada" and "SC" in far["application"]["discard_reason"]
+    assert near["decision"] == "a_aplicar" and "local" in kinds(near)
+
+
+def test_accepted_city_is_matched_against_the_city_not_the_state(triage, fetcher):
+    page_url, page = gupy(53, city="Campinas")
+    result = triage.triage_job(fetcher.add((page_url, page.replace('"addressState": "SP"',
+                                                                   '"addressState": "São Paulo"'))))
+
+    assert "local" in kinds(result)  # Campinas não está entre os locais aceitos (só São Paulo)

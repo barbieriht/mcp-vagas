@@ -110,3 +110,28 @@ def test_example_documents_every_accepted_value():
     values = text[text.index("## Valores aceitos"):]
     assert all(f"`{v}`" in values for v in (*ROLE_KEYS, *SENIORITIES) if v != "outro")
     assert "0 a 100" in values
+
+
+def test_years_by_level_and_accepted_states():
+    c = parse_criteria(CRITERIA + "- Anos por senioridade: júnior 0, Pleno 2, sênior 6.\n"
+                       "- Estados aceitos para híbrido e presencial: SP, Minas Gerais\n")
+
+    assert c.years_by_level == (("junior", 0), ("pleno", 2), ("senior", 6))
+    assert c.accepted_states == ("SP", "MG")
+
+
+def test_defaults_for_years_and_states():
+    c = parse_criteria("- Cargos alvo: data_scientist\n")
+
+    assert c.years_by_level == (("junior", 0), ("pleno", 3), ("senior", 5))
+    assert c.accepted_states == ()
+
+
+@pytest.mark.parametrize("line, message", [
+    ("- Anos por senioridade: pleno três\n", "Anos por senioridade"),
+    ("- Anos por senioridade: mestre 3\n", "mestre"),
+    ("- Estados aceitos para híbrido e presencial: XX\n", "XX"),
+])
+def test_invalid_years_and_states(line, message):
+    with pytest.raises(VagasError, match=message):
+        parse_criteria("- Cargos alvo: data_scientist\n" + line)
