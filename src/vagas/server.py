@@ -400,6 +400,22 @@ def build_server(
             return render_resume(master, resume_out or default_output_dir(), label=label)
 
     @server.tool()
+    def suggest_tailored_selection(application_id: int) -> dict[str, Any]:
+        """Propõe a seleção inicial do currículo personalizado de uma candidatura, pelos termos da vaga.
+
+        Chame ANTES de montar a seleção à mão: parta desta proposta, refine (corte, reordene, reescreva
+        parágrafos em bullets que destaquem o que a vaga pede) e gere com create_tailored_resume.
+        Usa os termos presentes no currículo ("matched" de match_terms da candidatura; sem eles,
+        calcula pela descrição). Experiências na ordem do currículo, cada uma com os parágrafos que
+        citam os termos primeiro (ao menos um parágrafo por experiência); voluntariado, projetos,
+        publicações e certificações só com o que cita algum termo; skills com grupos e termos da vaga
+        primeiro; formação e idiomas inteiros. A seleção já passa na validação de create_tailored_resume.
+        Retorna {selection, scores: {paragraphs, items, skills}, terms, note}.
+        """
+        with resumes() as s:
+            return s.suggest_tailored_selection(application_id)
+
+    @server.tool()
     def create_tailored_resume(selection: TailoredSelection, application_id: int | None = None) -> dict[str, Any]:
         """Gera um currículo personalizado para uma vaga a partir do currículo geral aprovado.
 

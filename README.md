@@ -310,6 +310,7 @@ Status possíveis: `a_aplicar` (vaga encontrada e triada, aguardando candidatura
 | `create_tailored_resume` | valida e gera um currículo personalizado |
 | `read_job_posting` | lê a página de uma vaga (Gupy, LinkedIn Jobs e sites com dados estruturados) e devolve os campos normalizados; Indeed e Glassdoor bloqueiam leitura automática |
 | `triage_job` | triagem inteira de uma vaga numa chamada: duplicata, leitura, critérios fixos, aderência, registro e salário; devolve o que ainda exige julgamento ou pesquisa |
+| `suggest_tailored_selection` | propõe a seleção inicial do currículo personalizado de uma candidatura, pelos termos da vaga |
 | `add_profile_field` | acrescenta um campo de formulário ao `perfil.md` e ao `perfil.example.md` (dados sensíveis só como "informar manualmente") |
 | `diff_master` | compara itens das fontes com o currículo geral aprovado: novos, alterados e ausentes, com IDs preservados |
 | `score_job_match` | aderência de uma vaga ao currículo geral: nota 0–100, termos presentes e ausentes (indicativa) |

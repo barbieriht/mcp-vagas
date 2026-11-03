@@ -201,3 +201,19 @@ def test_short_family_names_are_matched_whole_not_by_letters(db_path, tmp_path):
     conn.close()
 
     assert result["related"] == {"Tableau": ["Power BI"]}  # sem "MLflow: W&B" vindo das letras soltas
+
+
+def test_multiword_skills_count_as_phrases_not_as_loose_words(db_path, tmp_path):
+    conn = connect(db_path)
+    s = ResumeStore(conn, tmp_path / "curriculo.yaml")
+    resume = fictitious_resume()
+    resume["skills"].append({"id": "skills-ai", "label": "AI", "terms": ["Machine Learning", "Data Warehousing"]})
+    s.save_master_draft(resume)
+    s.approve_master()
+
+    result = s.score_job_match("Buscamos experiência com Machine Learning e Python. Data é nosso foco. "
+                               "Learning culture.")
+    conn.close()
+
+    assert result["matched"] == ["Python", "Machine Learning"]
+    assert result["missing"] == []
