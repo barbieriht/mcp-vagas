@@ -166,3 +166,21 @@ def test_set_seniority_validates_and_logs(repo):
     assert repo.events(app["id"])[-1]["note"] == "Senioridade: pleno (4+ anos de experiência pedidos)."
     with pytest.raises(VagasError, match="seniority"):
         repo.set_seniority(app["id"], "mestre", "x")
+
+
+def test_contract_is_validated_and_defaults_to_unknown(repo):
+    assert add(repo)["contract"] == "desconhecido"
+    assert add(repo, url="https://x.gupy.io/jobs/9", contract="pj")["contract"] == "pj"
+    with pytest.raises(VagasError, match="contract"):
+        add(repo, url="https://x.gupy.io/jobs/10", contract="mei")
+
+
+def test_update_sets_and_validates_contract(repo):
+    app = add(repo)
+
+    updated = repo.update_application(app["id"], contract="pj")
+
+    assert updated["contract"] == "pj" and updated["status"] == app["status"]
+    assert transitions(repo, app["id"]) == [(None, "aplicada", None)]
+    with pytest.raises(VagasError, match="contract"):
+        repo.update_application(app["id"], contract="mei")

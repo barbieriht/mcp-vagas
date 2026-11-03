@@ -88,3 +88,15 @@ async def test_work_list_via_mcp(db_path, tmp_path):
 
     assert result["counts"] == {"ready": 0, "pending": 1}
     assert "pending" in tools["work_list"].description
+
+
+def test_rows_show_the_contract(stores):
+    conn, repo, resumes = stores
+    add(repo, conn, "Alfa", 90, contract="pj", evaluation={"decision": "aplicar", "value_to_inform": 12000})
+    add(repo, conn, "Beta", 80, evaluation={"decision": "aplicar", "value_to_inform": 9000})
+    add(repo, conn, "Gama", 70, work_mode=None, contract="clt")
+
+    result = build_work_list(repo, resumes)
+
+    assert [(r["company"], r["contract"]) for r in result["ready"]] == [("Alfa", "pj"), ("Beta", "desconhecido")]
+    assert result["pending"][0]["contract"] == "clt"

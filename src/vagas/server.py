@@ -146,6 +146,7 @@ def build_server(
         search_id: int | None = None,
         match_score: Annotated[int, Field(ge=0, le=100)] | None = None,
         match_terms: MatchTerms | None = None,
+        contract: Contract = "desconhecido",
     ) -> dict[str, Any]:
         """Registra uma vaga: encontrada e triada, candidatura enviada, incompleta ou descartada.
 
@@ -167,6 +168,7 @@ def build_server(
         resume_id: currículo personalizado enviado (create_tailored_resume); fica vinculado.
         search_id: busca de origem (save_job_search), para vagas encontradas em buscas.
         match_score / match_terms: aderência ao currículo, como devolvida por score_job_match.
+        contract: regime da vaga (clt, pj ou desconhecido), como lido em read_job_posting.
         """
         with repo() as r:
             return r.add_application(
@@ -176,6 +178,7 @@ def build_server(
                 status=status, pending=pending, discard_reason=discard_reason, resume_id=resume_id,
                 search_id=search_id, match_score=match_score,
                 match_terms=match_terms.model_dump() if match_terms is not None else None,
+                contract=contract,
             )
 
     @server.tool()
@@ -186,6 +189,7 @@ def build_server(
         pending: str | None = None,
         discard_reason: str | None = None,
         resume_id: int | None = None,
+        contract: Contract | None = None,
     ) -> dict[str, Any]:
         """Atualiza uma candidatura existente: etapa do processo, pendência e/ou anotação.
 
@@ -197,6 +201,7 @@ def build_server(
         - pending: o que falta o usuário fazer, em qualquer etapa; "" limpa a pendência.
         - discard_reason: motivo, somente ao mudar o status para "descartada".
         - resume_id: vincula o currículo personalizado enviado nesta candidatura.
+        - contract: corrige o regime da vaga (clt, pj ou desconhecido).
 
         Mudança de status e nota ficam registradas como eventos (ver get_history).
         Retorna a candidatura atualizada.
@@ -204,7 +209,7 @@ def build_server(
         with repo() as r:
             return r.update_application(
                 id, status=status, note=note, pending=pending, discard_reason=discard_reason,
-                resume_id=resume_id,
+                resume_id=resume_id, contract=contract,
             )
 
     @server.tool()
@@ -693,7 +698,7 @@ def build_server(
         """Lista de trabalho pronta: as vagas a_aplicar, da maior para a menor aderência, separadas em
         "ready" (prontas para candidatura) e "pending" (com pendência a resolver antes).
 
-        Cada linha: {id, company, role, work_mode, location, seniority, match_score, missing (principais
+        Cada linha: {id, company, role, work_mode, contract (clt/pj/desconhecido), location, seniority, match_score, missing (principais
         termos ausentes), related ({ausente: [termos da mesma família no currículo]}), value_to_inform
         (pretensão, quando a avaliação salarial decidiu aplicar), salary_basis, url, pending (lista:
         "modalidade", "senioridade", "salário não avaliado", "pesquisa salarial" ou o pending registrado)}.
