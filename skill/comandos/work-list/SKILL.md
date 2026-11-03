@@ -4,10 +4,8 @@ description: Mostra a lista de vagas a aplicar, da maior para a menor aderência
 disable-model-invocation: true
 ---
 
-Chame `list_applications` com status `a_aplicar`. Mostre uma tabela, na ordem recebida, com:
-- empresa, cargo e modalidade;
-- `match_score` e os principais termos ausentes de `match_terms`;
-- a pretensão sugerida (`value_to_inform` em `salary_evaluation`, quando houver);
-- a URL.
+Chame `work_list` e mostre as duas listas como vierem, sem recalcular:
+- **Prontas para candidatura** (`ready`): uma tabela com empresa, cargo, modalidade, `match_score`, a pretensão (`value_to_inform`) e a URL. Nos termos ausentes (`missing`), mostre os relacionados (`related`) como "XGBoost: você tem LightGBM".
+- **Com pendência** (`pending`): empresa, cargo e o que falta (`pending`).
 
-Termine perguntando em quais vagas o Thiago quer se candidatar. Cada uma segue o fluxo de candidatura da skill **candidaturas** (candidatar.md).
+Termine perguntando em quais vagas prontas o Thiago quer se candidatar e se quer resolver as pendências. Cada candidatura segue o fluxo da skill **candidaturas** (candidatar.md).

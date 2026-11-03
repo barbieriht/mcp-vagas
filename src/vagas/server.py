@@ -34,6 +34,7 @@ from vagas.search_run import SearchRunStore
 from vagas.sensitive import DpapiBackend, SensitiveAccess, Vault, default_vault_path
 from vagas.salary_policy import default_policy_path
 from vagas.triage import Triage, default_criteria_path
+from vagas.work_list import build_work_list
 from vagas.resume_repo import ResumeStore, default_draft_path
 
 
@@ -669,6 +670,21 @@ def build_server(
         """
         with job_searches() as s:
             return s.find_job_search(query, source, location=location)
+
+    @server.tool()
+    def work_list() -> dict[str, Any]:
+        """Lista de trabalho pronta: as vagas a_aplicar, da maior para a menor aderência, separadas em
+        "ready" (prontas para candidatura) e "pending" (com pendência a resolver antes).
+
+        Cada linha: {id, company, role, work_mode, location, seniority, match_score, missing (principais
+        termos ausentes), related ({ausente: [termos da mesma família no currículo]}), value_to_inform
+        (pretensão, quando a avaliação salarial decidiu aplicar), salary_basis, url, pending (lista:
+        "modalidade", "senioridade", "salário não avaliado", "pesquisa salarial" ou o pending registrado)}.
+        Retorna {ready, pending, counts}. Mostre as linhas como estão, sem recalcular.
+        """
+        with store(lambda conn: build_work_list(
+                Repo(conn), ResumeStore(conn, draft_path or default_draft_path(db_path)))) as result:
+            return result
 
     @server.tool()
     def start_search_run(

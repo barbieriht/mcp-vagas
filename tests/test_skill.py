@@ -173,3 +173,11 @@ def test_vault_use_requires_confirmation_in_the_review_step():
     assert "confirmar explicitamente" in review
     assert review.index("confirmar explicitamente") < review.index("`get_sensitive_field`")
     assert "`pendente_usuario`" in review
+
+
+def test_work_list_command_and_search_summary_use_the_tool():
+    command = (SKILL_DIR.parent / "comandos" / "work-list" / "SKILL.md").read_text(encoding="utf-8")
+    search = (SKILL_DIR / "buscar.md").read_text(encoding="utf-8")
+
+    assert "`work_list`" in command and "`list_applications`" not in command
+    assert "`work_list`" in search[search.index("5. **Resumo.**"):]
