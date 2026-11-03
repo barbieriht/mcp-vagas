@@ -26,6 +26,7 @@ Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor 
 | Estimativas salariais: cache de pesquisas (90 dias) | pronto |
 | Avaliação de pretensão salarial (`evaluate_salary`), com prioridade da faixa publicada na vaga | pronto |
 | Política salarial lida pelo MCP (faixa por modalidade, local e moeda) | pronto |
+| Busca em lote em segundo plano (`start_search_run`), também pelo terminal (`python -m vagas.search_run start`) | pronto |
 | Busca de vagas por código na Gupy e no LinkedIn (`search_jobs`) e sugestão de buscas (`suggest_job_searches`) | pronto |
 | Currículo e perfil por tools: diferenças na atualização (`diff_master`), campos do perfil (`add_profile_field`), seleção sugerida (`suggest_tailored_selection`) | pronto |
 | Cofre local de dados sensíveis (DPAPI) e entrega condicionada para formulários | pronto |
@@ -322,6 +323,7 @@ Status possíveis: `a_aplicar` (vaga encontrada e triada, aguardando candidatura
 | `list_resumes` / `get_resume` | consulta currículos personalizados gerados |
 | `find_salary_estimate` | consulta o cache de salários (empresa e mercado; chamar antes de pesquisar) |
 | `save_salary_estimate` | registra uma pesquisa de salários (inclusive "nada encontrado") |
+| `start_search_run` / `get_search_run` | executa a busca inteira (buscas sugeridas e triagem de cada vaga nova) em segundo plano e devolve o resumo |
 | `suggest_job_searches` | monta as buscas a partir dos cargos alvo, dos locais e das skills do currículo |
 | `search_jobs` | executa uma busca na Gupy ou no LinkedIn, registra e marca as vagas já registradas (Indeed e Glassdoor: navegador) |
 | `find_job_search` / `save_job_search` | consulta e registra buscas de vagas por site, consulta e local |

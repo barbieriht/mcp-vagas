@@ -145,10 +145,12 @@ def test_triage_starts_with_triage_job_and_keeps_manual_steps_as_plan_b():
     assert "CI&T" not in text and "criterios-triagem.md" in triage
 
 
-def test_search_flow_uses_the_search_tools():
+def test_search_flow_runs_in_batch_with_step_by_step_as_plan_b():
     text = (SKILL_DIR / "buscar.md").read_text(encoding="utf-8")
+    plan_b = text[text.index("## Plano B"):]
 
-    assert text.index("`suggest_job_searches`") < text.index("`search_jobs`") < text.index("`triage_job`")
+    assert text.index("`start_search_run`") < text.index("`get_search_run`") < text.index("## Plano B")
+    assert plan_b.index("`suggest_job_searches`") < plan_b.index("`search_jobs`") < plan_b.index("`triage_job`")
 
 
 def test_master_update_uses_diff_master():
