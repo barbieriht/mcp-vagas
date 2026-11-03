@@ -340,3 +340,10 @@ def test_accepted_city_is_matched_against_the_city_not_the_state(triage, fetcher
                                                                    '"addressState": "São Paulo"'))))
 
     assert "local" in kinds(result)  # Campinas não está entre os locais aceitos (só São Paulo)
+
+
+@pytest.mark.parametrize("job_type, contract", [("vacancy_type_effective", "clt"), ("vacancy_type_legal_entity", "pj")])
+def test_contract_of_the_posting_is_registered(triage, fetcher, job_type, contract):
+    url = fetcher.add(gupy(1, job_type=job_type))
+
+    assert triage.triage_job(url)["application"]["contract"] == contract

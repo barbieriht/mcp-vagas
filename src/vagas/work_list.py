@@ -40,6 +40,7 @@ def build_work_list(repo: Repo, resumes: ResumeStore) -> dict[str, Any]:
         missing = (app.get("match_terms") or {}).get("missing", [])
         row = {
             "id": app["id"], "company": app["company"], "role": app["role"], "work_mode": app.get("work_mode"),
+            "contract": app.get("contract"),
             "location": app.get("location"), "seniority": app.get("seniority"), "match_score": app.get("match_score"),
             "missing": missing[:MISSING_SHOWN], "related": _related(missing, corpus) if corpus else {},
             "value_to_inform": evaluation.get("value_to_inform") if evaluation.get("decision") == "aplicar" else None,

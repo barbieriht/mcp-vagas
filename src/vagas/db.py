@@ -188,6 +188,14 @@ MIGRATIONS = [
         finished_at TEXT
     );
     """,
+    # v13: regime da vaga (clt/pj/desconhecido); vagas antigas herdam o da faixa publicada, quando houve
+    """
+    ALTER TABLE applications ADD COLUMN contract TEXT NOT NULL DEFAULT 'desconhecido';
+    UPDATE applications SET contract = COALESCE((
+        SELECT p.contract FROM salary_points p
+        WHERE p.application_id = applications.id AND p.source = 'vaga' AND p.contract IN ('clt', 'pj')
+        ORDER BY p.id DESC LIMIT 1), 'desconhecido');
+    """,
 ]
 LATEST_VERSION = len(MIGRATIONS)
 

@@ -6,7 +6,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from vagas.models import INITIAL_STATUSES, SENIORITIES, SOURCES, STATUSES, WORK_MODES
+from vagas.models import CONTRACTS, INITIAL_STATUSES, SENIORITIES, SOURCES, STATUSES, WORK_MODES
 from vagas.normalize import canonical_url, normalize_company
 
 
@@ -85,11 +85,13 @@ class Repo:
         search_id: int | None = None,
         match_score: int | None = None,
         match_terms: dict[str, Any] | None = None,
+        contract: str = "desconhecido",
     ) -> dict[str, Any]:
         company = _require_text("company", company)
         role = _require_text("role", role)
         _require_choice("source", source, SOURCES)
         _require_choice("work_mode", work_mode, WORK_MODES)
+        _require_choice("contract", contract, CONTRACTS)
         _require_choice("status", status, INITIAL_STATUSES)
         if status == "pendente_usuario":
             pending = _require_text("pending", pending)
@@ -120,13 +122,13 @@ class Repo:
                 INSERT INTO applications (
                     company, company_norm, role, url, url_canonical, source, seniority,
                     work_mode, location, salary_expectation, description, status, pending,
-                    discard_reason, search_id, match_score, match_terms, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    discard_reason, search_id, match_score, match_terms, contract, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (company, normalize_company(company), role, url, url_canonical, source,
                  seniority, work_mode, location, salary_expectation, description, status,
                  pending, discard_reason, search_id, match_score,
-                 json.dumps(match_terms, ensure_ascii=False) if match_terms is not None else None, now, now),
+                 json.dumps(match_terms, ensure_ascii=False) if match_terms is not None else None, contract, now, now),
             )
             self.conn.execute(
                 "INSERT INTO events (application_id, at, from_status, to_status) VALUES (?, ?, NULL, ?)",
@@ -144,14 +146,16 @@ class Repo:
         pending: str | None = None,
         discard_reason: str | None = None,
         resume_id: int | None = None,
+        contract: str | None = None,
     ) -> dict[str, Any]:
-        """Muda status, pendência, currículo vinculado e/ou anota. pending="" limpa a pendência.
+        """Muda status, pendência, currículo vinculado, regime e/ou anota. pending="" limpa a pendência.
 
         Mudança de status ou nota gravam evento; só mudar a pendência não grava.
         """
         current = self.get(application_id)
-        if all(v is None for v in (status, note, pending, discard_reason, resume_id)):
-            raise VagasError("Nada a atualizar: informe status, note, pending ou resume_id.")
+        if all(v is None for v in (status, note, pending, discard_reason, resume_id, contract)):
+            raise VagasError("Nada a atualizar: informe status, note, pending, resume_id ou contract.")
+        _require_choice("contract", contract, CONTRACTS)
         if resume_id is not None:
             self._check_resume(resume_id, application_id)
         _require_choice("status", status, STATUSES)
@@ -175,10 +179,10 @@ class Repo:
             self.conn.execute(
                 """
                 UPDATE applications
-                SET status = ?, pending = ?, discard_reason = ?, updated_at = ?
+                SET status = ?, pending = ?, discard_reason = ?, contract = ?, updated_at = ?
                 WHERE id = ?
                 """,
-                (new_status, new_pending, new_reason, now, application_id),
+                (new_status, new_pending, new_reason, contract or current["contract"], now, application_id),
             )
             if status is not None or note is not None:
                 self.conn.execute(

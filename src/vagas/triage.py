@@ -292,7 +292,7 @@ class Triage:
             company=company or "(empresa não informada)", role=title, source=posting["source"], url=url,
             seniority=seniority, work_mode=posting["work_mode"], location=posting["location"],
             description=posting["description"] or None, status="descartada" if discard else "a_aplicar",
-            discard_reason=discard, search_id=search_id,
+            discard_reason=discard, search_id=search_id, contract=posting["contract"],
             match_score=match["score"] if match else None,
             match_terms={"matched": match["matched"], "missing": match["missing"]} if match else None,
         )["application"]

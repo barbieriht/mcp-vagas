@@ -19,7 +19,7 @@ def test_new_database_gets_latest_schema(db_path):
         "id", "company", "company_norm", "role", "url", "url_canonical", "source",
         "seniority", "work_mode", "location", "salary_expectation", "description",
         "status", "pending", "discard_reason", "created_at", "updated_at", "salary_evaluation",
-        "search_id", "match_score", "match_terms",
+        "search_id", "match_score", "match_terms", "contract",
     }
     assert columns(conn, "events") == {
         "id", "application_id", "at", "from_status", "to_status", "note",
@@ -72,3 +72,27 @@ def test_db_path_defaults_to_local_share(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
 
     assert default_db_path() == tmp_path / ".local/share/vagas/vagas.db"
+
+
+def test_contract_is_backfilled_from_published_salary_points(db_path):
+    conn = connect(db_path)
+    now = "2026-01-01T00:00:00+00:00"
+    for i, contract in enumerate(["pj", "clt", "desconhecido"], start=1):
+        conn.execute("INSERT INTO applications (id, company, company_norm, role, source, status, created_at, "
+                     "updated_at) VALUES (?, 'A', 'a', 'DS', 'gupy', 'a_aplicar', ?, ?)", (i, now, now))
+        conn.execute("INSERT INTO salary_searches (id, role_key, seniority, currency, searched_at) "
+                     "VALUES (?, 'data_scientist', 'pleno', 'BRL', ?)", (i, now))
+        conn.execute("INSERT INTO salary_points (search_id, source, contract, period, application_id) "
+                     "VALUES (?, 'vaga', ?, 'mes', ?)", (i, contract, i))
+    conn.execute("INSERT INTO applications (id, company, company_norm, role, source, status, created_at, "
+                 "updated_at) VALUES (4, 'B', 'b', 'DS', 'gupy', 'a_aplicar', ?, ?)", (now, now))
+    conn.commit()
+    conn.execute("ALTER TABLE applications DROP COLUMN contract")
+    conn.execute(f"PRAGMA user_version = {LATEST_VERSION - 1}")
+    conn.commit()
+    conn.close()
+
+    conn = connect(db_path)
+
+    rows = conn.execute("SELECT id, contract FROM applications ORDER BY id").fetchall()
+    assert [tuple(r) for r in rows] == [(1, "pj"), (2, "clt"), (3, "desconhecido"), (4, "desconhecido")]
