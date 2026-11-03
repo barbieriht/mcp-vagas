@@ -155,3 +155,10 @@ def test_master_update_uses_diff_master():
     text = (SKILL_DIR / "curriculo.md").read_text(encoding="utf-8")
 
     assert text.index("`import_linkedin_profile`") < text.index("`diff_master`") < text.rindex("`approve_master`")
+
+
+def test_application_flow_uses_profile_and_selection_tools():
+    text = (SKILL_DIR / "candidatar.md").read_text(encoding="utf-8")
+
+    assert text.index("`suggest_tailored_selection`") < text.index("`create_tailored_resume`")
+    assert "`add_profile_field`" in text[text.index("## Campos novos do perfil"):]

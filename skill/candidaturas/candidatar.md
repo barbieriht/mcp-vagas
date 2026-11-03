@@ -7,8 +7,8 @@ A candidatura termina num destes dois estados:
 ## Passos
 
 1. **Triagem.** Faça a triagem do [SKILL.md](SKILL.md). Siga adiante só com a vaga em `a_aplicar` ou com uma `pendente_usuario` sendo retomada.
-2. **Currículo personalizado.** Chame `get_master_resume` e monte a seleção para a vaga:
-   - destaque as experiências e parágrafos ligados aos termos de `match_terms` (`matched`);
+2. **Currículo personalizado.** Chame `suggest_tailored_selection` com o `application_id`: ela devolve uma seleção inicial, já ordenada pelos termos da vaga. Chame `get_master_resume` para ler os textos e refine a proposta:
+   - corte ou reordene itens e parágrafos (a pontuação em `scores` mostra o que cita mais termos da vaga);
    - reescreva parágrafos longos como bullets objetivos, em inglês;
    - descreva cada responsabilidade com o mesmo verbo e o mesmo escopo do currículo geral.
 
@@ -37,15 +37,11 @@ A candidatura termina num destes dois estados:
 
 Todo dado pedido por um formulário que ainda não está no [perfil.md](perfil.md) nem no currículo geral passa a ser documentado, para que da próxima vez seja preenchido direto.
 
-1. **Registrar o campo.** Acrescente uma linha com o rótulo como o formulário pede, nos dois arquivos:
-   - no [perfil.md](perfil.md), na seção que combina com o assunto (contato, respostas padrão), ou em "Outros campos de formulário": `- <rótulo>: <PREENCHER>`;
-   - no [perfil.example.md](perfil.example.md), na mesma seção e posição, com um valor fictício ou `<...>`.
+1. **Registrar o campo.** Chame `add_profile_field` com o rótulo como o formulário pede e, se o assunto combinar com uma seção existente (contato, respostas padrão), a `section`. Ela grava o campo no [perfil.md](perfil.md) e no [perfil.example.md](perfil.example.md), no formato certo; sem `section`, o campo vai para "Outros campos de formulário". Se a opção é de lista fechada (por exemplo, "Como soube da vaga?"), inclua as opções oferecidas no rótulo.
+2. **Guardar a resposta.** Quando o Thiago responder, chame `add_profile_field` de novo com o mesmo rótulo e a resposta em `value`: ela troca o `<PREENCHER>` pela resposta.
+3. **Dados sensíveis.** Para CPF, RG, passaporte, senhas e dados bancários, chame `add_profile_field` sem `value` (com `sensitive` true se o rótulo não deixar claro). O campo fica como `informar manualmente`, e o valor é digitado pelo Thiago no formulário.
 
-   Se a opção é de lista fechada (por exemplo, "Como soube da vaga?"), anote também as opções oferecidas.
-2. **Guardar a resposta.** Quando o Thiago responder, troque o `<PREENCHER>` do [perfil.md](perfil.md) pela resposta dele.
-3. **Dados sensíveis.** Para CPF, RG, passaporte, senhas e dados bancários, registre só o campo com o valor `informar manualmente`. O valor fica com o Thiago, digitado por ele no formulário.
-
-Se a sessão não tiver acesso de escrita a esses arquivos (por exemplo, a Skill instalada por zip no Desktop), mostre ao Thiago as linhas exatas a acrescentar em cada um.
+Se a tool der erro por não achar a pasta da Skill (por exemplo, na Skill instalada por zip no Desktop), mostre ao Thiago as linhas exatas a acrescentar em cada arquivo, no formato `- <rótulo>: <valor>`.
 
 ## Respostas em texto
 

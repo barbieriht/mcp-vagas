@@ -27,6 +27,7 @@ Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor 
 | Avaliação de pretensão salarial (`evaluate_salary`), com prioridade da faixa publicada na vaga | pronto |
 | Política salarial lida pelo MCP (faixa por modalidade, local e moeda) | pronto |
 | Busca de vagas por código na Gupy e no LinkedIn (`search_jobs`) e sugestão de buscas (`suggest_job_searches`) | pronto |
+| Currículo e perfil por tools: diferenças na atualização (`diff_master`), campos do perfil (`add_profile_field`), seleção sugerida (`suggest_tailored_selection`) | pronto |
 | Triagem de uma vaga numa chamada (`triage_job`), com critérios fixos configuráveis | pronto |
 | Busca de vagas: registro de buscas (evita repetir em 24 h) | pronto |
 | Busca de vagas: aderência da vaga ao currículo (`score_job_match`) | pronto |
