@@ -1,60 +1,90 @@
-from datetime import datetime, timedelta, timezone
+import json
 
 import pytest
+from mcp import Client
 
+from resume_fixture import fictitious_resume
 from vagas.db import connect
 from vagas.repo import Repo
+from vagas.resume_repo import ResumeStore
+from vagas.server import build_server
+from vagas.work_list import build_work_list
 
-T0 = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
+pytestmark = pytest.mark.anyio
 
 
 @pytest.fixture
-def repo(db_path):
-    clock = {"at": T0}
+def stores(db_path, tmp_path):
     conn = connect(db_path)
-    r = Repo(conn, now=lambda: clock["at"].isoformat(timespec="seconds"))
-    r.clock = clock
-    yield r
+    resumes = ResumeStore(conn, tmp_path / "curriculo.yaml")
+    resume = fictitious_resume()
+    resume["skills"].append({"id": "skills-ml", "label": "ML", "terms": ["LightGBM"]})
+    resumes.save_master_draft(resume)
+    resumes.approve_master()
+    yield conn, Repo(conn), resumes
     conn.close()
 
 
-def found(repo, day, company, score, source="linkedin", status="a_aplicar"):
-    repo.clock["at"] = T0 + timedelta(days=day)
-    terms = None if score is None else {"matched": ["Python"], "missing": ["Spark"]}
-    return repo.add_application(company=company, role="DS", source=source, url=f"https://x.com/{company}",
-                                status=status, match_score=score, match_terms=terms)["application"]
+def add(repo, conn, company, score, work_mode="remoto", seniority="pleno", evaluation=None, **extra):
+    app = repo.add_application(company=company, role="Cientista de Dados", source="gupy", status="a_aplicar",
+                               url=f"https://{company.lower()}.gupy.io/jobs/1", work_mode=work_mode,
+                               seniority=seniority, location="São Paulo, SP", match_score=score,
+                               match_terms={"matched": ["Python"], "missing": ["XGBoost", "Kafka", "Spark"]},
+                               **extra)["application"]
+    if evaluation:
+        conn.execute("UPDATE applications SET salary_evaluation = ? WHERE id = ?", (json.dumps(evaluation), app["id"]))
+        conn.commit()
+    return app
 
 
-def companies(result):
-    return [app["company"] for app in result["applications"]]
+def test_rows_are_split_into_ready_and_pending(stores):
+    conn, repo, resumes = stores
+    add(repo, conn, "Alfa", 90, evaluation={"decision": "aplicar", "value_to_inform": 12000, "basis": "mercado"})
+    add(repo, conn, "Beta", 80, work_mode=None, evaluation={"decision": "aplicar", "value_to_inform": 9000})
+    add(repo, conn, "Gama", 70, evaluation={"decision": "pesquisar", "value_to_inform": None})
+    add(repo, conn, "Delta", 60, seniority=None)
+    repo.add_application(company="Zeta", role="DS", source="gupy", status="aplicada")
+
+    result = build_work_list(repo, resumes)
+
+    assert [r["company"] for r in result["ready"]] == ["Alfa"]
+    assert [(r["company"], r["pending"]) for r in result["pending"]] == [
+        ("Beta", ["modalidade"]), ("Gama", ["pesquisa salarial"]), ("Delta", ["senioridade", "salário não avaliado"])]
+    alfa = result["ready"][0]
+    assert alfa["value_to_inform"] == 12000 and alfa["salary_basis"] == "mercado"
+    assert alfa["missing"] == ["XGBoost", "Kafka", "Spark"]
+    assert alfa["related"] == {"XGBoost": ["LightGBM"]}
+    assert alfa["url"] == "https://alfa.gupy.io/jobs/1" and alfa["work_mode"] == "remoto"
+    assert result["counts"] == {"ready": 1, "pending": 3}
 
 
-def test_work_list_is_ordered_by_match_then_newest(repo):
-    found(repo, 0, "Low", 40)
-    found(repo, 1, "NoScore", None)
-    found(repo, 2, "HighOld", 90)
-    found(repo, 3, "Mid", 70)
-    found(repo, 4, "HighNew", 90)
+def test_registered_pending_text_is_a_pendency(stores):
+    conn, repo, resumes = stores
+    app = add(repo, conn, "Alfa", 90, evaluation={"decision": "aplicar", "value_to_inform": 12000})
+    repo.update_application(app["id"], pending="responder pergunta sobre disponibilidade")
 
-    result = repo.list_applications(status="a_aplicar")
+    result = build_work_list(repo, resumes)
 
-    assert companies(result) == ["HighNew", "HighOld", "Mid", "Low", "NoScore"]
-    assert result["applications"][0]["match_terms"] == {"matched": ["Python"], "missing": ["Spark"]}
-    assert result["applications"][0]["match_score"] == 90
+    assert result["pending"][0]["pending"] == ["responder pergunta sobre disponibilidade"]
 
 
-def test_other_filters_still_apply_to_work_list(repo):
-    found(repo, 0, "Linkedin", 90)
-    found(repo, 1, "Gupy", 50, source="gupy")
-    found(repo, 2, "GupyHigh", 80, source="gupy")
+def test_works_without_approved_resume(db_path, tmp_path):
+    conn = connect(db_path)
+    repo = Repo(conn)
+    add(repo, conn, "Alfa", 90, evaluation={"decision": "aplicar", "value_to_inform": 12000})
 
-    assert companies(repo.list_applications(status="a_aplicar", source="gupy")) == ["GupyHigh", "Gupy"]
-    assert companies(repo.list_applications(status="a_aplicar", since="2026-10-02")) == ["GupyHigh", "Gupy"]
+    result = build_work_list(repo, ResumeStore(conn, tmp_path / "c.yaml"))
+    conn.close()
+
+    assert result["ready"][0]["related"] == {}
 
 
-def test_other_statuses_keep_newest_first(repo):
-    found(repo, 0, "Old", 99, status="aplicada")
-    found(repo, 1, "New", 10, status="aplicada")
+async def test_work_list_via_mcp(db_path, tmp_path):
+    async with Client(build_server(db_path, draft_path=tmp_path / "c.yaml")) as client:
+        await client.call_tool("add_application", {"company": "Alfa", "role": "DS", "source": "gupy",
+                                                   "status": "a_aplicar", "work_mode": "remoto", "seniority": "pleno"})
+        tools = {t.name: t for t in (await client.list_tools()).tools}
+        result = (await client.call_tool("work_list", {})).structured_content
 
-    assert companies(repo.list_applications(status="aplicada")) == ["New", "Old"]
-    assert companies(repo.list_applications()) == ["New", "Old"]
+    assert result["counts"] == {"ready": 0, "pending": 1}
+    assert "pending" in tools["work_list"].description

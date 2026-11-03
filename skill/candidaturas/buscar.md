@@ -14,8 +14,8 @@ A busca termina quando:
    - `possiveis_duplicatas`: mostre ao Thiago as duas vagas (`url` e `matches`) e pergunte se são a mesma. Se não forem, chame `triage_job` com `not_duplicate` igual a true;
    - `needs`: resolva cada tipo como no passo 3 da triagem do [SKILL.md](SKILL.md) (pesquisa salarial, modalidade, local, senioridade);
    - `errors`: vagas que não puderam ser lidas (por exemplo, LinkedIn limitado) podem ser triadas mais tarde com `triage_job`.
-5. **Resumo.** Apresente ao Thiago:
-   - as novas vagas `a_aplicar` do `summary`, da maior para a menor aderência, com empresa, cargo, modalidade, `match_score` e a pretensão sugerida (`value_to_inform`);
+5. **Resumo.** Chame `work_list` e apresente ao Thiago:
+   - as vagas prontas para candidatura (`ready`) e as que ainda têm pendência (`pending`), como no comando /work-list;
    - as descartadas, com o motivo de cada uma;
    - quantas vagas já estavam registradas e quantas buscas foram puladas por serem recentes.
 

@@ -323,6 +323,7 @@ Status possíveis: `a_aplicar` (vaga encontrada e triada, aguardando candidatura
 | `list_resumes` / `get_resume` | consulta currículos personalizados gerados |
 | `find_salary_estimate` | consulta o cache de salários (empresa e mercado; chamar antes de pesquisar) |
 | `save_salary_estimate` | registra uma pesquisa de salários (inclusive "nada encontrado") |
+| `work_list` | lista de trabalho pronta: vagas `a_aplicar` separadas em prontas para candidatura e com pendência |
 | `start_search_run` / `get_search_run` | executa a busca inteira (buscas sugeridas e triagem de cada vaga nova) em segundo plano e devolve o resumo |
 | `suggest_job_searches` | monta as buscas a partir dos cargos alvo, dos locais e das skills do currículo |
 | `search_jobs` | executa uma busca na Gupy ou no LinkedIn, registra e marca as vagas já registradas (Indeed e Glassdoor: navegador) |
