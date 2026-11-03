@@ -6,7 +6,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from vagas.models import INITIAL_STATUSES, SOURCES, STATUSES, WORK_MODES
+from vagas.models import INITIAL_STATUSES, SENIORITIES, SOURCES, STATUSES, WORK_MODES
 from vagas.normalize import canonical_url, normalize_company
 
 
@@ -289,6 +289,17 @@ class Repo:
         if row is None:
             raise VagasError(f"Candidatura {application_id} não existe.")
         return _application(row)
+
+    def set_seniority(self, application_id: int, seniority: str, reason: str) -> dict[str, Any]:
+        """Define a senioridade de uma candidatura já registrada (ex.: decidida depois da triagem),
+        registrando o motivo como nota no histórico."""
+        self.get(application_id)
+        _require_choice("seniority", seniority, SENIORITIES)
+        reason = _require_text("reason", reason)
+        with self.conn:
+            self.conn.execute("UPDATE applications SET seniority = ?, updated_at = ? WHERE id = ?",
+                              (seniority, self.now(), application_id))
+        return self.update_application(application_id, note=f"Senioridade: {seniority} ({reason}).")
 
     def set_match(self, application_id: int, match_score: int | None, match_terms: dict[str, Any]) -> None:
         """Atualiza a aderência gravada (recalculada quando o currículo geral muda). Não gera evento."""
