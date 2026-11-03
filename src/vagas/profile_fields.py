@@ -84,6 +84,44 @@ class ProfileFiles:
     def __init__(self, skill_dir: Path | str):
         self.dir = Path(skill_dir)
 
+    def get_profile(self, vault_fields: list[str]) -> dict[str, Any]:
+        """Perfil estruturado: seções e campos com status (ok, preencher, manual, cofre, cofre_vazio),
+        subitens como observações. Campos do cofre nunca trazem o valor, só a indicação."""
+        from vagas.sensitive import ALLOWED_FIELDS
+
+        by_label = {_key(label): field for field, label in ALLOWED_FIELDS.items()}
+        perfil = _Profile(self.dir / "perfil.md")
+        sections: list[dict[str, Any]] = []
+        to_fill: list[str] = []
+        vault_missing: list[str] = []
+        current = None
+        for line in perfil.lines:
+            if line.startswith("## "):
+                sections.append({"name": line[3:].strip(), "fields": []})
+                continue
+            if not sections:
+                continue
+            item = _ITEM.match(line)
+            if item:
+                label, value = item["label"].strip(), item["value"].strip()
+                field: dict[str, Any] = {"label": label, "value": value, "status": "ok", "notes": []}
+                if value.startswith("<"):
+                    field["status"] = "preencher"
+                    to_fill.append(label)
+                elif _key(value) == _key(MANUAL):
+                    field["status"] = "manual"
+                elif value.startswith("no cofre"):
+                    vault_field = by_label.get(_key(label))
+                    field["vault_field"] = vault_field
+                    field["status"] = "cofre" if vault_field in vault_fields else "cofre_vazio"
+                    if field["status"] == "cofre_vazio":
+                        vault_missing.append(label)
+                sections[-1]["fields"].append(field)
+                current = field
+            elif line.startswith((" ", "\t")) and line.strip().startswith("- ") and current is not None:
+                current["notes"].append(line.strip()[2:].strip())
+        return {"sections": sections, "to_fill": to_fill, "vault_missing": vault_missing}
+
     def mark_vault(self, label: str, stored: bool) -> None:
         """No perfil.md, o campo sensível fica "no cofre" ou volta a "informar manualmente" (nunca o valor)."""
         perfil = _Profile(self.dir / "perfil.md")

@@ -14,12 +14,13 @@ A candidatura termina num destes dois estados:
 
    Chame `create_tailored_resume` com o `application_id`. Se a validação rejeitar algo, ajuste a seleção ou o texto ao que o currículo geral diz e gere de novo. Guarde o caminho do PDF e o id do currículo.
 3. **Formulário.**
-   - **Acesso:** abra a vaga no navegador. Prefira aplicar ou entrar com LinkedIn; senão, entre com a conta Google do [perfil.md](perfil.md).
-   - **Dados:** carregue o [perfil.md](perfil.md) e preencha com os dados dele e do currículo geral.
+   - **Perfil:** chame `get_profile`. Use os campos com status `ok`; os com `preencher` são bloqueios (passo 4); os `manual` o Thiago digita; os `cofre` são preenchidos na revisão (passo 5). As `notes` de cada campo dizem como responder (por exemplo, em escalas fixas). Se a tool der erro, leia o [perfil.md](perfil.md).
+   - **Acesso:** abra a vaga no navegador. Prefira aplicar ou entrar com LinkedIn; senão, entre com a conta Google do perfil.
+   - **Dados:** preencha com os dados do perfil e do currículo geral.
    - **Anexo:** anexe o PDF personalizado.
    - **Pretensão salarial:** use o `value_to_inform` da avaliação salarial. Se não estiver à mão, ele está em `salary_evaluation`, no `get_history`.
    - **Consentimentos:** marque os de privacidade e LGPD exigidos pelo formulário.
-4. **Bloqueios.** Documentos marcados no [perfil.md](perfil.md) como "no cofre (get_sensitive_field)" não bloqueiam: eles são preenchidos na revisão (passo 5), com a confirmação do Thiago. Se o formulário exigir criar conta com senha, um documento ou dado sensível que não está no cofre, ou uma resposta que não está no perfil nem no currículo:
+4. **Bloqueios.** Campos com status `cofre` em `get_profile` não bloqueiam: eles são preenchidos na revisão (passo 5), com a confirmação do Thiago. Se o formulário exigir criar conta com senha, um documento ou dado sensível que não está no cofre, ou uma resposta que não está no perfil nem no currículo:
    - registre cada campo novo no perfil (seção "Campos novos do perfil" abaixo);
    - preencha todo o resto e deixe a aba aberta;
    - chame `update_application` com status `pendente_usuario`, `pending` listando cada item que falta e o `resume_id`;

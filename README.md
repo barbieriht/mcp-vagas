@@ -317,6 +317,7 @@ Status possíveis: `a_aplicar` (vaga encontrada e triada, aguardando candidatura
 | `rescore_applications` | recalcula a aderência das candidaturas abertas pelo currículo atual (`approve_master` já faz isso numa versão nova) |
 | `get_sensitive_field` | entrega um dado do cofre (CPF, RG...) para um formulário confiável de uma candidatura triada, com a sua confirmação; registra o uso sem o valor |
 | `suggest_tailored_selection` | propõe a seleção inicial do currículo personalizado de uma candidatura, pelos termos da vaga |
+| `get_profile` | perfil estruturado para formulários: campos com status (preenchido, a preencher, manual, no cofre) |
 | `add_profile_field` | acrescenta um campo de formulário ao `perfil.md` e ao `perfil.example.md` (dados sensíveis só como "informar manualmente") |
 | `diff_master` | compara itens das fontes com o currículo geral aprovado: novos, alterados e ausentes, com IDs preservados |
 | `score_job_match` | aderência de uma vaga ao currículo geral: nota 0–100, termos presentes e ausentes (indicativa) |
