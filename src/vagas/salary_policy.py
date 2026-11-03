@@ -38,7 +38,7 @@ _MODE_WORDS = {"remoto": "remoto", "hibrido": "hibrido", "presencial": "presenci
 class Band:
     label: str
     modes: frozenset[str]
-    city: str | None  # normalizado
+    cities: tuple[str, ...]  # normalizadas; vazio = qualquer local
     currency: str
     clt: bool
     min: float
@@ -62,13 +62,12 @@ class SalaryPolicy:
         if not candidates:
             raise VagasError(f"A política salarial não tem faixa para vaga {work_mode} em {currency}. "
                              "Acrescente uma ao politica-salarial.md ou informe my_min/my_max.")
-        place = normalize_text(location or "")
-        # A cidade costuma vir antes do estado ("Campinas, São Paulo"): vale a que aparece primeiro.
-        hits = [(m.start(), b) for b in candidates if b.city
-                and (m := re.search(rf"\b{re.escape(b.city)}\b", place))]
-        if hits:
-            return min(hits, key=lambda hit: hit[0])[1]
-        generic = [b for b in candidates if b.city is None]
+        # Só a cidade (1ª parte do local): em "Campinas, São Paulo", "São Paulo" é o estado.
+        city = re.sub(r"^greater\s+|\s+area$", "", normalize_text(re.split(r",|\s+-\s+", location or "")[0]))
+        hit = next((b for b in candidates if city in b.cities), None)
+        if hit:
+            return hit
+        generic = [b for b in candidates if not b.cities]
         if generic:
             return generic[0]
         cities = ", ".join(b.label for b in candidates)
@@ -151,11 +150,11 @@ def parse_policy(text: str, source: str = "politica-salarial.md") -> SalaryPolic
         norm_label = normalize_text(label)
         modes = frozenset(m for word, m in _MODE_WORDS.items() if word in norm_label) or frozenset(WORK_MODES)
         city = _CITY.search(norm_label)
-        city_norm = city["city"].strip() if city else None
+        cities = tuple(c.strip() for c in re.split(r",\s*|\s+e\s+", city["city"]) if c.strip()) if city else ()
         clt = "CLT" in tags
 
         if alias := _ALIAS.search(value):
-            aliases.append((number, label, modes, city_norm, currency, clt, normalize_text(alias["target"])))
+            aliases.append((number, label, modes, cities, currency, clt, normalize_text(alias["target"])))
             continue
         lo, hi = _MIN.search(value), _MAX.search(value)
         if not lo:
@@ -164,14 +163,14 @@ def parse_policy(text: str, source: str = "politica-salarial.md") -> SalaryPolic
         hi_value = parse_number(hi["n"]) if hi else None
         if hi_value is not None and hi_value < lo_value:
             raise VagasError(f"'máximo' menor que 'mínimo' em {where}: {line.strip()}")
-        bands.append(Band(label, modes, city_norm, currency, clt, lo_value, hi_value))
+        bands.append(Band(label, modes, cities, currency, clt, lo_value, hi_value))
 
-    for number, label, modes, city, currency, clt, target in aliases:
+    for number, label, modes, cities, currency, clt, target in aliases:
         match = next((b for b in bands if normalize_text(b.label).startswith(target)
                       or target.startswith(normalize_text(b.label))), None)
         if match is None:
             raise VagasError(f"{source}, linha {number}: faixa {target!r} citada em 'usar a faixa' não existe.")
-        bands.append(Band(label, modes, city, currency, clt, match.min, match.max))
+        bands.append(Band(label, modes, cities, currency, clt, match.min, match.max))
 
     if not bands:
         raise VagasError(f"{source}: nenhuma faixa encontrada. Use linhas como "

@@ -126,3 +126,23 @@ def test_example_documents_every_accepted_value():
     values = text[text.index("## Valores aceitos"):]
     assert all(f"`{v}`" in values for v in (*SALARY_MODES, *CURRENCIES, "CLT"))
     assert all(word in values for word in ("remoto", "híbrido", "presencial"))
+
+
+CITIES = """\
+- Remoto nacional (BRL, CLT): mínimo 8.000
+- Híbrido/presencial em São Paulo, Barueri, Campinas, Osasco e Sorocaba (BRL, CLT): mínimo 10.500
+- Híbrido/presencial em São Carlos e região (BRL, CLT): mínimo 8.500
+"""
+
+
+@pytest.mark.parametrize("location, minimum", [
+    ("Campinas, São Paulo, Brazil", 10500), ("Barueri, SP", 10500), ("São Paulo, São Paulo, Brazil", 10500),
+    ("Greater São Paulo Area", 10500), ("Sorocaba", 10500), ("São Carlos, SP, Brasil", 8500),
+])
+def test_band_lists_several_cities(location, minimum):
+    assert parse_policy(CITIES).band_for("hibrido", location, "BRL").min == minimum
+
+
+def test_state_name_does_not_match_a_city_band():
+    with pytest.raises(VagasError, match="Ribeirão Preto"):
+        parse_policy(CITIES).band_for("hibrido", "Ribeirão Preto, São Paulo, Brazil", "BRL")
