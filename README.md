@@ -68,6 +68,7 @@ uv pip install --reinstall-package vagas --python ~/.local/share/vagas/venv/bin/
 | `VAGAS_MASTER_RESUME` | arquivo YAML editável do currículo geral | `curriculo.yaml` ao lado do banco |
 | `VAGAS_RESUME_OUT` | pasta onde os PDFs de currículo são gerados | nenhum (obrigatória para gerar PDF) |
 | `VAGAS_SALARY_POLICY` | política salarial lida por `evaluate_salary` | `politica-salarial.md` ao lado do banco (o instalador cria um symlink para o da Skill) |
+| `VAGAS_SENSITIVE_FILE` | cofre de dados sensíveis (CPF, RG...), cifrado pela DPAPI do Windows | `cofre.json` ao lado do banco |
 | `VAGAS_SKILL_DIR` | pasta `skill/candidaturas` do repositório, onde `add_profile_field` grava os campos novos do perfil | a pasta para onde aponta o symlink da política salarial (criado pelo instalador) |
 | `VAGAS_TRIAGE_CRITERIA` | critérios fixos de triagem lidos por `triage_job` | `criterios-triagem.md` ao lado do banco (o instalador cria um symlink para o da Skill) |
 | `VAGAS_SALARY_TTL_DAYS` | validade do cache de salários, em dias | `90` |
@@ -357,3 +358,17 @@ src/vagas/
 ## Privacidade
 
 Tudo fica na sua máquina: o banco, o YAML do currículo e os PDFs. O arquivo `skill/candidaturas/perfil.md`, com dados pessoais para formulários, está no `.gitignore`. Só o `perfil.example.md`, com dados fictícios, é versionado.
+
+### Cofre de dados sensíveis
+
+CPF, RG e outros documentos da lista fechada podem ficar num cofre local, para o Claude preenchê-los nos formulários com a sua confirmação. Cada valor é cifrado pela DPAPI do Windows, ligada ao seu usuário: o arquivo no WSL só guarda o texto cifrado (decisão em [docs/adr/0001](docs/adr/0001-cofre-de-dados-sensiveis-com-dpapi.md)). Senhas, dados bancários e cartões nunca entram no cofre.
+
+O cadastro é feito só por você, no terminal do WSL. O valor é digitado sem aparecer na tela e não passa pela conversa:
+
+```bash
+~/.local/share/vagas/venv/bin/python -m vagas.sensitive set cpf     # pede o valor duas vezes
+~/.local/share/vagas/venv/bin/python -m vagas.sensitive list        # só os nomes dos campos
+~/.local/share/vagas/venv/bin/python -m vagas.sensitive remove cpf
+```
+
+Campos aceitos: `cpf`, `rg`, `rg_orgao_emissor`, `cnh`, `pis`, `ctps`, `titulo_eleitor`, `passaporte` e `nome_mae`. O CPF tem os dígitos verificadores conferidos.
