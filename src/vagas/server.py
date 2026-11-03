@@ -113,10 +113,12 @@ def build_server(
         Chame no PRIMEIRO USO (e sempre que uma tool reclamar de pasta não configurada), antes de gerar
         currículo ou exportar. Retorna {config_file, settings, needs_setup}. Em settings, cada chave
         (resume_out = pasta dos PDFs de currículo, export_dir = pasta dos CSVs, master_resume = arquivo
-        YAML do currículo geral) traz {value, source (env/config/default/unset), description, default,
-        suggestions, env}. needs_setup lista as chaves que o usuário nunca definiu: pergunte a pasta
-        de cada uma, oferecendo a sugestão mais adequada (suggestions, ou o default quando houver), e
-        grave com set_config.
+        YAML do currículo geral, login_method = entrar nos sites de vagas por "linkedin" ou "google",
+        login_email = conta Google usada quando login_method é "google") traz {value, source
+        (env/config/default/unset), description, kind, default, suggestions, choices, env}.
+        needs_setup lista as chaves que o usuário nunca definiu: pergunte uma por vez (para pastas,
+        ofereça a sugestão mais adequada: suggestions, ou o default quando houver; para login_method,
+        as choices; login_email só aparece quando o login é por Google) e grave com set_config.
         """
         try:
             return paths_config.describe(db_path)
@@ -125,9 +127,10 @@ def build_server(
 
     @server.tool()
     def set_config(key: str, value: str | None = None) -> dict[str, Any]:
-        """Grava o caminho de uma tarefa no config.toml (cria a pasta e confere que dá para escrever).
+        """Grava uma configuração no config.toml (para pastas, cria a pasta e confere que dá para escrever).
 
-        key: resume_out, export_dir ou master_resume. value: caminho absoluto (aceita C:\\Users\\...).
+        key: resume_out, export_dir ou master_resume (value: caminho absoluto, aceita C:\\Users\\...);
+        login_method (value: "linkedin" ou "google"/"gmail"); login_email (value: e-mail da conta Google).
         Sem value, confirma o padrão da chave (só export_dir e master_resume têm padrão). Use depois de
         perguntar ao usuário, nunca escolha sozinho a pasta dos currículos. Retorna {key, value, source,
         config_file, warnings}; se source for "env", uma variável de ambiente do servidor sobrepõe o valor.
@@ -554,8 +557,9 @@ def build_server(
         estruturados de vaga (muitos sites de carreira). Retorna {url, url_canonical, source, title,
         company, location, work_mode (remoto/hibrido/presencial), contract (clt/pj/desconhecido),
         role_key, seniority, role_certain, salary ({currency, period, min_value, max_value} se
-        publicada; period null = confira na vaga), pcd_flag, published_at, description}; no LinkedIn
-        também work_mode_inferred=true quando a modalidade veio do texto da descrição (confira).
+        publicada; period null = confira na vaga), pcd_flag, published_at, closed, description};
+        closed=true: o LinkedIn avisa que a vaga não aceita mais candidaturas (não se candidate nem
+        registre); no LinkedIn também work_mode_inferred=true quando a modalidade veio do texto da descrição (confira).
         role_certain=false: confirme cargo e família pela descrição. LinkedIn limitou as leituras ou
         pediu login: erro; espere ou leia pelo navegador.
         Indeed e Glassdoor bloqueiam leitura automática: nesse caso (ou se a página não tiver dados
@@ -571,18 +575,21 @@ def build_server(
         """Triagem completa de uma vaga numa chamada. Use SEMPRE para triar uma vaga a partir da URL.
 
         Encadeia, sem você repetir as etapas: find_application (URL), read_job_posting, critérios
-        fixos do arquivo criterios-triagem.md (empresas ignoradas, vaga exclusiva PcD, cargos alvo,
+        fixos do arquivo criterios-triagem.md (empresas ignoradas, vagas afirmativas/exclusivas PcD fora dos
+        grupos que o usuário disputa, cargos alvo,
         locais aceitos), score_job_match, add_application (a_aplicar ou descartada, com search_id),
         faixa publicada (save_salary_estimate) e evaluate_salary pela política salarial.
         decision:
         - "ja_registrada": URL já registrada; siga pelo status de application, como em find_application;
         - "possivel_duplicata": nada registrado; a mesma empresa tem vaga de cargo e senioridade iguais
           (needs[0].matches). Pergunte ao usuário; se for outra vaga, chame de novo com not_duplicate=true;
+        - "encerrada": o LinkedIn avisa que a vaga não aceita mais candidaturas; nada registrado, encerre a vaga;
         - "descartada": registrada como descartada (motivo em application.discard_reason);
         - "a_aplicar": registrada na lista de trabalho; resolva cada item de needs.
         needs = o que as regras não decidem, cada um {kind, detail} com a ação a tomar: "cargo" (cargo
         não reconhecido), "aderencia", "local" (híbrido/presencial fora dos locais aceitos), "modalidade",
-        "senioridade", "pesquisa_salarial" (pesquise com as consultas em queries, as research_queries de
+        "senioridade", "afirmativa" (vaga afirmativa sem grupo reconhecido: leia e julgue),
+        "pesquisa_salarial" (pesquise com as consultas em queries, as research_queries de
         evaluate_salary, e chame evaluate_salary de novo), "salario".
         Se o julgamento reprovar a vaga, use update_application com status "descartada".
         Página bloqueada ou sem dados estruturados: erro; leia a vaga pelo navegador e faça a triagem

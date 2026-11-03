@@ -135,3 +135,13 @@ def test_defaults_for_years_and_states():
 def test_invalid_years_and_states(line, message):
     with pytest.raises(VagasError, match=message):
         parse_criteria("- Cargos alvo: data_scientist\n" + line)
+
+
+def test_affirmative_groups_the_user_can_compete_for():
+    base = "- Cargos alvo: Data Scientist\n"
+    assert parse_criteria(base).affirmative_ok == ()
+    assert parse_criteria(base + "- Vagas afirmativas que posso disputar: Mulheres, pessoas negras.\n"
+                          ).affirmative_ok == ("women", "black")
+    assert parse_criteria(base + "- Vagas afirmativas que posso disputar: nenhuma\n").affirmative_ok == ()
+    with pytest.raises(VagasError, match="astronautas"):
+        parse_criteria(base + "- Vagas afirmativas que posso disputar: astronautas\n")

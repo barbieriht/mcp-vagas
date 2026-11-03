@@ -20,6 +20,8 @@ Se `needs_setup` trouxer chaves, o MCP ainda não sabe onde guardar aqueles arqu
 - `resume_out`: pasta dos PDFs de currículo. Sugira a primeira de `suggestions` (no WSL, costuma ser `Documents` do Windows, para anexar o PDF no navegador) e diga que ele pode escolher outra.
 - `export_dir`: pasta dos CSVs exportados. Sugira uma de `suggestions` ou aceite o `default`.
 - `master_resume`: arquivo YAML do currículo geral. Sugira o `default` (fica no WSL, fora do `/mnt/c`, que é lento).
+- `login_method`: como entrar nos sites de vagas, `linkedin` ou `google` (aceite "gmail" como google).
+- `login_email`: só aparece em `needs_setup` quando o login é `google`. Pergunte qual e-mail da conta Google usar (pode ser diferente do e-mail do `perfil.md`).
 
 Grave cada resposta com `set_config` (sem `value` para aceitar o `default`) e leia o `warnings` do retorno: se uma variável de ambiente sobrepõe o valor, avise o Thiago. Não escolha a pasta dos currículos sozinho. Depois de configurado, `get_config` não pergunta de novo; para mudar depois, o Thiago pede e você chama `set_config`.
 
@@ -38,9 +40,11 @@ Toda vaga passa pela triagem antes de qualquer outra ação. Ela termina com a v
 2. **Resultado.** Siga pelo `decision`:
    - `ja_registrada`: veja o status da `application`. Em `pendente_usuario`, retome pelo que está em `pending`. Em `a_aplicar`, siga para o próximo passo do fluxo. Em qualquer outro status, informe o status ao Thiago e encerre a vaga.
    - `possivel_duplicata`: nada foi registrado. Mostre ao Thiago as vagas em `matches` e pergunte se é a mesma vaga. Se não for, chame `triage_job` de novo com `not_duplicate` igual a true.
+   - `encerrada`: o LinkedIn avisa que a vaga não aceita mais candidaturas (`closed`). Nada foi registrado. Informe ao Thiago e encerre a vaga.
    - `descartada`: informe o motivo (`discard_reason`) e encerre a vaga.
    - `a_aplicar`: resolva cada item de `needs`. O `detail` de cada item diz o que fazer.
 3. **Julgamento dos `needs`.**
+   - `afirmativa`: a vaga se diz afirmativa sem citar um grupo reconhecido. Leia a descrição; se for para um grupo fora de "Vagas afirmativas que posso disputar" em [criterios-triagem.md](criterios-triagem.md), descarte com `update_application` (`descartada` e `discard_reason`).
    - `cargo`: o título não foi reconhecido. Confirme a família pela descrição: Data Scientist (júnior a sênior) e AI/ML Engineer entram; analista ou engenheiro de dados, só com boa aderência ao currículo.
    - `local`: híbrido com deslocamento viável a partir de São Carlos é aceito.
    - `pesquisa_salarial`: pesquise salários na web com as consultas de `queries`, na ordem: primeiro o cargo da vaga com a empresa e a cidade, depois a empresa no Levels.fyi, por último o mercado. Registre com `save_salary_estimate`, uma linha por dado, com fonte e URL:
@@ -66,7 +70,7 @@ Use só quando `triage_job` der erro (o site bloqueou a leitura, a página não 
    - Qualquer outro status: informe o status atual ao Thiago e encerre a vaga.
    - Mesma empresa com outra vaga de cargo e senioridade parecidos, possivelmente de outra plataforma: pergunte ao Thiago se é a mesma vaga.
 2. **Leitura da vaga.** Registre cargo, senioridade, modalidade, local, regime (CLT, PJ ou desconhecido), moeda, faixa salarial publicada (se houver) e a descrição completa.
-3. **Critérios.** Aplique os de [criterios-triagem.md](criterios-triagem.md) (cargos alvo, empresas ignoradas, vagas exclusivas PcD, locais aceitos) e os julgamentos do passo 3 acima.
+3. **Critérios.** Aplique os de [criterios-triagem.md](criterios-triagem.md) (cargos alvo, empresas ignoradas, vagas afirmativas ou exclusivas PcD fora dos grupos que ele pode disputar, locais aceitos) e os julgamentos do passo 3 acima.
 
    Se a vaga reprovar aqui, chame `add_application` com status `descartada` e `discard_reason` explicando o critério, e encerre a vaga.
 4. **Aderência.** Chame `score_job_match` com a descrição. Os termos em `match_terms` (`matched`) guiam o currículo personalizado, e os de `missing` mostram lacunas. A nota é indicativa e complementa os critérios.

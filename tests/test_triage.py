@@ -19,6 +19,7 @@ CRITERIA = """\
 - Empresas ignoradas: CI&T
 - Termos de vaga exclusiva PcD: exclusiva para PcD
 - Locais aceitos para híbrido e presencial: São Paulo
+- Vagas afirmativas que posso disputar: mulheres
 """
 POLICY = """\
 - Modo: minimo
@@ -40,7 +41,7 @@ def gupy(job_id, name="Cientista de Dados Pleno", company="Acme", mode="hybrid",
     return f"https://acme.gupy.io/jobs/{job_id}", page
 
 
-def linkedin(job_id, salary=None, remote=False):
+def linkedin(job_id, salary=None, remote=False, closed=False):
     obj = {"@type": "JobPosting", "title": "Senior Data Scientist", "hiringOrganization": {"name": "Beta"},
            "jobLocation": {"address": {"addressLocality": "São Paulo", "addressCountry": "BR"}},
            "description": GOOD}
@@ -48,7 +49,11 @@ def linkedin(job_id, salary=None, remote=False):
         obj["jobLocationType"] = "TELECOMMUTE"
     if salary:
         obj["baseSalary"] = salary
-    page = f'<html><script type="application/ld+json">{json.dumps(obj)}</script></html>'
+    banner = ""
+    if closed:
+        banner = ('<h1 class="topcard__title">Senior Data Scientist</h1><figure class="closed-job">'
+                  '<figcaption>Not currently accepting applications</figcaption></figure>')
+    page = f'<html><script type="application/ld+json">{json.dumps(obj)}</script>{banner}</html>'
     return f"https://www.linkedin.com/jobs/view/{job_id}/", page
 
 
@@ -347,3 +352,60 @@ def test_contract_of_the_posting_is_registered(triage, fetcher, job_type, contra
     url = fetcher.add(gupy(1, job_type=job_type))
 
     assert triage.triage_job(url)["application"]["contract"] == contract
+
+
+def test_closed_linkedin_job_is_not_registered(triage, fetcher, conn):
+    url = fetcher.add(linkedin(40, closed=True))
+
+    result = triage.triage_job(url)
+
+    assert result["decision"] == "encerrada" and result["application"] is None
+    assert "não aceita candidaturas" in " ".join(result["reasons"])
+    assert result["posting"]["closed"] is True
+    assert Repo(conn).find_application(url=url) == []
+    assert triage.triage_job(url)["decision"] == "encerrada"  # sem registro, a vaga é lida de novo
+
+
+@pytest.mark.parametrize("name, term", [
+    ("Cientista de Dados - Vaga afirmativa para pessoas negras", "pessoas negras"),
+    ("Cientista de Dados - exclusiva para pessoas LGBTQIA+", "LGBTQIA+"),
+    ("Cientista de Dados - vaga exclusiva para pessoas com deficiência", "PcD"),
+])
+def test_affirmative_job_outside_the_users_groups_is_discarded(triage, fetcher, conn, name, term):
+    url = fetcher.add(gupy(50, name=name))
+
+    result = triage.triage_job(url)
+
+    assert result["decision"] == "descartada"
+    assert result["application"]["status"] == "descartada"
+    assert term in result["application"]["discard_reason"]
+    assert "Vagas afirmativas que posso disputar" in result["application"]["discard_reason"] or term == "PcD"
+
+
+def test_affirmative_job_inside_the_users_groups_goes_on(triage, fetcher):
+    result = triage.triage_job(fetcher.add(gupy(51, name="Cientista de Dados - vaga afirmativa para mulheres")))
+
+    assert result["decision"] == "a_aplicar"
+
+
+def test_inclusive_boilerplate_does_not_discard(triage, fetcher):
+    description = GOOD + "<p>Incentivamos candidaturas de pessoas negras, LGBTQIA+ e PcD.</p>"
+
+    result = triage.triage_job(fetcher.add(gupy(52, description=description)))
+
+    assert result["decision"] == "a_aplicar"
+
+
+def test_affirmative_job_without_group_asks_the_user(triage, fetcher):
+    result = triage.triage_job(fetcher.add(gupy(53, description=GOOD + "<p>Esta é uma vaga afirmativa.</p>")))
+
+    assert result["decision"] == "a_aplicar"
+    assert "afirmativa" in kinds(result)
+
+
+def test_pcd_allowed_when_the_user_lists_it(triage, fetcher, files):
+    (files / "criterios-triagem.md").write_text(CRITERIA.replace("mulheres", "mulheres, PcD"), encoding="utf-8")
+
+    result = triage.triage_job(fetcher.add(gupy(54, name="Cientista de Dados - Exclusiva para PcD")))
+
+    assert result["decision"] == "a_aplicar"
