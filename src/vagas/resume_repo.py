@@ -16,9 +16,10 @@ from pydantic import ValidationError
 from vagas.db import default_db_path
 from vagas.models import LINKEDIN_SECTIONS, RESUME_SOURCE_KINDS
 from vagas.normalize import normalize_text
-from vagas.repo import VagasError, _require_choice, _require_text, _utcnow
+from vagas.repo import Repo, VagasError, _require_choice, _require_text, _utcnow
 from vagas.resume_extract import extract_pages, review_draft, wsl_path
 from vagas.resume_diff import diff_master
+from vagas.resume_suggest import suggest_selection
 from vagas.resume_model import MasterResume, describe_errors
 from vagas.resume_render import render_resume
 from vagas.resume_tailor import TailoredSelection, resolve
@@ -332,6 +333,18 @@ class ResumeStore:
             )
         return {"id": cursor.lastrowid, **rendered}
 
+    def suggest_tailored_selection(self, application_id: int) -> dict[str, Any]:
+        """Seleção inicial do currículo personalizado pelos termos da candidatura (ver resume_suggest)."""
+        app = Repo(self.conn).get(application_id)
+        terms = (app.get("match_terms") or {}).get("matched") or []
+        if not terms and app.get("description"):
+            terms = self.score_job_match(app["description"], company=app["company"], title=app["role"],
+                                         location=app.get("location"))["matched"]
+        master = self.get_master_resume()["resume"]
+        result = suggest_selection(master, terms, label=app["company"])
+        resolve(master, TailoredSelection.model_validate(result["selection"]))  # a sugestão sempre passa
+        return result
+
     def diff_master(self, items: dict[str, Any]) -> dict[str, Any]:
         """Compara itens das fontes com o currículo geral aprovado (ver resume_diff). Não salva nada."""
         if not isinstance(items, dict):
@@ -353,7 +366,12 @@ class ResumeStore:
         """
         description = _require_text("description", description)
         master = self.get_master_resume()["resume"]
-        skills = term_set(term for group in master.get("skills", []) for term in group["terms"])
+        skill_terms = [term for group in master.get("skills", []) for term in group["terms"]]
+        # Skills de uma palavra contam como termo; as de várias ("Machine Learning") só como frase inteira,
+        # para palavras soltas como "Data" e "Learning" não virarem termos técnicos.
+        skills = term_set(t for t in skill_terms if " " not in t.strip())
+        phrases = [t for t in dict.fromkeys(skill_terms) if " " in t.strip()
+                   and re.search(rf"(?<!\w){re.escape(t)}(?!\w)", description, re.I)]
         corpus = term_set(strings(master))
         matched, missing = match_terms(description, corpus, skills | TECH_TERMS)
         excluded = {w for text in (company, title, location) if text
@@ -363,8 +381,9 @@ class ResumeStore:
         def present(term: str) -> bool:  # termos de início de frase não passam pela checagem de match_terms
             return term.lower() in corpus or all(p.lower() in corpus for p in term.split("-") if p)
 
-        matched = [t for t in terms if present(t)]
+        matched = [t for t in terms if present(t)] + [p for p in phrases if p not in terms]
         missing = [t for t in terms if not present(t)]
+        terms = [*terms, *(p for p in phrases if p not in terms)]
         total = len(matched) + len(missing)
         if total == 0:
             return {"score": None, "matched": [], "missing": [], "related": {}, "optional": [],
