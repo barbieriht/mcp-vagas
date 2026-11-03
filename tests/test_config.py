@@ -1,0 +1,177 @@
+import json
+from pathlib import Path
+
+import pytest
+from mcp import Client
+
+from resume_fixture import fictitious_resume
+from vagas.config import config_path, normalize_path, resolve, suggest_dirs
+from vagas.server import build_server
+
+pytestmark = pytest.mark.anyio
+
+
+def payload(result):
+    assert not result.is_error, result.content
+    return result.structured_content
+
+
+def test_precedence_is_env_then_config_file_then_default(db_path, monkeypatch, tmp_path):
+    assert resolve("export_dir", db_path) == (db_path.parent / "exports", "default")
+    assert resolve("resume_out", db_path) == (None, "unset")
+
+    config_path(db_path).write_text(f'export_dir = "{tmp_path / "csv"}"\n', encoding="utf-8")
+    assert resolve("export_dir", db_path) == (tmp_path / "csv", "config")
+
+    monkeypatch.setenv("VAGAS_EXPORT_DIR", str(tmp_path / "env"))
+    assert resolve("export_dir", db_path) == (tmp_path / "env", "env")
+
+
+def test_config_file_location_can_be_overridden(db_path, monkeypatch, tmp_path):
+    monkeypatch.setenv("VAGAS_CONFIG", str(tmp_path / "outro.toml"))
+
+    assert config_path(db_path) == tmp_path / "outro.toml"
+
+
+def test_suggestions_prefer_the_windows_documents_folder_on_wsl(tmp_path):
+    users = tmp_path / "Users"
+    (users / "Thiago" / "Documents").mkdir(parents=True)
+    (users / "Public" / "Documents").mkdir(parents=True)
+    home = tmp_path / "home"
+
+    suggestions = suggest_dirs("resume_out", users_root=users, home=home)
+
+    assert suggestions == [str(users / "Thiago" / "Documents" / "Curriculos"), str(home / "Documents" / "Curriculos")]
+
+
+@pytest.mark.parametrize("system_folder", ["Usuário Padrão", "Default User", "Todos os Usuários", "Público", "defaultuser0", "TEMP"])
+def test_suggestions_skip_windows_system_folders(tmp_path, system_folder):
+    users = tmp_path / "Users"
+    (users / "Thiago" / "Documents").mkdir(parents=True)
+    (users / system_folder / "Documents").mkdir(parents=True)
+
+    suggestions = suggest_dirs("resume_out", users_root=users, home=tmp_path / "home")
+
+    assert suggestions == [str(users / "Thiago" / "Documents" / "Curriculos"),
+                           str(tmp_path / "home" / "Documents" / "Curriculos")]
+
+
+def test_suggestions_without_windows_use_the_home_folder(tmp_path):
+    assert suggest_dirs("export_dir", users_root=tmp_path / "nao-existe", home=tmp_path) == [
+        str(tmp_path / "Documents" / "Vagas")]
+
+
+async def test_first_use_lists_everything_to_configure(db_path):
+    async with Client(build_server(db_path)) as client:
+        result = payload(await client.call_tool("get_config", {}))
+
+    assert result["needs_setup"] == ["resume_out", "export_dir", "master_resume"]
+    assert result["config_file"] == str(config_path(db_path))
+    resume_out = result["settings"]["resume_out"]
+    assert resume_out["source"] == "unset" and resume_out["value"] is None and resume_out["suggestions"]
+    assert result["settings"]["export_dir"]["default"] == str(db_path.parent / "exports")
+    assert result["settings"]["master_resume"]["default"] == str(db_path.parent / "curriculo.yaml")
+
+
+async def test_set_config_saves_creates_the_folder_and_stops_asking(db_path, tmp_path):
+    target = tmp_path / "pdfs" / "novos"
+    async with Client(build_server(db_path)) as client:
+        saved = payload(await client.call_tool("set_config", {"key": "resume_out", "value": str(target)}))
+        result = payload(await client.call_tool("get_config", {}))
+
+    assert saved["value"] == str(target) and saved["source"] == "config" and saved["warnings"] == []
+    assert target.is_dir()
+    assert 'resume_out = ' in config_path(db_path).read_text(encoding="utf-8")
+    assert result["needs_setup"] == ["export_dir", "master_resume"]
+    assert result["settings"]["resume_out"]["value"] == str(target)
+
+
+async def test_set_config_without_value_confirms_the_default(db_path):
+    async with Client(build_server(db_path)) as client:
+        saved = payload(await client.call_tool("set_config", {"key": "export_dir"}))
+        result = payload(await client.call_tool("get_config", {}))
+
+    assert saved["value"] == str(db_path.parent / "exports") and saved["source"] == "config"
+    assert "export_dir" not in result["needs_setup"]
+
+
+def test_windows_and_home_paths_are_normalized_for_wsl():
+    assert str(normalize_path("C:\\Users\\Teste\\Curriculos")) == "/mnt/c/Users/Teste/Curriculos"
+    assert normalize_path("~/pdfs") == Path.home() / "pdfs"
+
+
+async def test_set_config_keeps_the_other_keys(db_path, tmp_path):
+    async with Client(build_server(db_path)) as client:
+        await client.call_tool("set_config", {"key": "export_dir", "value": str(tmp_path / "csv")})
+        await client.call_tool("set_config", {"key": "resume_out", "value": str(tmp_path / "pdf")})
+
+    assert resolve("export_dir", db_path) == (tmp_path / "csv", "config")
+    assert resolve("resume_out", db_path) == (tmp_path / "pdf", "config")
+
+
+@pytest.mark.parametrize("arguments, message", [
+    ({"key": "resume_out", "value": "pasta/relativa"}, "absoluto"),
+    ({"key": "outra_coisa", "value": "/tmp/x"}, "resume_out"),
+    ({"key": "master_resume", "value": "/tmp/curriculo.txt"}, ".yaml"),
+    ({"key": "resume_out"}, "value"),
+])
+async def test_set_config_rejects_bad_input(db_path, arguments, message):
+    async with Client(build_server(db_path)) as client:
+        result = await client.call_tool("set_config", arguments)
+
+    assert result.is_error and message in result.content[0].text
+    assert not config_path(db_path).exists()
+
+
+async def test_env_variable_wins_and_set_config_warns(db_path, monkeypatch, tmp_path):
+    monkeypatch.setenv("VAGAS_RESUME_OUT", str(tmp_path / "env-pdfs"))
+    async with Client(build_server(db_path)) as client:
+        before = payload(await client.call_tool("get_config", {}))
+        saved = payload(await client.call_tool("set_config", {"key": "resume_out", "value": str(tmp_path / "cfg")}))
+
+    assert "resume_out" not in before["needs_setup"]
+    assert before["settings"]["resume_out"]["source"] == "env"
+    assert saved["value"] == str(tmp_path / "env-pdfs") and saved["source"] == "env"
+    assert "VAGAS_RESUME_OUT" in saved["warnings"][0]
+
+
+async def test_broken_config_file_explains_how_to_fix(db_path):
+    config_path(db_path).write_text("resume_out = [", encoding="utf-8")
+    async with Client(build_server(db_path)) as client:
+        result = await client.call_tool("get_config", {})
+
+    assert result.is_error and str(config_path(db_path)) in result.content[0].text
+
+
+async def test_configured_folders_are_used_by_the_tools(db_path, tmp_path):
+    pdfs, csvs = tmp_path / "pdfs", tmp_path / "csvs"
+    draft = tmp_path / "meu" / "geral.yaml"
+    async with Client(build_server(db_path)) as client:
+        for key, value in (("resume_out", pdfs), ("export_dir", csvs), ("master_resume", draft)):
+            await client.call_tool("set_config", {"key": key, "value": str(value)})
+        await client.call_tool("save_master_draft", {"resume": fictitious_resume()})
+        await client.call_tool("approve_master", {})
+        rendered = payload(await client.call_tool("render_master_resume", {"label": "Geral"}))
+        await client.call_tool("add_application", {"company": "Nubank", "role": "DS", "source": "linkedin"})
+        exported = payload(await client.call_tool("export_csv", {}))
+
+    assert rendered["path"] == str(pdfs / "Fulana_Tal_Resume_Geral.pdf")
+    assert exported["path"].startswith(str(csvs))
+    assert draft.exists()
+    assert json.loads(json.dumps(str(draft)))
+
+
+async def test_missing_resume_folder_error_points_to_set_config(db_path):
+    async with Client(build_server(db_path)) as client:
+        await client.call_tool("save_master_draft", {"resume": fictitious_resume()})
+        await client.call_tool("approve_master", {})
+        result = await client.call_tool("render_master_resume", {})
+
+    assert result.is_error and "set_config" in result.content[0].text and "VAGAS_RESUME_OUT" in result.content[0].text
+
+
+async def test_server_instructions_tell_the_model_to_check_the_config_first(db_path):
+    async with Client(build_server(db_path)) as client:
+        instructions = client.instructions
+
+    assert "get_config" in instructions and "set_config" in instructions

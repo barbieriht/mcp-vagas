@@ -2,7 +2,6 @@
 
 import hashlib
 import json
-import os
 import re
 import sqlite3
 import unicodedata
@@ -13,7 +12,6 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
-from vagas.db import default_db_path
 from vagas.models import LINKEDIN_SECTIONS, RESUME_SOURCE_KINDS, STATUSES
 
 OPEN_STATUSES = ("a_aplicar", "pendente_usuario")
@@ -29,10 +27,9 @@ from vagas.resume_validate import match_terms, strings, term_set
 
 
 def default_draft_path(db_path: Path | str | None = None) -> Path:
-    if env := os.environ.get("VAGAS_MASTER_RESUME"):
-        return Path(env)
-    db = Path(db_path) if db_path is not None else default_db_path()
-    return db.parent / "curriculo.yaml"
+    from vagas.config import resolve
+
+    return resolve("master_resume", db_path)[0]
 
 
 # Tecnologias reconhecidas mesmo no início de frase e sem marcas de sigla (minúsculas).

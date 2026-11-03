@@ -2,7 +2,6 @@
 
 import io
 import json
-import os
 import re
 import unicodedata
 from importlib.resources import files
@@ -17,16 +16,18 @@ from vagas.repo import VagasError
 MAX_PAGES = 2
 
 
-def default_output_dir() -> Path | None:
-    env = os.environ.get("VAGAS_RESUME_OUT")
-    return Path(env) if env else None
+def default_output_dir(db_path: Path | str | None = None) -> Path | None:
+    from vagas.config import resolve
+
+    return resolve("resume_out", db_path)[0]
 
 
 def render_resume(resume: dict[str, Any], out_dir: Path | str | None, label: str | None = None) -> dict[str, Any]:
     """Gera o PDF em out_dir sem sobrescrever arquivos; retorna {path, pages, warnings}."""
     if out_dir is None:
         raise VagasError(
-            "Pasta de saída dos currículos não configurada. Defina VAGAS_RESUME_OUT "
+            "Pasta de saída dos currículos não configurada. Chame get_config, pergunte ao usuário a pasta "
+            "(sugerida em suggestions) e grave com set_config(resume_out). Alternativa: variável VAGAS_RESUME_OUT "
             "(ex.: /mnt/c/Users/<usuário>/Curriculos) na configuração do servidor MCP."
         )
     template = files("vagas").joinpath("templates/resume.typ").read_bytes()
