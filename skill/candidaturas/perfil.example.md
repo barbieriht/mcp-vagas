@@ -31,3 +31,4 @@ Este arquivo guarda só o que não está no currículo ou respostas padrão de f
 Campos pedidos por formulários que não se encaixam nas seções acima. Dados sensíveis: só o campo, com "informar manualmente", ou "no cofre (get_sensitive_field)" para documentos cadastrados no cofre (`python -m vagas.sensitive set <campo>`).
 - <Rótulo do campo como o formulário pede>: <...>
 - CPF: informar manualmente
+- RG: informar manualmente
