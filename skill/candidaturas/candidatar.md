@@ -15,7 +15,8 @@ A candidatura termina num destes dois estados:
    Chame `create_tailored_resume` com o `application_id`. Se a validação rejeitar algo, ajuste a seleção ou o texto ao que o currículo geral diz e gere de novo. Guarde o caminho do PDF e o id do currículo.
 3. **Formulário.**
    - **Perfil:** chame `get_profile`. Use os campos com status `ok`; os com `preencher` são bloqueios (passo 4); os `manual` o Thiago digita; os `cofre` são preenchidos na revisão (passo 5). As `notes` de cada campo dizem como responder (por exemplo, em escalas fixas). Se a tool der erro, leia o [perfil.md](perfil.md).
-   - **Acesso:** abra a vaga no navegador. Prefira aplicar ou entrar com LinkedIn; senão, entre com a conta Google do perfil.
+   - **Acesso:** abra a vaga no navegador e entre pelo login padrão de `get_config` (`login_method`). Com `linkedin`, aplique ou entre com a conta do LinkedIn; com `google`, entre com a conta Google de `login_email`. Se o site não oferecer esse método, use o outro e avise o Thiago. Se `login_method` não estiver configurado, pergunte e grave com `set_config`.
+   - **Vaga encerrada:** se a página mostrar "Not currently accepting applications" (ou equivalente), não preencha nada: informe ao Thiago e, se a vaga já estiver registrada, chame `update_application` com status `descartada` e `discard_reason` "vaga encerrada".
    - **Dados:** preencha com os dados do perfil e do currículo geral.
    - **Anexo:** anexe o PDF personalizado.
    - **Pretensão salarial:** use o `value_to_inform` da avaliação salarial. Se não estiver à mão, ele está em `salary_evaluation`, no `get_history`.

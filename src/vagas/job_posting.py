@@ -1,4 +1,5 @@
 """Leitura de uma vaga a partir da URL: dados estruturados da página, sem a LLM transcrever o texto.
+`closed` é True quando o LinkedIn avisa que a vaga não aceita mais candidaturas.
 
 Ordem: Gupy (JSON embutido em __NEXT_DATA__) -> schema.org JobPosting em JSON-LD (LinkedIn e muitos
 sites de carreira). Sites que bloqueiam leitura automática (Indeed, Glassdoor) viram erro claro, para a
@@ -203,6 +204,9 @@ _LI_COMPANY = re.compile(r'class="[^"]*topcard__org-name-link[^"]*"[^>]*>(.*?)</
 _LI_LOCATION = re.compile(r'class="[^"]*topcard__flavor--bullet[^"]*"[^>]*>(.*?)</span>', re.S)
 _LI_DESCRIPTION = re.compile(r'class="[^"]*show-more-less-html__markup[^"]*"[^>]*>(.*?)</div>', re.S)
 _LI_CRITERIA = re.compile(r'job-criteria-subheader[^>]*>(.*?)</h3>\s*<span[^>]*>(.*?)</span>', re.S)
+_LI_CLOSED_CLASS = re.compile(r'class="[^"]*\bclosed-job\b')
+_LI_CLOSED_TEXT = re.compile(
+    r"(not currently|no longer|not) accepting applications|nao (esta |estamos )?(mais )?aceit\w+ (mais )?candidaturas")
 _LI_SALARY = re.compile(r'class="[^"]*compensation__salary[^"]*"[^>]*>(.*?)</div>', re.S)
 _LI_SENIORITY = [("estagio", r"estagio|internship"), ("junior", r"entry level|junior|assistente|assistant")]
 _LI_PERIODS = [("mes", r"/\s*(mes|month|mo)\b"), ("ano", r"/\s*(ano|yr|year)\b"), ("hora", r"/\s*(hora|hr|hour|h)\b")]
@@ -253,6 +257,8 @@ def _linkedin(url: str, page: str) -> dict[str, Any] | None:
     main = page.split("similar-jobs")[0]  # o resto da página são vagas semelhantes, de outras empresas
     found_description = _LI_DESCRIPTION.search(main)
     company, location, salary = _LI_COMPANY.search(main), _LI_LOCATION.search(main), _LI_SALARY.search(main)
+    banner = main.replace(found_description.group(0), "") if found_description else main
+    closed = bool(_LI_CLOSED_CLASS.search(banner) or _LI_CLOSED_TEXT.search(_plain(_text(banner))))
     criteria = {_plain(_text(k)): _plain(_text(v)) for k, v in _LI_CRITERIA.findall(main)}
     level = criteria.get("seniority level") or criteria.get("nivel de experiencia") or ""
     employment = criteria.get("employment type") or criteria.get("tipo de emprego") or ""
@@ -274,7 +280,7 @@ def _linkedin(url: str, page: str) -> dict[str, Any] | None:
         work_mode = infer_work_mode(f"{result['title']} {description}")
         inferred = work_mode is not None
     return {**result, "work_mode": work_mode, "work_mode_inferred": inferred, "contract": contract,
-            "role_key": role_key, "seniority": seniority, "role_certain": certain,
+            "role_key": role_key, "seniority": seniority, "role_certain": certain, "closed": closed,
             "salary": parse_salary_text(_text(salary.group(1))) if salary else (ld or {}).get("salary"),
             "pcd_flag": None, "published_at": (ld or {}).get("published_at"), "description": description}
 
@@ -284,7 +290,7 @@ def extract_job(url: str, page: str) -> dict[str, Any]:
     for extractor in (_gupy, _linkedin, _jsonld):
         job = extractor(url, page)
         if job:
-            return job
+            return {**job, "closed": job.get("closed", False)}
     raise JobPostingError(
         "A página não tem dados estruturados de vaga reconhecíveis; leia a vaga pelo navegador.")
 

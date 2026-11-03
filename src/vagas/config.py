@@ -1,10 +1,12 @@
-"""Configuração dos caminhos usados em cada tarefa (PDFs de currículo, CSVs, rascunho do currículo geral).
+"""Configuração do MCP: caminhos de cada tarefa (PDFs de currículo, CSVs, rascunho do currículo geral)
+e o login padrão nos sites de vagas (LinkedIn ou Google, e com qual e-mail).
 
 Um arquivo só, `config.toml`, ao lado do banco (ou em VAGAS_CONFIG). Prioridade de cada valor:
 variável de ambiente > config.toml > padrão. Não depende de MCP.
 """
 
 import os
+import re
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,13 +23,19 @@ IGNORED_WINDOWS_USERS = {
 }
 
 
+LOGIN_METHODS = ("linkedin", "google")
+_LOGIN_ALIASES = {"linkedin": "linkedin", "linked in": "linkedin", "google": "google", "gmail": "google",
+                  "conta google": "google"}
+
+
 @dataclass(frozen=True)
 class Setting:
     env: str
-    kind: str  # "dir" ou "file"
+    kind: str  # "dir", "file", "choice" ou "text"
     label: str
-    default_name: str | None  # relativo à pasta do banco; None = sem padrão (precisa ser configurado)
-    suggested_folder: str | None  # nome da pasta sugerida dentro de Documents
+    default_name: str | None = None  # relativo à pasta do banco; None = sem padrão (precisa ser configurado)
+    suggested_folder: str | None = None  # nome da pasta sugerida dentro de Documents
+    choices: tuple[str, ...] = ()  # só para kind "choice"
 
 
 SETTINGS: dict[str, Setting] = {
@@ -35,7 +43,12 @@ SETTINGS: dict[str, Setting] = {
     "export_dir": Setting("VAGAS_EXPORT_DIR", "dir", "Pasta dos CSVs exportados", "exports", "Vagas"),
     "master_resume": Setting("VAGAS_MASTER_RESUME", "file", "Arquivo YAML editável do currículo geral",
                              "curriculo.yaml", None),
+    "login_method": Setting("VAGAS_LOGIN_METHOD", "choice", "Como entrar nos sites de vagas: pela conta do LinkedIn "
+                            "ou pela conta Google", choices=LOGIN_METHODS),
+    "login_email": Setting("VAGAS_LOGIN_EMAIL", "text", "E-mail da conta Google usada para entrar "
+                           "(só vale com login_method = google)"),
 }
+PATH_KINDS = ("dir", "file")
 
 
 def config_path(db_path: Path | str | None = None) -> Path:
@@ -65,13 +78,20 @@ def default_value(key: str, db_path: Path | str | None = None) -> Path | None:
     return db.parent / name
 
 
-def resolve(key: str, db_path: Path | str | None = None) -> tuple[Path | None, str]:
-    """Valor efetivo e origem: "env", "config", "default" ou "unset" (sem padrão e nunca definido)."""
+def _as_value(key: str, raw: str) -> Path | str:
+    if SETTINGS[key].kind in PATH_KINDS:
+        return Path(raw)
+    return _clean_choice(key, raw) or raw.strip()
+
+
+def resolve(key: str, db_path: Path | str | None = None) -> tuple[Path | str | None, str]:
+    """Valor efetivo e origem: "env", "config", "default" ou "unset" (sem padrão e nunca definido).
+    Pastas e arquivos voltam como Path; login_method e login_email, como texto."""
     setting = SETTINGS[key]
     if env := os.environ.get(setting.env):
-        return Path(env), "env"
+        return _as_value(key, env), "env"
     if value := load(db_path).get(key):
-        return Path(value), "config"
+        return _as_value(key, value), "config"
     default = default_value(key, db_path)
     return (default, "default") if default is not None else (None, "unset")
 
@@ -94,6 +114,13 @@ def suggest_dirs(key: str, users_root: Path = WINDOWS_USERS, home: Path | None =
     return found
 
 
+def _needs_answer(key: str, db_path: Path | str | None) -> bool:
+    """A conta Google só é perguntada a quem escolheu entrar por ela."""
+    if key == "login_email":
+        return resolve("login_method", db_path)[0] == "google"
+    return True
+
+
 def describe(db_path: Path | str | None = None) -> dict[str, Any]:
     settings, needs_setup = {}, []
     for key, setting in SETTINGS.items():
@@ -102,9 +129,9 @@ def describe(db_path: Path | str | None = None) -> dict[str, Any]:
         settings[key] = {
             "value": str(value) if value else None, "source": source, "description": setting.label,
             "kind": setting.kind, "default": str(default) if default else None, "env": setting.env,
-            "suggestions": suggest_dirs(key),
+            "suggestions": suggest_dirs(key), "choices": list(setting.choices),
         }
-        if source in ("default", "unset"):
+        if source in ("default", "unset") and _needs_answer(key, db_path):
             needs_setup.append(key)
     return {"config_file": str(config_path(db_path)), "settings": settings, "needs_setup": needs_setup}
 
@@ -112,6 +139,27 @@ def describe(db_path: Path | str | None = None) -> dict[str, Any]:
 def normalize_path(value: str) -> Path:
     """Aceita caminhos do Windows (C:\\Users\\...) e "~"; devolve o caminho equivalente no WSL."""
     return wsl_path(value.strip()).expanduser()
+
+
+def _clean_choice(key: str, value: str) -> str | None:
+    """Tolera maiúscula, espaços e ponto final; devolve a forma guardada, ou None se não reconhecer."""
+    text = " ".join(value.strip().rstrip(".").split())
+    if key == "login_email":
+        return text.lower() if re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", text) else None
+    return _LOGIN_ALIASES.get(text.lower())
+
+
+def _validated_text(key: str, value: str | None) -> str:
+    setting = SETTINGS[key]
+    if value is None or not value.strip():
+        raise VagasError(f"Informe 'value' para {key}: {setting.label.lower()}.")
+    cleaned = _clean_choice(key, value)
+    if cleaned is None and key == "login_email":
+        raise VagasError(f"{value!r} não parece um e-mail; informe a conta Google completa, como nome@gmail.com.")
+    if cleaned is None:
+        raise VagasError(f"Valor inválido para {key}: {value!r}. Use {' ou '.join(setting.choices)} "
+                         "(\"gmail\" vale como google).")
+    return cleaned
 
 
 def _validated(key: str, value: str | None, db_path: Path | str | None) -> Path:
@@ -135,21 +183,27 @@ def set_value(key: str, value: str | None, db_path: Path | str | None = None) ->
     """Grava a configuração (cria a pasta e confere que dá para escrever). Sem value, confirma o padrão."""
     if key not in SETTINGS:
         raise VagasError(f"Configuração desconhecida: {key!r}. Use uma destas: {', '.join(SETTINGS)}.")
-    path = _validated(key, value, db_path)
-    folder = path if SETTINGS[key].kind == "dir" else path.parent
-    try:
-        folder.mkdir(parents=True, exist_ok=True)
-        if not os.access(folder, os.W_OK):
-            raise OSError("sem permissão de escrita")
-    except OSError as exc:
-        raise VagasError(f"Não consegui usar {folder} ({exc}). Escolha outra pasta.") from exc
+    if SETTINGS[key].kind in PATH_KINDS:
+        path = _validated(key, value, db_path)
+        folder = path if SETTINGS[key].kind == "dir" else path.parent
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            if not os.access(folder, os.W_OK):
+                raise OSError("sem permissão de escrita")
+        except OSError as exc:
+            raise VagasError(f"Não consegui usar {folder} ({exc}). Escolha outra pasta.") from exc
+        stored = str(path)
+    else:
+        stored = _validated_text(key, value)
 
     current = load(db_path)
-    current[key] = str(path)
+    current[key] = stored
     target = config_path(db_path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    lines = ["# Configuração do mcp-vagas: um caminho por tarefa. Edite à mão ou peça ao Claude (set_config).",
-             "# Variáveis de ambiente (VAGAS_RESUME_OUT, VAGAS_EXPORT_DIR, VAGAS_MASTER_RESUME) têm prioridade."]
+    lines = ["# Configuração do mcp-vagas: um caminho por tarefa e o login padrão. Edite à mão ou peça ao Claude (set_config).",
+             "# login_method = \"linkedin\" ou \"google\"; login_email = conta Google (quando o login é por Google).",
+             "# Variáveis de ambiente (VAGAS_RESUME_OUT, VAGAS_EXPORT_DIR, VAGAS_MASTER_RESUME, VAGAS_LOGIN_METHOD,",
+             "# VAGAS_LOGIN_EMAIL) têm prioridade."]
     lines += [f"{name} = {_quote(current[name])}" for name in SETTINGS if name in current]
     target.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

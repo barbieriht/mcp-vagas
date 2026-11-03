@@ -44,7 +44,7 @@ def test_gupy_job_is_extracted_and_normalized():
         "title": "Cientista de Dados Pleno", "company": "Acme Tecnologia",
         "location": "São Paulo, São Paulo, Brasil", "work_mode": "hibrido", "contract": "clt",
         "role_key": "data_scientist", "seniority": "pleno", "role_certain": True,
-        "salary": None, "pcd_flag": False, "published_at": "2026-10-20",
+        "closed": False, "salary": None, "pcd_flag": False, "published_at": "2026-10-20",
         "description": "Somos a Acme.\n\nModelos com Python\n\nSQL e Spark",
     }
 

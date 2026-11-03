@@ -135,3 +135,35 @@ def test_linkedin_has_its_own_longer_interval(monkeypatch):
     monkeypatch.setenv("VAGAS_LINKEDIN_JOBS_MIN_SECONDS", "45")
     assert job_posting.min_interval("www.linkedin.com") == 45
     assert job_posting.site_key("br.linkedin.com") == job_posting.site_key("www.linkedin.com")
+
+
+CLOSED_BANNERS = [
+    '<figure class="closed-job"><figcaption class="closed-job__flavor">Not currently accepting applications</figcaption></figure>',
+    '<span class="closed-job__flavor--closed">No longer accepting applications</span>',
+    '<div class="closed-job">Não aceita mais candidaturas</div>',
+    '<div class="closed-job">Não estamos aceitando candidaturas no momento</div>',
+]
+
+
+@pytest.mark.parametrize("banner", CLOSED_BANNERS)
+def test_linkedin_closed_job_is_flagged(banner):
+    page = linkedin_html().replace("<ul class=\"description__job-criteria-list\">", banner + "<ul>", 1)
+
+    assert extract_job(URL, page)["closed"] is True
+
+
+def test_linkedin_open_job_is_not_flagged():
+    assert extract_job(URL, linkedin_html())["closed"] is False
+
+
+def test_closed_phrase_inside_the_description_or_similar_jobs_does_not_count():
+    page = linkedin_html(description="<p>Se a vaga ficar Not currently accepting applications, avisamos.</p>")
+    page = page.replace("</body>", '<section class="similar-jobs"></section>'
+                                    '<p class="closed-job">No longer accepting applications</p></body>')
+
+    assert extract_job(URL, page)["closed"] is False
+
+
+def test_other_sources_are_never_closed():
+    assert extract_job("https://acme.example.com/vaga", '<script type="application/ld+json">'
+                       '{"@type":"JobPosting","title":"Data Scientist"}</script>')["closed"] is False

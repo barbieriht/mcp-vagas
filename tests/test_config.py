@@ -65,7 +65,7 @@ async def test_first_use_lists_everything_to_configure(db_path):
     async with Client(build_server(db_path)) as client:
         result = payload(await client.call_tool("get_config", {}))
 
-    assert result["needs_setup"] == ["resume_out", "export_dir", "master_resume"]
+    assert result["needs_setup"] == ["resume_out", "export_dir", "master_resume", "login_method"]
     assert result["config_file"] == str(config_path(db_path))
     resume_out = result["settings"]["resume_out"]
     assert resume_out["source"] == "unset" and resume_out["value"] is None and resume_out["suggestions"]
@@ -82,7 +82,7 @@ async def test_set_config_saves_creates_the_folder_and_stops_asking(db_path, tmp
     assert saved["value"] == str(target) and saved["source"] == "config" and saved["warnings"] == []
     assert target.is_dir()
     assert 'resume_out = ' in config_path(db_path).read_text(encoding="utf-8")
-    assert result["needs_setup"] == ["export_dir", "master_resume"]
+    assert result["needs_setup"] == ["export_dir", "master_resume", "login_method"]
     assert result["settings"]["resume_out"]["value"] == str(target)
 
 
@@ -175,3 +175,75 @@ async def test_server_instructions_tell_the_model_to_check_the_config_first(db_p
         instructions = client.instructions
 
     assert "get_config" in instructions and "set_config" in instructions
+
+
+async def set_login(client, method, email=None):
+    arguments = {"key": "login_method", "value": method}
+    saved = payload(await client.call_tool("set_config", arguments))
+    if email:
+        payload(await client.call_tool("set_config", {"key": "login_email", "value": email}))
+    return saved
+
+
+@pytest.mark.parametrize("typed, stored", [("linkedin", "linkedin"), ("LinkedIn.", "linkedin"), ("Google", "google"),
+                                           (" gmail ", "google"), ("Gmail.", "google")])
+async def test_login_method_is_tolerant_and_stored_normalized(db_path, typed, stored):
+    async with Client(build_server(db_path)) as client:
+        saved = await set_login(client, typed)
+
+    assert saved["value"] == stored and saved["source"] == "config"
+    assert resolve("login_method", db_path) == (stored, "config")
+
+
+async def test_login_by_linkedin_does_not_ask_for_an_email(db_path):
+    async with Client(build_server(db_path)) as client:
+        await set_login(client, "linkedin")
+        result = payload(await client.call_tool("get_config", {}))
+
+    assert "login_method" not in result["needs_setup"] and "login_email" not in result["needs_setup"]
+    assert result["settings"]["login_method"]["choices"] == ["linkedin", "google"]
+
+
+async def test_login_by_google_asks_for_the_account_until_it_is_set(db_path):
+    async with Client(build_server(db_path)) as client:
+        await set_login(client, "gmail")
+        before = payload(await client.call_tool("get_config", {}))
+        await set_login(client, "gmail", "Fulano@Example.com")
+        after = payload(await client.call_tool("get_config", {}))
+
+    assert before["needs_setup"] == ["resume_out", "export_dir", "master_resume", "login_email"]
+    assert "login_email" not in after["needs_setup"]
+    assert after["settings"]["login_email"]["value"] == "fulano@example.com"
+
+
+@pytest.mark.parametrize("arguments, message", [
+    ({"key": "login_method", "value": "facebook"}, "linkedin"),
+    ({"key": "login_method"}, "value"),
+    ({"key": "login_email", "value": "sem-arroba"}, "e-mail"),
+    ({"key": "login_email"}, "value"),
+])
+async def test_login_settings_reject_bad_input(db_path, arguments, message):
+    async with Client(build_server(db_path)) as client:
+        result = await client.call_tool("set_config", arguments)
+
+    assert result.is_error and message in result.content[0].text
+    assert not config_path(db_path).exists()
+
+
+async def test_login_settings_do_not_create_folders_and_keep_the_paths(db_path, tmp_path):
+    async with Client(build_server(db_path)) as client:
+        await client.call_tool("set_config", {"key": "export_dir", "value": str(tmp_path / "csv")})
+        await set_login(client, "google", "a@b.com")
+
+    assert resolve("export_dir", db_path) == (tmp_path / "csv", "config")
+    assert resolve("login_email", db_path) == ("a@b.com", "config")
+    assert not (db_path.parent / "google").exists()
+
+
+async def test_login_env_variable_wins(db_path, monkeypatch):
+    monkeypatch.setenv("VAGAS_LOGIN_METHOD", "linkedin")
+    async with Client(build_server(db_path)) as client:
+        result = payload(await client.call_tool("get_config", {}))
+
+    assert result["settings"]["login_method"]["source"] == "env"
+    assert result["settings"]["login_method"]["value"] == "linkedin"

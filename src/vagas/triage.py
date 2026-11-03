@@ -7,6 +7,7 @@ Não depende de MCP. Os critérios fixos vêm de um arquivo pessoal (criterios-t
     - Aderência mínima: 50
     - Empresas ignoradas: Empresa X, Empresa Y
     - Termos de vaga exclusiva PcD: exclusiva para PcD, vaga afirmativa para PcD
+    - Vagas afirmativas que posso disputar: mulheres, pessoas negras, LGBTQIA+, PcD, 50+, indígenas, ou nenhuma
     - Locais aceitos para híbrido e presencial: São Paulo, São Carlos
 
 O que as regras não decidem vira um item em "needs", para a LLM julgar ou pesquisar.
@@ -19,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from vagas import affirmative
 from vagas.db import default_db_path
 from vagas.job_posting import Fetcher, JobPostingError, http_fetch, read_job_posting
 from vagas.models import CURRENCIES, ROLE_KEYS, ROLE_NAMES, SENIORITIES
@@ -36,6 +38,7 @@ _KEYS = {
     "aderencia minima": "min_match",
     "empresas ignoradas": "ignored_companies",
     "termos de vaga exclusiva pcd": "pcd_terms",
+    "vagas afirmativas que posso disputar": "affirmative_ok",
     "locais aceitos para hibrido e presencial": "accepted_locations",
     "senioridades buscadas": "search_seniorities",
     "anos por senioridade": "years_by_level",
@@ -63,6 +66,7 @@ class TriageCriteria:
     min_match: int = 50
     ignored_companies: tuple[str, ...] = ()  # normalizados como empresa
     pcd_terms: tuple[str, ...] = ()  # normalizados como texto
+    affirmative_ok: tuple[str, ...] = ()  # grupos (affirmative.GROUPS) cujas vagas afirmativas o usuário disputa
     accepted_locations: tuple[str, ...] = ()  # normalizados como texto
     location_names: tuple[str, ...] = ()  # locais aceitos como escritos, para as buscas
     search_seniorities: tuple[str, ...] = ()  # usadas só em suggest_job_searches
@@ -142,6 +146,8 @@ def parse_criteria(text: str, source: str = "criterios-triagem.md") -> TriageCri
                 raise VagasError(f"Senioridade desconhecida em {where}: {', '.join(unknown)}. Valores aceitos: "
                                  f"{', '.join(SENIORITIES)} (maiúsculas e acentos são ignorados).")
             values[field] = tuple(dict.fromkeys(levels))
+        elif field == "affirmative_ok":
+            values[field] = affirmative.parse_groups(items, where)
         elif field == "years_by_level":
             values[field] = _years_by_level(items, where)
         elif field == "accepted_states":
@@ -261,6 +267,11 @@ class Triage:
         except JobPostingError as exc:
             raise VagasError(f"{exc} Depois, faça a triagem pelos passos manuais da Skill.") from exc
 
+        if posting.get("closed"):  # nada é registrado: vaga que não aceita candidaturas não entra na lista
+            return self._result("encerrada", None, posting, None, None,
+                                ["A vaga não aceita candidaturas (o LinkedIn avisa que foi encerrada); "
+                                 "não foi registrada."], [])
+
         reasons: list[str] = []
         needs: list[dict[str, Any]] = []
         if posting["seniority"] is None and (years := years_required(posting["description"])) is not None:
@@ -281,6 +292,10 @@ class Triage:
                 }])
 
         discard = self._fixed_criteria(criteria, posting, reasons)
+        if discard is None and affirmative.detect(f"{title}. {posting['description'] or ''}").generic:
+            needs.append({"kind": "afirmativa", "detail": "A vaga se diz afirmativa, mas não cita um grupo "
+                          "reconhecido. Leia a descrição: se for para um grupo fora de 'Vagas afirmativas que "
+                          "posso disputar', chame update_application com status \"descartada\" e discard_reason."})
         match = None
         if discard is None:
             match = self._match(posting, needs)
@@ -331,9 +346,14 @@ class Triage:
             return f"Empresa {company} está na lista de empresas ignoradas."
         text = normalize_text(f"{posting['title']} {posting['description'] or ''}")
         term = next((t for t in criteria.pcd_terms if _contains(text, t)), None)
-        if term:
+        if term and "pcd" not in criteria.affirmative_ok:
             return f"Vaga exclusiva para PcD (termo {term!r} na vaga)."
-        reasons.append("Empresa fora da lista de ignoradas e vaga não exclusiva para PcD.")
+        found = affirmative.detect(f"{posting['title']}. {posting['description'] or ''}")
+        blocked = [g for g in found.groups if g not in criteria.affirmative_ok]
+        if blocked:
+            return (f"Vaga afirmativa para {affirmative.labels(blocked)} (\"{found.snippets[blocked[0]]}\"); "
+                    "não está em 'Vagas afirmativas que posso disputar' dos critérios.")
+        reasons.append("Empresa fora da lista de ignoradas e sem vaga afirmativa fora dos seus grupos.")
         return None
 
     def _match(self, posting: dict[str, Any], needs: list[dict[str, Any]]) -> dict[str, Any] | None:

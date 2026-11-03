@@ -114,9 +114,11 @@ uv pip install --reinstall-package vagas --python ~/.local/share/vagas/venv/bin/
 resume_out = "/mnt/c/Users/<usuário>/Documents/Curriculos"   # PDFs de currículo
 export_dir = "/mnt/c/Users/<usuário>/Documents/Vagas"        # CSVs exportados
 master_resume = "/home/<usuário-wsl>/.local/share/vagas/curriculo.yaml"   # currículo geral (YAML editável)
+login_method = "google"                                      # entrar nos sites de vagas por "linkedin" ou "google"
+login_email = "<usuário>@gmail.com"                          # conta Google (só com login_method = "google")
 ```
 
-Você não precisa criar o arquivo: no primeiro uso o Claude pergunta cada caminho (sugerindo uma pasta) e o grava com a tool `set_config`. Para ver o que está configurado, peça *"mostre a configuração do vagas"* (`get_config`). Valores aceitos: caminho absoluto do Linux ou do Windows (`C:\Users\...`); a pasta é criada se não existir.
+Você não precisa criar o arquivo: no primeiro uso o Claude pergunta cada caminho (sugerindo uma pasta) e o grava com a tool `set_config`. Para ver o que está configurado, peça *"mostre a configuração do vagas"* (`get_config`). Valores aceitos: caminho absoluto do Linux ou do Windows (`C:\Users\...`); a pasta é criada se não existir. `login_method` aceita `linkedin` ou `google` (`gmail` vale como google); `login_email` só é perguntado a quem escolheu `google`.
 
 Prioridade de cada valor: **variável de ambiente > `config.toml` > padrão**. A variável equivalente de cada chave aparece na tabela abaixo; se ela estiver definida no registro do servidor, ela vence e o Claude avisa ao gravar. Só `resume_out` não tem padrão.
 
@@ -127,6 +129,8 @@ As demais opções continuam por variável de ambiente:
 | `VAGAS_CONFIG` | arquivo `config.toml` | `config.toml` ao lado do banco |
 | `VAGAS_DB` | arquivo do banco SQLite | `~/.local/share/vagas/vagas.db` |
 | `VAGAS_MASTER_RESUME` | sobrepõe `master_resume` do `config.toml` | `curriculo.yaml` ao lado do banco |
+| `VAGAS_LOGIN_METHOD` | sobrepõe `login_method` do `config.toml` (`linkedin` ou `google`) | sem padrão |
+| `VAGAS_LOGIN_EMAIL` | sobrepõe `login_email` do `config.toml` | sem padrão |
 | `VAGAS_RESUME_OUT` | sobrepõe `resume_out` do `config.toml` | nenhum (configurada no primeiro uso) |
 | `VAGAS_SALARY_POLICY` | política salarial lida por `evaluate_salary` | `politica-salarial.md` ao lado do banco (o instalador cria um symlink para o da Skill) |
 | `VAGAS_SENSITIVE_FILE` | cofre de dados sensíveis (CPF, RG...), cifrado pela DPAPI do Windows | `cofre.json` ao lado do banco |
@@ -278,7 +282,7 @@ A Skill diz ao Claude quando e em que ordem usar as tools. É ela que garante, p
 | `buscar.md` | busca de vagas a partir do currículo | sim |
 | `curriculo.md` | montar ou atualizar o currículo geral a partir do PDF e do LinkedIn | sim |
 | `perfil.md` | dados para formulários (contato, respostas padrão) | não (use `perfil.example.md`) |
-| `criterios-triagem.md` | critérios fixos da triagem (cargos alvo, empresas ignoradas, termos de vaga exclusiva PcD, locais aceitos); lidos pelo MCP em `triage_job` | não (use `criterios-triagem.example.md`) |
+| `criterios-triagem.md` | critérios fixos da triagem (cargos alvo, empresas ignoradas, vagas afirmativas que você pode disputar, termos de vaga exclusiva PcD, locais aceitos); lidos pelo MCP em `triage_job` | não (use `criterios-triagem.example.md`) |
 | `politica-salarial.md` | faixas por modalidade, local e moeda, modo e multiplicador PJ; lida pelo MCP em `evaluate_salary` | não (use `politica-salarial.example.md`) |
 
 Quando um formulário pede um dado que ainda não está no perfil, a Skill acrescenta o campo no `perfil.md` (com a sua resposta, depois que você responde) e no `perfil.example.md` (com valor fictício). Assim o campo fica documentado para as próximas candidaturas. Dados sensíveis (CPF, RG, senhas, dados bancários) entram só como campo, com o valor "informar manualmente". O `perfil.example.md` é versionado: faça commit dele de vez em quando.
@@ -369,7 +373,7 @@ Status possíveis: `a_aplicar` (vaga encontrada e triada, aguardando candidatura
 
 | Tool | O que faz |
 |---|---|
-| `get_config` / `set_config` | mostram e gravam as pastas de cada tarefa (`config.toml`); o Claude as usa no primeiro uso para perguntar e sugerir uma pasta |
+| `get_config` / `set_config` | mostram e gravam as pastas de cada tarefa e o login padrão (`config.toml`); o Claude as usa no primeiro uso para perguntar (e sugerir uma pasta) |
 | `find_application` | procura por URL (variantes de link da mesma vaga contam como uma) e/ou empresa ("Itaú S.A." = "itau"); chamar antes de aplicar |
 | `add_application` | registra vaga (`a_aplicar`, `aplicada`, `pendente_usuario` ou `descartada`), com busca de origem e aderência; duplicata devolve a existente |
 | `update_application` | muda etapa, pendência, nota ou currículo vinculado |
