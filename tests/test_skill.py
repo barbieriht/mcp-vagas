@@ -181,3 +181,9 @@ def test_work_list_command_and_search_summary_use_the_tool():
 
     assert "`work_list`" in command and "`list_applications`" not in command
     assert "`work_list`" in search[search.index("5. **Resumo.**"):]
+
+
+def test_application_reads_the_profile_through_the_tool():
+    text = (SKILL_DIR / "candidatar.md").read_text(encoding="utf-8")
+
+    assert text.index("`get_profile`") < text.index("**Acesso:**")

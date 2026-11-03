@@ -364,6 +364,23 @@ def build_server(
             return a.get_sensitive_field(field, application_id, form_url)
 
     @server.tool()
+    def get_profile() -> dict[str, Any]:
+        """Perfil do usuário para formulários, estruturado (perfil.md da Skill): use no lugar de ler o arquivo.
+
+        Retorna {sections: [{name, fields: [{label, value, status, notes, vault_field?}]}], to_fill,
+        vault_missing}. status: "ok" (use o value), "preencher" (ainda sem resposta: trate como
+        bloqueio e pergunte ao usuário), "manual" (dado sensível: o usuário digita), "cofre" (preencha
+        com get_sensitive_field, após a confirmação do usuário; o value nunca é o dado) ou "cofre_vazio"
+        (marcado como no cofre, mas não cadastrado: o usuário cadastra com python -m vagas.sensitive
+        set <vault_field>). notes: orientações do campo (ex.: como escolher em escala fixa).
+        """
+        try:
+            fields = (vault or Vault(default_vault_path(db_path), DpapiBackend())).list()
+            return ProfileFiles(default_skill_dir(db_path)).get_profile(vault_fields=fields)
+        except VagasError as exc:
+            raise ToolError(str(exc)) from exc
+
+    @server.tool()
     def add_profile_field(label: str, section: str | None = None, value: str | None = None,
                           sensitive: bool = False) -> dict[str, Any]:
         """Acrescenta um campo de formulário ao perfil (perfil.md e perfil.example.md da Skill).
