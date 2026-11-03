@@ -14,7 +14,9 @@ import yaml
 from pydantic import ValidationError
 
 from vagas.db import default_db_path
-from vagas.models import LINKEDIN_SECTIONS, RESUME_SOURCE_KINDS
+from vagas.models import LINKEDIN_SECTIONS, RESUME_SOURCE_KINDS, STATUSES
+
+OPEN_STATUSES = ("a_aplicar", "pendente_usuario")
 from vagas.normalize import normalize_text
 from vagas.repo import Repo, VagasError, _require_choice, _require_text, _utcnow
 from vagas.resume_extract import extract_pages, review_draft, wsl_path
@@ -280,13 +282,36 @@ class ResumeStore:
             "SELECT id FROM master_resumes WHERE content_hash = ?", (content_hash,)
         ).fetchone()
         if existing:
-            return {"created": False, "version_id": existing["id"], "content_hash": content_hash}
+            return {"created": False, "version_id": existing["id"], "content_hash": content_hash, "rescored": 0}
         with self.conn:
             cursor = self.conn.execute(
                 "INSERT INTO master_resumes (content_hash, content, approved_at) VALUES (?, ?, ?)",
                 (content_hash, json.dumps(data, ensure_ascii=False), self.now()),
             )
-        return {"created": True, "version_id": cursor.lastrowid, "content_hash": content_hash}
+        rescored = self.rescore_applications()["rescored"]
+        return {"created": True, "version_id": cursor.lastrowid, "content_hash": content_hash, "rescored": rescored}
+
+    def rescore_applications(self, status: str | None = None) -> dict[str, int]:
+        """Recalcula a aderência das candidaturas com descrição: por padrão, as abertas (a_aplicar e
+        pendente_usuario); com status, só as daquele status."""
+        statuses = OPEN_STATUSES if status is None else (status,)
+        _require_choice("status", status, STATUSES)
+        repo = Repo(self.conn)
+        changed = unchanged = 0
+        rows = self.conn.execute(
+            f"SELECT id FROM applications WHERE description IS NOT NULL AND status IN "
+            f"({', '.join('?' * len(statuses))}) ORDER BY id", statuses).fetchall()
+        for row in rows:
+            app = repo.get(row["id"])
+            match = self.score_job_match(app["description"], company=app["company"], title=app["role"],
+                                         location=app.get("location"))
+            terms = {"matched": match["matched"], "missing": match["missing"]}
+            if (app["match_score"], app.get("match_terms")) == (match["score"], terms):
+                unchanged += 1
+                continue
+            repo.set_match(app["id"], match["score"], terms)
+            changed += 1
+        return {"rescored": changed, "unchanged": unchanged}
 
     def get_master_resume(self) -> dict[str, Any]:
         row = self.conn.execute(

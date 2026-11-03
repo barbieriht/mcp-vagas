@@ -290,6 +290,18 @@ class Repo:
             raise VagasError(f"Candidatura {application_id} não existe.")
         return _application(row)
 
+    def set_match(self, application_id: int, match_score: int | None, match_terms: dict[str, Any]) -> None:
+        """Atualiza a aderência gravada (recalculada quando o currículo geral muda). Não gera evento."""
+        self.get(application_id)
+        if match_score is not None and not 0 <= match_score <= 100:
+            raise VagasError(f"'match_score' deve estar entre 0 e 100 (recebido {match_score}).")
+        _check_match_terms(match_terms)
+        with self.conn:
+            self.conn.execute(
+                "UPDATE applications SET match_score = ?, match_terms = ? WHERE id = ?",
+                (match_score, json.dumps(match_terms, ensure_ascii=False), application_id),
+            )
+
     def events(self, application_id: int) -> list[dict[str, Any]]:
         rows = self.conn.execute(
             "SELECT * FROM events WHERE application_id = ? ORDER BY at, id", (application_id,)

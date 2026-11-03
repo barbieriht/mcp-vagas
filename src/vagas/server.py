@@ -395,10 +395,21 @@ def build_server(
 
         Chamar SOMENTE quando o usuário disser explicitamente que revisou o rascunho e o aprova.
         Revalida o arquivo antes de aprovar. Aprovar conteúdo idêntico a uma versão existente não
-        cria versão nova. Retorna {"created", "version_id", "content_hash"}.
+        cria versão nova. Uma versão nova recalcula a aderência (match_score, match_terms) das
+        candidaturas a_aplicar e pendente_usuario. Retorna {"created", "version_id", "content_hash",
+        "rescored"} (rescored = candidaturas cuja aderência mudou).
         """
         with resumes() as s:
             return s.approve_master()
+
+    @server.tool()
+    def rescore_applications(status: Status | None = None) -> dict[str, Any]:
+        """Recalcula a aderência (match_score, match_terms) das candidaturas com descrição, pelo
+        currículo geral aprovado atual. Sem status: a_aplicar e pendente_usuario. Útil depois de mudar
+        as regras de aderência; approve_master já faz isso ao aprovar uma versão nova.
+        Retorna {"rescored": quantas mudaram, "unchanged"}."""
+        with resumes() as s:
+            return s.rescore_applications(status)
 
     @server.tool()
     def get_master_resume() -> dict[str, Any]:
