@@ -174,6 +174,20 @@ MIGRATIONS = [
     """,
     # v11: url_canonical com as regras por plataforma (LinkedIn, Gupy, Indeed, Glassdoor)
     _recanonicalize_urls,
+    # v12: execuções da busca em lote (search_run), com progresso e resumo (JSON)
+    """
+    CREATE TABLE search_runs (
+        id INTEGER PRIMARY KEY,
+        params TEXT NOT NULL,
+        status TEXT NOT NULL,
+        pid INTEGER,
+        progress TEXT,
+        summary TEXT,
+        error TEXT,
+        started_at TEXT NOT NULL,
+        finished_at TEXT
+    );
+    """,
 ]
 LATEST_VERSION = len(MIGRATIONS)
 

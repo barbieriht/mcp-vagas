@@ -1,7 +1,9 @@
 """Tools MCP finas sobre o repo. Nunca escrever no stdout: no stdio ele é o canal do protocolo."""
 
 import logging
+import os
 import sqlite3
+import subprocess
 import sys
 from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
@@ -12,7 +14,7 @@ from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel, ConfigDict, Field
 from mcp.server.mcpserver.exceptions import ToolError
 
-from vagas.db import connect
+from vagas.db import connect, default_db_path
 from vagas.models import (
     Contract, Currency, InitialStatus, LinkedInSection, ResumeSourceKind, RoleKey, SalaryMode, Seniority,
     Source, Status, WorkMode,
@@ -28,6 +30,7 @@ from vagas.job_search import JobSearchStore
 from vagas.linkedin_import import LinkedInImporter
 from vagas.salary import SalaryPoint, SalaryStore
 from vagas.profile_fields import ProfileFiles, default_skill_dir
+from vagas.search_run import SearchRunStore
 from vagas.sensitive import DpapiBackend, SensitiveAccess, Vault, default_vault_path
 from vagas.salary_policy import default_policy_path
 from vagas.triage import Triage, default_criteria_path
@@ -50,6 +53,7 @@ def build_server(
     job_fetcher: Any = None,
     job_search_fetcher: Any = None,
     vault: Any = None,
+    search_launcher: Callable[[int], int] | None = None,
 ) -> MCPServer:
     server = MCPServer("vagas")
 
@@ -78,6 +82,18 @@ def build_server(
         return store(lambda conn: JobBoard(
             conn, fetcher=job_search_fetcher or http_fetch, criteria_path=default_criteria_path(db_path),
             draft_path=draft_path or default_draft_path(db_path)))
+
+    def launch_search_run(run_id: int) -> int:
+        """Dispara a busca em lote num processo separado (sem herdar o stdout do protocolo); devolve o PID."""
+        db = Path(db_path) if db_path is not None else default_db_path()
+        log_file = open(db.parent / "search_runs.log", "a", encoding="utf-8")
+        process = subprocess.Popen(
+            [sys.executable, "-m", "vagas.search_run", "run", "--run-id", str(run_id)],
+            env={**os.environ, "VAGAS_DB": str(db)}, stdin=subprocess.DEVNULL, stdout=log_file, stderr=log_file,
+            start_new_session=True,
+        )
+        log_file.close()
+        return process.pid
 
     def triages():
         return store(lambda conn: Triage(
@@ -653,6 +669,47 @@ def build_server(
         """
         with job_searches() as s:
             return s.find_job_search(query, source, location=location)
+
+    @server.tool()
+    def start_search_run(
+        sources: list[Source] | None = None,
+        linkedin_remote_only: bool = True,
+        max_pages: Annotated[int, Field(ge=1, le=5)] = 1,
+    ) -> dict[str, Any]:
+        """Executa a busca de vagas inteira em segundo plano: as buscas de suggest_job_searches (sem as
+        recentes) e a triagem (triage_job) de cada vaga nova, com search_id. Use no lugar de chamar
+        search_jobs e triage_job uma a uma. Leva de minutos a mais de meia hora (o LinkedIn exige 20 s
+        entre requisições); acompanhe com get_search_run, sem esperar parado.
+        sources: gupy e/ou linkedin (padrão: os dois). linkedin_remote_only: no LinkedIn, só as buscas
+        remotas (padrão true; as por cidade são muitas). max_pages: páginas por busca (padrão 1).
+        Só uma execução por vez. Retorna {run_id, status, params}.
+        """
+        with store(SearchRunStore) as runs:
+            run_id = runs.create({"sources": sources, "linkedin_remote_only": linkedin_remote_only,
+                                  "max_pages": max_pages})
+            try:
+                pid = (search_launcher or launch_search_run)(run_id)
+            except OSError as exc:
+                runs.fail(run_id, f"Não foi possível iniciar a busca: {exc}")
+                raise ToolError(f"Não foi possível iniciar a busca em segundo plano: {exc}") from exc
+            runs.set_pid(run_id, pid)
+            run = runs.get(run_id)
+        return {"run_id": run_id, "status": run["status"], "params": run["params"]}
+
+    @server.tool()
+    def get_search_run(run_id: int | None = None) -> dict[str, Any]:
+        """Andamento e resultado de uma busca em lote (padrão: a mais recente).
+
+        status: running, done, error ou interrompida. progress: {searches_total, searches_done,
+        jobs_total, jobs_done, current}. Com status done, summary traz: searches {run, skipped
+        (recentes), errors}; jobs {found, already_registered, triaged}; decisions (contagem por
+        decisão); a_aplicar [{id, company, role, work_mode, location, match_score, url,
+        value_to_inform, needs}]; descartadas [{id, company, role, reason}]; possiveis_duplicatas
+        [{company, title, url, location, matches}] (pergunte ao usuário; se não for a mesma vaga, chame
+        triage_job com not_duplicate=true); needs {tipo: [IDs]} (resolva como na triagem); errors.
+        """
+        with store(SearchRunStore) as runs:
+            return runs.get(run_id)
 
     @server.tool()
     def suggest_job_searches() -> dict[str, Any]:
