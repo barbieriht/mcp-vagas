@@ -388,7 +388,7 @@ class Triage:
             reasons.append("Vaga remota.")
             return
         # Só a cidade (1ª parte): "Campinas, São Paulo, Brasil" não é a cidade de São Paulo.
-        city = re.sub(r"^greater\s+|\s+area$", "", normalize_text((location or "").split(",")[0]))
+        city = re.sub(r"^greater\s+|\s+area$", "", normalize_text(re.split(r",|\s+-\s+", location or "")[0]))
         accepted = next((c for c in criteria.accepted_locations if _contains(city, c)), None)
         if accepted:
             reasons.append(f"Vaga {_MODE_LABELS[mode]} em local aceito ({location}).")

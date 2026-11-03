@@ -22,5 +22,5 @@ Maiúsculas, acentos e ponto final no fim da linha são ignorados.
   - `CLT`: opcional. A faixa marcada com `CLT` é multiplicada pelo multiplicador em vagas PJ; sem ela, o valor vale para qualquer regime.
   - Valores mensais, como `8000`, `8.000` ou `R$ 8.000,00`. `máximo` é opcional.
   - Modalidade: as palavras remoto, híbrido ou presencial no nome dizem a quais modalidades a faixa vale (`Híbrido/presencial` = as duas). Sem nenhuma delas, vale para todas.
-  - Local: a cidade depois de "em" (por exemplo, `em São Paulo e região`). A faixa vale quando o local da vaga cita essa cidade. Sem "em", vale para qualquer local.
+  - Local: as cidades depois de "em", separadas por vírgula ou "e" (por exemplo, `em São Paulo, Campinas e Osasco`; "e região" no fim é aceito e ignorado). A faixa vale quando a cidade da vaga (a primeira parte do local, como "Campinas" em "Campinas, São Paulo, Brasil") é uma delas; o nome do estado não conta. Sem "em", vale para qualquer local.
   - No lugar dos valores, `usar a faixa do <nome de outra faixa>` copia os valores daquela faixa.
