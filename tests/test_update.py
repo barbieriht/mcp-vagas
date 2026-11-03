@@ -155,3 +155,14 @@ def test_history_is_chronological_starting_with_creation(repo):
 def test_history_of_unknown_id_is_rejected(repo):
     with pytest.raises(VagasError, match="999"):
         repo.get_history(999)
+
+
+def test_set_seniority_validates_and_logs(repo):
+    app = repo.add_application(company="Acme", role="Cientista de Dados", source="gupy", status="a_aplicar")["application"]
+
+    updated = repo.set_seniority(app["id"], "pleno", "4+ anos de experiência pedidos")
+
+    assert updated["seniority"] == "pleno"
+    assert repo.events(app["id"])[-1]["note"] == "Senioridade: pleno (4+ anos de experiência pedidos)."
+    with pytest.raises(VagasError, match="seniority"):
+        repo.set_seniority(app["id"], "mestre", "x")
