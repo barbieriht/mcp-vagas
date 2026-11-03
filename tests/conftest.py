@@ -25,3 +25,10 @@ def server(db_path):
 @pytest.fixture
 def anyio_backend():
     return "asyncio"
+
+
+@pytest.fixture(autouse=True)
+def clean_path_settings(monkeypatch):
+    """O ambiente do desenvolvedor não pode vazar para os testes de configuração de caminhos."""
+    for name in ("VAGAS_CONFIG", "VAGAS_RESUME_OUT", "VAGAS_EXPORT_DIR", "VAGAS_MASTER_RESUME"):
+        monkeypatch.delenv(name, raising=False)

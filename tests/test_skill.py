@@ -187,3 +187,11 @@ def test_application_reads_the_profile_through_the_tool():
     text = (SKILL_DIR / "candidatar.md").read_text(encoding="utf-8")
 
     assert text.index("`get_profile`") < text.index("**Acesso:**")
+
+
+def test_skill_asks_about_paths_on_first_use_before_any_flow():
+    text = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    first_use = text[text.index("## Primeiro uso"):text.index("## Escolha o fluxo")]
+
+    assert "`get_config`" in first_use and "`set_config`" in first_use and "`needs_setup`" in first_use
+    assert "sugira" in first_use.lower() and "pergunte" in first_use.lower()

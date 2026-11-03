@@ -11,6 +11,48 @@ A Skill "candidaturas" (pasta `skill/candidaturas`) orquestra tudo isso: triagem
 
 Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor na nuvem.
 
+## Primeiros passos
+
+Resumo prático, do zero até a primeira candidatura. Os detalhes de cada passo estão nas seções seguintes.
+
+**1. Instale** (Linux ou WSL2, com [`uv`](https://docs.astral.sh/uv/) e Python 3.12). Na raiz do repositório:
+
+```bash
+python3 scripts/instalar_claude_code.py     # Claude Code: Skill, comandos e MCP
+python3 scripts/instalar_desktop.py         # Claude Desktop (opcional): MCP, configuração e zip da Skill
+```
+
+**2. Crie os seus arquivos pessoais** a partir dos exemplos e preencha os campos `<PREENCHER>`:
+
+```bash
+cd skill/candidaturas
+cp -n perfil.example.md perfil.md                         # dados para formulários
+cp -n politica-salarial.example.md politica-salarial.md   # faixas e pretensão salarial
+cp -n criterios-triagem.example.md criterios-triagem.md   # cargos alvo, empresas ignoradas, locais aceitos
+```
+
+**3. Abra uma sessão nova do Claude e peça algo** (por exemplo `/work-list`, ou "busque vagas para mim"). No **primeiro uso** o Claude pergunta onde guardar cada coisa, sugerindo uma pasta, e grava a resposta no `config.toml`:
+
+> **Claude:** Onde quer guardar os PDFs dos currículos? Sugiro `/mnt/c/Users/<usuário>/Documents/Curriculos`, que você alcança pelo Windows para anexar no navegador.
+> **Você:** Pode ser essa.
+
+Para mudar depois, peça: *"mude a pasta dos currículos para ..."*, ou edite o `config.toml` (veja [Configuração](#configuração)).
+
+**4. Monte o currículo geral (uma vez):** *"Monte meu currículo geral a partir do PDF C:\Users\<usuário>\Downloads\Curriculo.pdf e do meu LinkedIn <url>"*. Revise o rascunho e diga *"pode aprovar"*.
+
+**5. Use no dia a dia:**
+
+| Você quer | Peça ao Claude |
+|---|---|
+| achar vagas novas | `/search-jobs` ou *"busque vagas para mim"* |
+| ver o que falta aplicar | `/work-list` (da maior para a menor aderência) |
+| saber se uma vaga vale a pena | `/screen <link>` |
+| candidatar-se | `/apply <link>` (para antes do envio, e você confirma) |
+| ver pendências | `/pending` |
+| levar tudo para uma planilha | `/export-applications` |
+
+O Claude nunca envia uma candidatura sem a sua confirmação, e só usa informações que estão no seu currículo geral.
+
 ## Situação
 
 | Funcionalidade | Situação |
@@ -64,17 +106,32 @@ uv pip install --reinstall-package vagas --python ~/.local/share/vagas/venv/bin/
 
 ### Configuração
 
+**Pastas e arquivos de cada tarefa: `config.toml`.** É o lugar único para dizer onde ficam as coisas. Fica ao lado do banco (`~/.local/share/vagas/config.toml`) ou no caminho de `VAGAS_CONFIG`:
+
+```toml
+resume_out = "/mnt/c/Users/<usuário>/Documents/Curriculos"   # PDFs de currículo
+export_dir = "/mnt/c/Users/<usuário>/Documents/Vagas"        # CSVs exportados
+master_resume = "/home/<usuário-wsl>/.local/share/vagas/curriculo.yaml"   # currículo geral (YAML editável)
+```
+
+Você não precisa criar o arquivo: no primeiro uso o Claude pergunta cada caminho (sugerindo uma pasta) e o grava com a tool `set_config`. Para ver o que está configurado, peça *"mostre a configuração do vagas"* (`get_config`). Valores aceitos: caminho absoluto do Linux ou do Windows (`C:\Users\...`); a pasta é criada se não existir.
+
+Prioridade de cada valor: **variável de ambiente > `config.toml` > padrão**. A variável equivalente de cada chave aparece na tabela abaixo; se ela estiver definida no registro do servidor, ela vence e o Claude avisa ao gravar. Só `resume_out` não tem padrão.
+
+As demais opções continuam por variável de ambiente:
+
 | Variável | Para que serve | Padrão |
 |---|---|---|
+| `VAGAS_CONFIG` | arquivo `config.toml` | `config.toml` ao lado do banco |
 | `VAGAS_DB` | arquivo do banco SQLite | `~/.local/share/vagas/vagas.db` |
-| `VAGAS_MASTER_RESUME` | arquivo YAML editável do currículo geral | `curriculo.yaml` ao lado do banco |
-| `VAGAS_RESUME_OUT` | pasta onde os PDFs de currículo são gerados | nenhum (obrigatória para gerar PDF) |
+| `VAGAS_MASTER_RESUME` | sobrepõe `master_resume` do `config.toml` | `curriculo.yaml` ao lado do banco |
+| `VAGAS_RESUME_OUT` | sobrepõe `resume_out` do `config.toml` | nenhum (configurada no primeiro uso) |
 | `VAGAS_SALARY_POLICY` | política salarial lida por `evaluate_salary` | `politica-salarial.md` ao lado do banco (o instalador cria um symlink para o da Skill) |
 | `VAGAS_SENSITIVE_FILE` | cofre de dados sensíveis (CPF, RG...), cifrado pela DPAPI do Windows | `cofre.json` ao lado do banco |
 | `VAGAS_SKILL_DIR` | pasta `skill/candidaturas` do repositório, onde `add_profile_field` grava os campos novos do perfil | a pasta para onde aponta o symlink da política salarial (criado pelo instalador) |
 | `VAGAS_TRIAGE_CRITERIA` | critérios fixos de triagem lidos por `triage_job` | `criterios-triagem.md` ao lado do banco (o instalador cria um symlink para o da Skill) |
 | `VAGAS_SALARY_TTL_DAYS` | validade do cache de salários, em dias | `90` |
-| `VAGAS_EXPORT_DIR` | pasta dos CSVs exportados (ex.: `/mnt/c/Users/<usuário>/Documents/vagas` para abrir no Windows) | `exports` ao lado do banco |
+| `VAGAS_EXPORT_DIR` | sobrepõe `export_dir` do `config.toml` (ex.: `/mnt/c/Users/<usuário>/Documents/vagas` para abrir no Windows) | `exports` ao lado do banco |
 | `VAGAS_LINKEDIN_MIN_MINUTES` | intervalo mínimo entre leituras do seu perfil do LinkedIn, em minutos | `60` |
 | `VAGAS_LINKEDIN_HEADLESS` | `0` mostra a janela do navegador durante a leitura | `1` (invisível) |
 | `VAGAS_LINKEDIN_JOBS_MIN_SECONDS` | intervalo mínimo entre leituras e buscas de vagas no LinkedIn, em segundos | `20` |
@@ -88,11 +145,10 @@ Mantenha o banco no filesystem do WSL (`~/...`), nunca em `/mnt/c`, que é lento
 ```bash
 claude mcp add vagas --scope user \
   -e VAGAS_DB=$HOME/.local/share/vagas/vagas.db \
-  -e VAGAS_RESUME_OUT=/mnt/c/Users/<usuário>/Curriculos \
   -- $HOME/.local/share/vagas/venv/bin/python -m vagas.server
 ```
 
-Confira com `claude mcp list`.
+Confira com `claude mcp list`. As pastas (currículos, CSVs) não vão aqui: o Claude pergunta no primeiro uso e grava no `config.toml`. Se preferir fixá-las no registro, acrescente `-e VAGAS_RESUME_OUT=/mnt/c/Users/<usuário>/Curriculos`; a variável passa a valer sobre o `config.toml`.
 
 ### Claude Desktop (Windows)
 
@@ -108,7 +164,7 @@ python3 scripts/instalar_desktop.py --fechar-desktop  # e fecha o Desktop no fim
 
 O script:
 - atualiza a cópia estável;
-- encontra o `claude_desktop_config.json` (instalador do site ou Microsoft Store), faz backup e registra o servidor `vagas` com as mesmas variáveis do Claude Code;
+- encontra o `claude_desktop_config.json` (instalador do site ou Microsoft Store), faz backup e registra o servidor `vagas` com as mesmas variáveis do Claude Code (`VAGAS_DB` e, se você as tiver definido, as das pastas);
 - testa o servidor pelo `wsl.exe`;
 - gera `Downloads\candidaturas.zip`. Ele se recusa a gerar o zip se o `perfil.md`, o `politica-salarial.md` ou o `criterios-triagem.md` tiverem campos `<PREENCHER>`.
 
@@ -140,7 +196,6 @@ echo "distro: $WSL_DISTRO_NAME | usuário: $USER"   # ex.: distro: Ubuntu-22.04 
         "-d", "<distro>",
         "-e", "env",
         "VAGAS_DB=/home/<usuário-wsl>/.local/share/vagas/vagas.db",
-        "VAGAS_RESUME_OUT=/mnt/c/Users/<usuário>/Curriculos",
         "/home/<usuário-wsl>/.local/share/vagas/venv/bin/python", "-m", "vagas.server"
       ]
     }
@@ -150,7 +205,7 @@ echo "distro: $WSL_DISTRO_NAME | usuário: $USER"   # ex.: distro: Ubuntu-22.04 
 
 - `-d <distro>` escolhe a distribuição do WSL. Sem ele, o `wsl.exe` usa a distribuição padrão.
 - As variáveis vão pelo `env` do Linux, porque o bloco `env` do Desktop não chega ao WSL.
-- Use os mesmos valores de `VAGAS_DB` e `VAGAS_RESUME_OUT` do Claude Code se quiser que os dois clientes compartilhem as mesmas candidaturas e currículos. O SQLite em modo WAL aguenta os dois abertos ao mesmo tempo.
+- Use o mesmo `VAGAS_DB` do Claude Code se quiser que os dois clientes compartilhem as mesmas candidaturas e currículos. O `config.toml` fica ao lado do banco, então as pastas escolhidas também são compartilhadas. O SQLite em modo WAL aguenta os dois abertos ao mesmo tempo.
 
 **4. Reinicie o Claude Desktop por completo:** feche também pelo ícone da bandeja do sistema, porque fechar só a janela não recarrega a configuração. Ao abrir de novo, o servidor `vagas` deve aparecer no menu de ferramentas (conectores) da conversa.
 
@@ -280,7 +335,7 @@ O Claude chama `create_tailored_resume` com a seleção de itens e parágrafos d
 - IDs inexistentes ou parágrafos de outra experiência;
 - qualquer tentativa de alterar empresa, cargo, datas, formação, certificações ou idiomas.
 
-O PDF sai em `VAGAS_RESUME_OUT`, com nome no formato `Nome_Sobrenome_Resume_Empresa.pdf`. Um arquivo existente nunca é sobrescrito.
+O PDF sai na pasta `resume_out` (veja [Configuração](#configuração)), com nome no formato `Nome_Sobrenome_Resume_Empresa.pdf`. Um arquivo existente nunca é sobrescrito.
 
 ### 3. Registrar e acompanhar candidaturas
 
@@ -298,6 +353,7 @@ Status possíveis: `a_aplicar` (vaga encontrada e triada, aguardando candidatura
 
 | Tool | O que faz |
 |---|---|
+| `get_config` / `set_config` | mostram e gravam as pastas de cada tarefa (`config.toml`); o Claude as usa no primeiro uso para perguntar e sugerir uma pasta |
 | `find_application` | procura por URL (variantes de link da mesma vaga contam como uma) e/ou empresa ("Itaú S.A." = "itau"); chamar antes de aplicar |
 | `add_application` | registra vaga (`a_aplicar`, `aplicada`, `pendente_usuario` ou `descartada`), com busca de origem e aderência; duplicata devolve a existente |
 | `update_application` | muda etapa, pendência, nota ou currículo vinculado |
@@ -349,6 +405,7 @@ src/vagas/
 ├── server.py           # tools MCP (finas)
 ├── repo.py             # candidaturas
 ├── db.py               # conexão, migrações com backup automático
+├── config.py           # pastas de cada tarefa (config.toml, ambiente, padrão)
 ├── models.py           # enums (status, fonte, modalidade)
 ├── normalize.py        # empresa e URL
 ├── resume_model.py     # schema do currículo geral
@@ -364,7 +421,7 @@ src/vagas/
 
 ## Privacidade
 
-Tudo fica na sua máquina: o banco, o YAML do currículo e os PDFs. O arquivo `skill/candidaturas/perfil.md`, com dados pessoais para formulários, está no `.gitignore`. Só o `perfil.example.md`, com dados fictícios, é versionado.
+Tudo fica na sua máquina: o banco, o `config.toml`, o YAML do currículo e os PDFs. O arquivo `skill/candidaturas/perfil.md`, com dados pessoais para formulários, está no `.gitignore`. Só o `perfil.example.md`, com dados fictícios, é versionado.
 
 ### Cofre de dados sensíveis
 

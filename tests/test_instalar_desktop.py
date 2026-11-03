@@ -60,9 +60,7 @@ def test_env_comes_from_claude_code_registration(tmp_path):
 
 def test_env_defaults_without_claude_code_registration(tmp_path):
     assert inst.desktop_env(tmp_path / "nada.json", "Thiago", tmp_path / "home") == {
-        "VAGAS_DB": str(tmp_path / "home/.local/share/vagas/vagas.db"),
-        "VAGAS_RESUME_OUT": "/mnt/c/Users/Thiago/Curriculos",
-    }
+        "VAGAS_DB": str(tmp_path / "home/.local/share/vagas/vagas.db")}  # pastas: perguntadas no primeiro uso
 
 
 @pytest.fixture

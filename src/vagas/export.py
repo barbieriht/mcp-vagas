@@ -6,20 +6,17 @@ Google Sheets detecta o formato sozinho.
 
 import csv
 import json
-import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from vagas.db import default_db_path
 from vagas.repo import Repo
 
 
 def default_export_dir(db_path: Path | str | None = None) -> Path:
-    if env := os.environ.get("VAGAS_EXPORT_DIR"):
-        return Path(env)
-    db = Path(db_path) if db_path is not None else default_db_path()
-    return db.parent / "exports"
+    from vagas.config import resolve
+
+    return resolve("export_dir", db_path)[0]
 
 
 def export_csv(repo: Repo, out_dir: Path | str) -> dict[str, Any]:

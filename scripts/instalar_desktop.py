@@ -9,7 +9,7 @@ Uso, na raiz do repositório:
 Passos: atualiza a cópia estável do servidor, registra o servidor no claude_desktop_config.json
 (com backup), testa o servidor pelo wsl.exe, gera o zip da Skill na pasta Downloads do Windows
 e, opcionalmente, fecha o Desktop. O envio do zip (Configurações → Skills) continua manual.
-Variáveis VAGAS_DB, VAGAS_RESUME_OUT e VAGAS_EXPORT_DIR definidas no ambiente têm prioridade.
+Variáveis já registradas no Claude Code (VAGAS_DB, VAGAS_RESUME_OUT, VAGAS_EXPORT_DIR, VAGAS_CONFIG) são repassadas; as pastas, quando não há variável, o Claude pergunta no primeiro uso (config.toml).
 """
 
 import argparse
@@ -27,7 +27,7 @@ REPO = Path(__file__).resolve().parents[1]
 SKILL_DIR = REPO / "skill" / "candidaturas"
 COMMANDS_DIR = REPO / "skill" / "comandos"
 STABLE_VENV = Path.home() / ".local/share/vagas/venv"
-ENV_KEYS = ("VAGAS_DB", "VAGAS_RESUME_OUT", "VAGAS_EXPORT_DIR")
+ENV_KEYS = ("VAGAS_DB", "VAGAS_RESUME_OUT", "VAGAS_EXPORT_DIR", "VAGAS_CONFIG")
 SKILL_FILES = ("SKILL.md", "candidatar.md", "buscar.md", "curriculo.md", "perfil.md", "politica-salarial.md",
                "criterios-triagem.md")
 PERSONAL_FILES = ("perfil.md", "politica-salarial.md", "criterios-triagem.md")
@@ -64,10 +64,7 @@ def desktop_env(claude_json: Path, windows_user: str, home: Path) -> dict[str, s
         registered = json.loads(claude_json.read_text(encoding="utf-8"))["mcpServers"]["vagas"].get("env", {})
     except (OSError, ValueError, KeyError):
         pass
-    env = {
-        "VAGAS_DB": str(home / ".local/share/vagas/vagas.db"),
-        "VAGAS_RESUME_OUT": f"/mnt/c/Users/{windows_user}/Curriculos",
-    }
+    env = {"VAGAS_DB": str(home / ".local/share/vagas/vagas.db")}
     env.update({key: value for key, value in registered.items() if key in ENV_KEYS})
     return env
 

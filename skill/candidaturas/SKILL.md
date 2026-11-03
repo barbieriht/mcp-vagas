@@ -12,6 +12,17 @@ Fontes da verdade:
 - [perfil.md](perfil.md) para os dados de formulário. Ele é carregado só na hora de preencher.
 - **MCP "vagas"** como registro de tudo o que acontece com cada vaga.
 
+## Primeiro uso
+
+Antes de qualquer fluxo, e sempre que uma tool reclamar de pasta não configurada, chame `get_config`.
+Se `needs_setup` trouxer chaves, o MCP ainda não sabe onde guardar aqueles arquivos. Pergunte ao Thiago, uma chave por vez:
+
+- `resume_out`: pasta dos PDFs de currículo. Sugira a primeira de `suggestions` (no WSL, costuma ser `Documents` do Windows, para anexar o PDF no navegador) e diga que ele pode escolher outra.
+- `export_dir`: pasta dos CSVs exportados. Sugira uma de `suggestions` ou aceite o `default`.
+- `master_resume`: arquivo YAML do currículo geral. Sugira o `default` (fica no WSL, fora do `/mnt/c`, que é lento).
+
+Grave cada resposta com `set_config` (sem `value` para aceitar o `default`) e leia o `warnings` do retorno: se uma variável de ambiente sobrepõe o valor, avise o Thiago. Não escolha a pasta dos currículos sozinho. Depois de configurado, `get_config` não pergunta de novo; para mudar depois, o Thiago pede e você chama `set_config`.
+
 ## Escolha o fluxo
 
 - O Thiago traz uma vaga e quer se candidatar: siga [candidatar.md](candidatar.md).

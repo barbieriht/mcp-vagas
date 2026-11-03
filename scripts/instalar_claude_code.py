@@ -56,15 +56,6 @@ def mcp_registered(claude_json: Path) -> bool:
         return False
 
 
-def windows_user() -> str:
-    """Usuário do Windows (as pastas em /mnt/c/Users usam esse nome, não o do Linux)."""
-    if shutil.which("cmd.exe"):
-        out = subprocess.run(["cmd.exe", "/c", "echo %USERNAME%"], capture_output=True, text=True, cwd="/mnt/c")
-        if out.stdout.strip():
-            return out.stdout.strip()
-    return Path.home().name
-
-
 def main() -> None:
     sys.stdout.reconfigure(line_buffering=True)
     print("==> Skill e comandos em", SKILLS_HOME)
@@ -100,12 +91,10 @@ def main() -> None:
     if mcp_registered(Path.home() / ".claude.json"):
         print("    já registrado (mantido como está)")
     elif shutil.which("claude"):
-        out = f"/mnt/c/Users/{windows_user()}/Curriculos"
         subprocess.run(["claude", "mcp", "add", "vagas", "--scope", "user",
                         "-e", f"VAGAS_DB={Path.home()}/.local/share/vagas/vagas.db",
-                        "-e", f"VAGAS_RESUME_OUT={out}",
                         "--", str(STABLE_PYTHON), "-m", "vagas.server"], check=True)
-        print(f"    registrado; PDFs em {out}")
+        print("    registrado; no primeiro uso o Claude pergunta as pastas (currículos, CSVs) e grava em config.toml")
     else:
         print("    CLI 'claude' não encontrado: registre com o comando da seção Claude Code do README")
 

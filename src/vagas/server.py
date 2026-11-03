@@ -14,6 +14,7 @@ from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel, ConfigDict, Field
 from mcp.server.mcpserver.exceptions import ToolError
 
+from vagas import config as paths_config
 from vagas.db import connect, default_db_path
 from vagas.models import (
     Contract, Currency, InitialStatus, LinkedInSection, ResumeSourceKind, RoleKey, SalaryMode, Seniority,
@@ -56,7 +57,11 @@ def build_server(
     vault: Any = None,
     search_launcher: Callable[[int], int] | None = None,
 ) -> MCPServer:
-    server = MCPServer("vagas")
+    server = MCPServer("vagas", instructions=(
+        "No primeiro uso, chame get_config: se needs_setup trouxer chaves, pergunte ao usuário onde guardar "
+        "cada coisa (pasta dos currículos em PDF, pasta dos CSVs, arquivo do currículo geral), sugerindo "
+        "uma das suggestions (ou o default) e grave a resposta com set_config. Não escolha sozinho a pasta "
+        "dos currículos."))
 
     @contextmanager
     def store(factory: Callable[[sqlite3.Connection], Any]) -> Iterator[Any]:
@@ -100,6 +105,37 @@ def build_server(
         return store(lambda conn: Triage(
             conn, fetcher=job_fetcher or http_fetch, criteria_path=default_criteria_path(db_path),
             policy_path=default_policy_path(db_path), draft_path=draft_path or default_draft_path(db_path)))
+
+    @server.tool()
+    def get_config() -> dict[str, Any]:
+        """Mostra onde o MCP guarda os arquivos de cada tarefa e o que ainda falta configurar.
+
+        Chame no PRIMEIRO USO (e sempre que uma tool reclamar de pasta não configurada), antes de gerar
+        currículo ou exportar. Retorna {config_file, settings, needs_setup}. Em settings, cada chave
+        (resume_out = pasta dos PDFs de currículo, export_dir = pasta dos CSVs, master_resume = arquivo
+        YAML do currículo geral) traz {value, source (env/config/default/unset), description, default,
+        suggestions, env}. needs_setup lista as chaves que o usuário nunca definiu: pergunte a pasta
+        de cada uma, oferecendo a sugestão mais adequada (suggestions, ou o default quando houver), e
+        grave com set_config.
+        """
+        try:
+            return paths_config.describe(db_path)
+        except VagasError as exc:
+            raise ToolError(str(exc)) from exc
+
+    @server.tool()
+    def set_config(key: str, value: str | None = None) -> dict[str, Any]:
+        """Grava o caminho de uma tarefa no config.toml (cria a pasta e confere que dá para escrever).
+
+        key: resume_out, export_dir ou master_resume. value: caminho absoluto (aceita C:\\Users\\...).
+        Sem value, confirma o padrão da chave (só export_dir e master_resume têm padrão). Use depois de
+        perguntar ao usuário, nunca escolha sozinho a pasta dos currículos. Retorna {key, value, source,
+        config_file, warnings}; se source for "env", uma variável de ambiente do servidor sobrepõe o valor.
+        """
+        try:
+            return paths_config.set_value(key, value, db_path)
+        except VagasError as exc:
+            raise ToolError(str(exc)) from exc
 
     @server.tool()
     def find_application(url: str | None = None, company: str | None = None) -> dict[str, Any]:
@@ -470,7 +506,7 @@ def build_server(
         """
         with resumes() as s:
             master = s.get_master_resume()["resume"]
-            return render_resume(master, resume_out or default_output_dir(), label=label)
+            return render_resume(master, resume_out or default_output_dir(db_path), label=label)
 
     @server.tool()
     def suggest_tailored_selection(application_id: int) -> dict[str, Any]:
@@ -508,7 +544,7 @@ def build_server(
         Retorna {"id", "path", "pages", "warnings"}; o PDF vai para VAGAS_RESUME_OUT.
         """
         with resumes() as s:
-            return s.create_tailored_resume(selection, resume_out or default_output_dir(), application_id)
+            return s.create_tailored_resume(selection, resume_out or default_output_dir(db_path), application_id)
 
     @server.tool()
     def read_job_posting(url: str) -> dict[str, Any]:
