@@ -195,3 +195,19 @@ def test_skill_asks_about_paths_on_first_use_before_any_flow():
 
     assert "`get_config`" in first_use and "`set_config`" in first_use and "`needs_setup`" in first_use
     assert "sugira" in first_use.lower() and "pergunte" in first_use.lower()
+
+
+def test_post_application_tests_are_pending_items_not_blockers():
+    text = (SKILL_DIR / "candidatar.md").read_text(encoding="utf-8")
+    final = text[text.index("6. **Registro final.**"):text.index("## Campos novos do perfil")]
+
+    assert "teste" in final.lower() and "`pending`" in final and "`aplicada`" in final
+    assert "próxima vaga" in final and "não faça" in final.lower()
+
+
+def test_batches_continue_and_report_pendencies_at_the_end():
+    text = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    batch = text[text.index("## Várias vagas"):text.index("## Triagem")]
+
+    assert "não espere" in batch.lower() and "ao final" in batch.lower()
+    assert "`aplicada`" in batch and "`pendente_usuario`" in batch and "`encerrada`" in batch

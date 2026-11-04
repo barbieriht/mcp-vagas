@@ -32,6 +32,15 @@ Grave cada resposta com `set_config` (sem `value` para aceitar o `default`) e le
 - Ele só quer saber se uma vaga vale a pena: faça a **triagem** abaixo e informe o resultado.
 - Ele pediu para montar ou atualizar o currículo geral (pelo PDF, pelo LinkedIn ou pelos dois): siga [curriculo.md](curriculo.md). Esse fluxo roda só a pedido dele.
 
+## Várias vagas
+
+Quando o Thiago pede para se candidatar a várias vagas, trate uma de cada vez e não espere por ele entre elas. Sua tarefa em cada vaga termina no envio da candidatura (ou num bloqueio); testes de perfil ou de habilidade são dele.
+- `aplicada`: registre, anote em `pending` qualquer teste ou etapa pedida depois do envio e siga para a próxima vaga.
+- `pendente_usuario`: algo bloqueou o envio. Registre o `pending`, deixe a vaga como está e siga para a próxima.
+- `encerrada` e `descartada`: informe o motivo no resumo e siga para a próxima.
+
+Só pare no meio do lote se a causa afetar todas as vagas (por exemplo, o login pedido pelo site não funciona ou a sessão expirou). Ao final, entregue um resumo único com: candidaturas feitas; **pendências do Thiago** (cada teste ou etapa com link e prazo, e cada `pendente_usuario` com o que falta); vagas descartadas ou encerradas. O comando `/pending` lista essas pendências depois.
+
 ## Triagem
 
 Toda vaga passa pela triagem antes de qualquer outra ação. Ela termina com a vaga registrada no MCP como `a_aplicar` ou `descartada`, ou identificada como já registrada.

@@ -38,7 +38,9 @@ A candidatura termina num destes dois estados:
    - Se a tool recusar (domínio diferente do da vaga, candidatura não triada, campo fora do cofre), não preencha. Chame `update_application` com status `pendente_usuario`, `pending` dizendo qual dado falta e o motivo da recusa, e avise o Thiago.
 
    Clique em enviar somente depois que ele confirmar.
-6. **Registro final.** Depois do envio confirmado, chame `update_application` com status `aplicada`, `pending` vazio, o `resume_id` e uma nota com a data e a plataforma.
+6. **Registro final.** Depois do envio confirmado, chame `update_application` com status `aplicada`, o `resume_id` e uma nota com a data e a plataforma.
+   - **Testes e etapas depois do envio.** Se a página de confirmação (ou o e-mail dela) pedir teste técnico, coding challenge, teste de proficiência, questionário de perfil, vídeo gravado ou qualquer avaliação, a candidatura já está concluída: o seu trabalho acabou. Não faça nem inicie o teste (muitos têm cronômetro) e não espere o Thiago fazê-lo. Registre a pendência em `pending` (nome do teste, link e prazo, se houver), mantendo o status `aplicada`. Sem etapa extra, deixe `pending` vazio.
+   - **Próxima vaga.** Com a candidatura registrada, siga para a próxima vaga do pedido sem esperar. Veja "Várias vagas" no [SKILL.md](SKILL.md).
 
 ## Campos novos do perfil
 
