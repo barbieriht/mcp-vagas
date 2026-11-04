@@ -23,7 +23,7 @@ Se `needs_setup` trouxer chaves, o MCP ainda não sabe onde guardar aqueles arqu
 - `login_method`: como entrar nos sites de vagas, `linkedin` ou `google` (aceite "gmail" como google).
 - `login_email`: só aparece em `needs_setup` quando o login é `google`. Pergunte qual e-mail da conta Google usar (pode ser diferente do e-mail do `perfil.md`).
 
-Grave cada resposta com `set_config` (sem `value` para aceitar o `default`) e leia o `warnings` do retorno: se uma variável de ambiente sobrepõe o valor, avise o Thiago. Não escolha a pasta dos currículos sozinho. Depois de configurado, `get_config` não pergunta de novo; para mudar depois, o Thiago pede e você chama `set_config`.
+Grave cada resposta com `set_config` (sem `value` para aceitar o `default`) e leia o `warnings` do retorno: se uma variável de ambiente sobrepõe o valor, avise o Thiago. Não escolha a pasta dos currículos sozinho. `max_open_tabs` (limite de abas de candidatura abertas) tem padrão e não é perguntado: só mude se o Thiago pedir. Depois de configurado, `get_config` não pergunta de novo; para mudar depois, o Thiago pede e você chama `set_config`.
 
 ## Escolha o fluxo
 
@@ -36,10 +36,10 @@ Grave cada resposta com `set_config` (sem `value` para aceitar o `default`) e le
 
 Quando o Thiago pede para se candidatar a várias vagas, trate uma de cada vez e não espere por ele entre elas. Sua tarefa em cada vaga termina no envio da candidatura (ou num bloqueio); testes de perfil ou de habilidade são dele.
 - `aplicada`: registre, anote em `pending` qualquer teste ou etapa pedida depois do envio e siga para a próxima vaga.
-- `pendente_usuario`: algo bloqueou o envio. Registre o `pending`, deixe a vaga como está e siga para a próxima.
+- `pendente_usuario`: algo bloqueou o envio (por exemplo, o navegador não anexou o PDF). Registre o `pending`, deixe a aba aberta, respeitando o limite de abas de [candidatar.md](candidatar.md#abas-abertas), e siga para a próxima.
 - `encerrada` e `descartada`: informe o motivo no resumo e siga para a próxima.
 
-Só pare no meio do lote se a causa afetar todas as vagas (por exemplo, o login pedido pelo site não funciona ou a sessão expirou). Ao final, entregue um resumo único com: candidaturas feitas; **pendências do Thiago** (cada teste ou etapa com link e prazo, e cada `pendente_usuario` com o que falta); vagas descartadas ou encerradas. O comando `/pending` lista essas pendências depois.
+Só pare no meio do lote se a causa afetar todas as vagas (por exemplo, o login pedido pelo site não funciona ou a sessão expirou). Ao final, entregue um resumo único com: candidaturas feitas; **pendências do Thiago** (cada teste ou etapa com link e prazo, e cada `pendente_usuario` com o que falta e, quando houver PDF a anexar, o currículo certo daquela vaga: nome do arquivo e `windows_path`); vagas descartadas ou encerradas. O comando `/pending` lista essas pendências depois.
 
 ## Triagem
 

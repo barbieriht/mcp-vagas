@@ -128,7 +128,8 @@ def build_server(
         currículo ou exportar. Retorna {config_file, settings, needs_setup}. Em settings, cada chave
         (resume_out = pasta dos PDFs de currículo, export_dir = pasta dos CSVs, master_resume = arquivo
         YAML do currículo geral, login_method = entrar nos sites de vagas por "linkedin" ou "google",
-        login_email = conta Google usada quando login_method é "google") traz {value, source
+        login_email = conta Google usada quando login_method é "google", max_open_tabs = limite de abas de
+        candidatura abertas esperando o usuário, padrão 12, nunca perguntado) traz {value, source
         (env/config/default/unset), description, kind, default, suggestions, choices, env}.
         needs_setup lista as chaves que o usuário nunca definiu: pergunte uma por vez (para pastas,
         ofereça a sugestão mais adequada: suggestions, ou o default quando houver; para login_method,
@@ -144,7 +145,8 @@ def build_server(
         """Grava uma configuração no config.toml (para pastas, cria a pasta e confere que dá para escrever).
 
         key: resume_out, export_dir ou master_resume (value: caminho absoluto, aceita C:\\Users\\...);
-        login_method (value: "linkedin" ou "google"/"gmail"); login_email (value: e-mail da conta Google).
+        login_method (value: "linkedin" ou "google"/"gmail"); login_email (value: e-mail da conta Google);
+        max_open_tabs (value: número de 1 a 30).
         Sem value, confirma o padrão da chave (só export_dir e master_resume têm padrão). Use depois de
         perguntar ao usuário, nunca escolha sozinho a pasta dos currículos. Retorna {key, value, source,
         config_file, warnings}; se source for "env", uma variável de ambiente do servidor sobrepõe o valor.
@@ -558,7 +560,9 @@ def build_server(
 
         application_id: candidatura à qual o currículo fica vinculado (opcional; também pode ser
         vinculado depois com add_application/update_application e resume_id).
-        Retorna {"id", "path", "pages", "warnings"}; o PDF vai para VAGAS_RESUME_OUT.
+        Retorna {"id", "path", "windows_path", "pages", "warnings"}; o PDF vai para VAGAS_RESUME_OUT.
+        windows_path é o caminho como o usuário o vê no Windows (null fora de /mnt/<letra>): use-o ao
+        pedir que ele anexe o arquivo na vaga.
         """
         with resumes() as s:
             return s.create_tailored_resume(selection, resume_out or default_output_dir(db_path), application_id)
@@ -642,7 +646,8 @@ def build_server(
     @server.tool()
     def get_resume(id: int) -> dict[str, Any]:
         """Retorna um currículo personalizado: seleção enviada, conteúdo final ("resolved"),
-        versão do currículo geral de origem, caminho do PDF e páginas."""
+        versão do currículo geral de origem, caminho do PDF (pdf_path, e windows_path como o usuário o vê
+        no Windows, ou null) e páginas."""
         with resumes() as s:
             return s.get_resume(id)
 

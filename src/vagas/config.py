@@ -31,11 +31,13 @@ _LOGIN_ALIASES = {"linkedin": "linkedin", "linked in": "linkedin", "google": "go
 @dataclass(frozen=True)
 class Setting:
     env: str
-    kind: str  # "dir", "file", "choice" ou "text"
+    kind: str  # "dir", "file", "choice", "text" ou "int"
     label: str
     default_name: str | None = None  # relativo à pasta do banco; None = sem padrão (precisa ser configurado)
     suggested_folder: str | None = None  # nome da pasta sugerida dentro de Documents
     choices: tuple[str, ...] = ()  # só para kind "choice"
+    default_literal: int | None = None  # padrão fixo (kind "int"): nunca é perguntado
+    bounds: tuple[int, int] = (0, 0)  # mínimo e máximo (kind "int")
 
 
 SETTINGS: dict[str, Setting] = {
@@ -47,6 +49,8 @@ SETTINGS: dict[str, Setting] = {
                             "ou pela conta Google", choices=LOGIN_METHODS),
     "login_email": Setting("VAGAS_LOGIN_EMAIL", "text", "E-mail da conta Google usada para entrar "
                            "(só vale com login_method = google)"),
+    "max_open_tabs": Setting("VAGAS_MAX_OPEN_TABS", "int", "Máximo de abas de candidatura deixadas abertas esperando "
+                             "o usuário (1 a 30)", default_literal=12, bounds=(1, 30)),
 }
 PATH_KINDS = ("dir", "file")
 
@@ -67,10 +71,20 @@ def load(db_path: Path | str | None = None) -> dict[str, str]:
     except (tomllib.TOMLDecodeError, OSError) as exc:
         raise VagasError(f"Não consegui ler {path} ({exc}). Corrija o arquivo (linhas `chave = \"valor\"`) "
                          "ou apague-o para configurar de novo.") from exc
-    return {key: value for key, value in data.items() if key in SETTINGS and isinstance(value, str) and value}
+    found = {}
+    for key, value in data.items():
+        if key not in SETTINGS:
+            continue
+        if SETTINGS[key].kind == "int" and isinstance(value, int) and not isinstance(value, bool):
+            found[key] = str(value)
+        elif isinstance(value, str) and value:
+            found[key] = value
+    return found
 
 
-def default_value(key: str, db_path: Path | str | None = None) -> Path | None:
+def default_value(key: str, db_path: Path | str | None = None) -> Path | int | None:
+    if SETTINGS[key].default_literal is not None:
+        return SETTINGS[key].default_literal
     name = SETTINGS[key].default_name
     if name is None:
         return None
@@ -78,15 +92,28 @@ def default_value(key: str, db_path: Path | str | None = None) -> Path | None:
     return db.parent / name
 
 
-def _as_value(key: str, raw: str) -> Path | str:
+def _as_int(key: str, raw: str) -> int:
+    low, high = SETTINGS[key].bounds
+    try:
+        number = int(raw.strip())
+    except ValueError:
+        number = None
+    if number is None or not low <= number <= high:
+        raise VagasError(f"Valor inválido para {key}: {raw!r}. Informe um número de {low} a {high}.")
+    return number
+
+
+def _as_value(key: str, raw: str) -> Path | str | int:
     if SETTINGS[key].kind in PATH_KINDS:
         return Path(raw)
+    if SETTINGS[key].kind == "int":
+        return _as_int(key, raw)
     return _clean_choice(key, raw) or raw.strip()
 
 
-def resolve(key: str, db_path: Path | str | None = None) -> tuple[Path | str | None, str]:
+def resolve(key: str, db_path: Path | str | None = None) -> tuple[Path | str | int | None, str]:
     """Valor efetivo e origem: "env", "config", "default" ou "unset" (sem padrão e nunca definido).
-    Pastas e arquivos voltam como Path; login_method e login_email, como texto."""
+    Pastas e arquivos voltam como Path; login_method e login_email, como texto; max_open_tabs, como int."""
     setting = SETTINGS[key]
     if env := os.environ.get(setting.env):
         return _as_value(key, env), "env"
@@ -118,7 +145,7 @@ def _needs_answer(key: str, db_path: Path | str | None) -> bool:
     """A conta Google só é perguntada a quem escolheu entrar por ela."""
     if key == "login_email":
         return resolve("login_method", db_path)[0] == "google"
-    return True
+    return SETTINGS[key].kind != "int"
 
 
 def describe(db_path: Path | str | None = None) -> dict[str, Any]:
@@ -193,6 +220,10 @@ def set_value(key: str, value: str | None, db_path: Path | str | None = None) ->
         except OSError as exc:
             raise VagasError(f"Não consegui usar {folder} ({exc}). Escolha outra pasta.") from exc
         stored = str(path)
+    elif SETTINGS[key].kind == "int":
+        if value is None or not str(value).strip():
+            raise VagasError(f"Informe 'value' para {key}: {SETTINGS[key].label.lower()}.")
+        stored = str(_as_int(key, str(value)))
     else:
         stored = _validated_text(key, value)
 
@@ -203,8 +234,9 @@ def set_value(key: str, value: str | None, db_path: Path | str | None = None) ->
     lines = ["# Configuração do mcp-vagas: um caminho por tarefa e o login padrão. Edite à mão ou peça ao Claude (set_config).",
              "# login_method = \"linkedin\" ou \"google\"; login_email = conta Google (quando o login é por Google).",
              "# Variáveis de ambiente (VAGAS_RESUME_OUT, VAGAS_EXPORT_DIR, VAGAS_MASTER_RESUME, VAGAS_LOGIN_METHOD,",
-             "# VAGAS_LOGIN_EMAIL) têm prioridade."]
-    lines += [f"{name} = {_quote(current[name])}" for name in SETTINGS if name in current]
+             "# VAGAS_LOGIN_EMAIL, VAGAS_MAX_OPEN_TABS) têm prioridade. max_open_tabs = número de abas (1 a 30)."]
+    lines += [f"{name} = {current[name] if SETTINGS[name].kind == 'int' else _quote(current[name])}"
+              for name in SETTINGS if name in current]
     target.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     effective, source = resolve(key, db_path)

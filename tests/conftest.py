@@ -31,5 +31,5 @@ def anyio_backend():
 def clean_path_settings(monkeypatch):
     """O ambiente do desenvolvedor não pode vazar para os testes de configuração de caminhos."""
     for name in ("VAGAS_CONFIG", "VAGAS_RESUME_OUT", "VAGAS_EXPORT_DIR", "VAGAS_MASTER_RESUME",
-                 "VAGAS_LOGIN_METHOD", "VAGAS_LOGIN_EMAIL"):
+                 "VAGAS_LOGIN_METHOD", "VAGAS_LOGIN_EMAIL", "VAGAS_MAX_OPEN_TABS"):
         monkeypatch.delenv(name, raising=False)

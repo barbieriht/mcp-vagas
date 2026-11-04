@@ -247,3 +247,40 @@ async def test_login_env_variable_wins(db_path, monkeypatch):
 
     assert result["settings"]["login_method"]["source"] == "env"
     assert result["settings"]["login_method"]["value"] == "linkedin"
+
+
+async def test_max_open_tabs_has_a_default_and_is_never_asked(db_path):
+    async with Client(build_server(db_path)) as client:
+        result = payload(await client.call_tool("get_config", {}))
+
+    tabs = result["settings"]["max_open_tabs"]
+    assert (tabs["value"], tabs["source"], tabs["default"]) == ("12", "default", "12")
+    assert "max_open_tabs" not in result["needs_setup"]
+    assert resolve("max_open_tabs", db_path) == (12, "default")
+
+
+@pytest.mark.parametrize("typed, stored", [("10", 10), (" 15 ", 15), ("1", 1), ("30", 30)])
+async def test_max_open_tabs_is_saved_as_a_number(db_path, typed, stored):
+    async with Client(build_server(db_path)) as client:
+        saved = payload(await client.call_tool("set_config", {"key": "max_open_tabs", "value": typed}))
+
+    assert saved["value"] == str(stored) and saved["source"] == "config"
+    assert resolve("max_open_tabs", db_path) == (stored, "config")
+    assert f"max_open_tabs = {stored}" in config_path(db_path).read_text(encoding="utf-8")
+
+
+def test_max_open_tabs_can_be_edited_by_hand_and_by_env(db_path, monkeypatch):
+    config_path(db_path).write_text("max_open_tabs = 8\n", encoding="utf-8")
+    assert resolve("max_open_tabs", db_path) == (8, "config")
+
+    monkeypatch.setenv("VAGAS_MAX_OPEN_TABS", "9")
+    assert resolve("max_open_tabs", db_path) == (9, "env")
+
+
+@pytest.mark.parametrize("value, message", [("0", "1 a 30"), ("31", "1 a 30"), ("muitas", "número"), (None, "value")])
+async def test_max_open_tabs_rejects_bad_input(db_path, value, message):
+    async with Client(build_server(db_path)) as client:
+        result = await client.call_tool("set_config", {"key": "max_open_tabs", "value": value})
+
+    assert result.is_error and message in result.content[0].text
+    assert not config_path(db_path).exists()

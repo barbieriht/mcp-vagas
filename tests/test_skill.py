@@ -211,3 +211,27 @@ def test_batches_continue_and_report_pendencies_at_the_end():
 
     assert "não espere" in batch.lower() and "ao final" in batch.lower()
     assert "`aplicada`" in batch and "`pendente_usuario`" in batch and "`encerrada`" in batch
+
+
+def test_attachment_that_cannot_be_automated_leaves_the_tab_open_and_names_the_file():
+    text = (SKILL_DIR / "candidatar.md").read_text(encoding="utf-8")
+    attach = text[text.index("**Anexo:**"):text.index("**Pretensão salarial:**")]
+
+    assert "deixe a aba aberta" in attach and "`pendente_usuario`" in attach
+    assert "windows_path" in attach and "`resume_id`" in text
+    assert "seguir" in attach.lower() or "siga" in attach.lower()
+
+
+def test_open_tabs_are_limited_by_the_configured_value():
+    text = (SKILL_DIR / "candidatar.md").read_text(encoding="utf-8")
+    tabs = text[text.index("## Abas abertas"):text.index("## Campos novos do perfil")]
+
+    assert "`max_open_tabs`" in tabs and "`get_config`" in tabs
+    assert "`a_aplicar`" in tabs and "resumo" in tabs.lower()
+
+
+def test_browser_permissions_are_suggested_once_before_the_first_application():
+    text = (SKILL_DIR / "candidatar.md").read_text(encoding="utf-8")
+
+    assert "Automatically approve" in text and "Always allow actions on this site" in text
+    assert text.index("Automatically approve") < text.index("1. **Triagem.**")
