@@ -47,6 +47,20 @@ class MatchTerms(BaseModel):
     missing: list[str]
 
 
+_VALUE_KEYS = ("default", "enum", "const", "examples")
+
+
+def _without_titles(node: Any, in_properties: bool = False) -> Any:
+    """Tira o `title` que o pydantic gera em cada campo ("Work Mode"): repete o nome do campo e custa tokens.
+    Campos chamados `title` (chaves de `properties`) e valores de default/enum ficam como estão."""
+    if isinstance(node, dict):
+        return {key: value if key in _VALUE_KEYS else _without_titles(value, key in ("properties", "$defs"))
+                for key, value in node.items() if not (key == "title" and isinstance(value, str) and not in_properties)}
+    if isinstance(node, list):
+        return [_without_titles(item) for item in node]
+    return node
+
+
 def build_server(
     db_path: Path | str | None = None,
     draft_path: Path | str | None = None,
@@ -852,6 +866,8 @@ def build_server(
         with job_searches() as s:
             return s.save_job_search(query, source, results_count, location=location, filters=filters, note=note)
 
+    for tool in server._tool_manager.list_tools():  # os schemas vão ao modelo em toda conversa: sem rótulos redundantes
+        tool.parameters = _without_titles(tool.parameters)
     return server
 
 
