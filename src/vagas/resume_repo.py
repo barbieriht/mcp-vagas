@@ -17,7 +17,7 @@ from vagas.models import LINKEDIN_SECTIONS, RESUME_SOURCE_KINDS, STATUSES
 OPEN_STATUSES = ("a_aplicar", "pendente_usuario")
 from vagas.normalize import normalize_text
 from vagas.repo import Repo, VagasError, _require_choice, _require_text, _utcnow
-from vagas.resume_extract import extract_pages, review_draft, wsl_path
+from vagas.resume_extract import extract_pages, review_draft, windows_path, wsl_path
 from vagas.resume_diff import diff_master
 from vagas.resume_suggest import suggest_selection
 from vagas.resume_model import MasterResume, describe_errors
@@ -353,7 +353,7 @@ class ResumeStore:
                  json.dumps(selection.model_dump(exclude_none=True), ensure_ascii=False),
                  json.dumps(resolved, ensure_ascii=False), rendered["path"], rendered["pages"], self.now()),
             )
-        return {"id": cursor.lastrowid, **rendered}
+        return {"id": cursor.lastrowid, **rendered, "windows_path": windows_path(rendered["path"])}
 
     def suggest_tailored_selection(self, application_id: int) -> dict[str, Any]:
         """Seleção inicial do currículo personalizado pelos termos da candidatura (ver resume_suggest)."""
@@ -436,6 +436,7 @@ class ResumeStore:
         resume = dict(row)
         resume["selection"] = json.loads(resume["selection"])
         resume["resolved"] = json.loads(resume["resolved"])
+        resume["windows_path"] = windows_path(resume["pdf_path"])
         return resume
 
     def _read_draft(self) -> Any:

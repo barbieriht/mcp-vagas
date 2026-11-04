@@ -40,6 +40,14 @@ def wsl_path(path: str | Path) -> Path:
     return Path(text)
 
 
+def windows_path(path: str | Path) -> str | None:
+    """/mnt/c/Users/... -> C:\\Users\\... (o caminho que o usuário vê no Windows); None fora de /mnt/<letra>."""
+    match = re.match(r"^/mnt/([a-zA-Z])(?:/(.*))?$", str(path))
+    if not match:
+        return None
+    return f"{match.group(1).upper()}:\\" + (match.group(2) or "").replace("/", "\\")
+
+
 def extract_pages(path: Path) -> list[str]:
     if not path.exists():
         raise VagasError(f"O arquivo {path} não existe.")

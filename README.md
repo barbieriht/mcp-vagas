@@ -116,6 +116,7 @@ export_dir = "/mnt/c/Users/<usuário>/Documents/Vagas"        # CSVs exportados
 master_resume = "/home/<usuário-wsl>/.local/share/vagas/curriculo.yaml"   # currículo geral (YAML editável)
 login_method = "google"                                      # entrar nos sites de vagas por "linkedin" ou "google"
 login_email = "<usuário>@gmail.com"                          # conta Google (só com login_method = "google")
+max_open_tabs = 12                                           # abas de candidatura deixadas abertas esperando você (1 a 30)
 ```
 
 Você não precisa criar o arquivo: no primeiro uso o Claude pergunta cada caminho (sugerindo uma pasta) e o grava com a tool `set_config`. Para ver o que está configurado, peça *"mostre a configuração do vagas"* (`get_config`). Valores aceitos: caminho absoluto do Linux ou do Windows (`C:\Users\...`); a pasta é criada se não existir. `login_method` aceita `linkedin` ou `google` (`gmail` vale como google); `login_email` só é perguntado a quem escolheu `google`.
@@ -131,6 +132,7 @@ As demais opções continuam por variável de ambiente:
 | `VAGAS_MASTER_RESUME` | sobrepõe `master_resume` do `config.toml` | `curriculo.yaml` ao lado do banco |
 | `VAGAS_LOGIN_METHOD` | sobrepõe `login_method` do `config.toml` (`linkedin` ou `google`) | sem padrão |
 | `VAGAS_LOGIN_EMAIL` | sobrepõe `login_email` do `config.toml` | sem padrão |
+| `VAGAS_MAX_OPEN_TABS` | sobrepõe `max_open_tabs` do `config.toml` | 12 |
 | `VAGAS_RESUME_OUT` | sobrepõe `resume_out` do `config.toml` | nenhum (configurada no primeiro uso) |
 | `VAGAS_SALARY_POLICY` | política salarial lida por `evaluate_salary` | `politica-salarial.md` ao lado do banco (o instalador cria um symlink para o da Skill) |
 | `VAGAS_SENSITIVE_FILE` | cofre de dados sensíveis (CPF, RG...), cifrado pela DPAPI do Windows | `cofre.json` ao lado do banco |
