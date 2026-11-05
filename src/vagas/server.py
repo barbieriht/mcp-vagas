@@ -77,7 +77,10 @@ def build_server(
         "uma das suggestions (ou o default) e grave a resposta com set_config. Não escolha sozinho a pasta "
         "dos currículos. Ao citar uma vaga ao usuário (resumos, listas, tabelas, pendências), escreva o nome "
         "dela como link Markdown para a página da vaga, no formato [Cargo — Empresa](url), usando o campo url "
-        "que as tools retornam; se a vaga não tiver url, escreva o nome sem link. Não mostre a URL crua ao lado."))
+        "que as tools retornam; se a vaga não tiver url, escreva o nome sem link. Não mostre a URL crua ao lado. "
+        "Em formulários de candidatura, os dados pessoais vêm de get_profile (não de cópias de arquivos da Skill), "
+        "e o currículo anexado é o personalizado da vaga, gerado com create_tailored_resume antes de abrir o "
+        "formulário; se a geração falhar por pasta não configurada, chame get_config."))
 
     @contextmanager
     def store(factory: Callable[[sqlite3.Connection], Any]) -> Iterator[Any]:

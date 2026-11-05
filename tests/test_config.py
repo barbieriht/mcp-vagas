@@ -340,3 +340,10 @@ async def test_sensitive_autofill_is_off_by_default_and_tolerant(db_path, typed,
     assert (autofill["value"], autofill["source"]) == ("nao", "default")
     assert "sensitive_autofill" not in before["needs_setup"]
     assert saved["value"] == stored
+
+
+async def test_server_instructions_point_to_the_profile_and_tailored_resume_tools(db_path):
+    async with Client(build_server(db_path)) as client:
+        instructions = client.instructions
+
+    assert "get_profile" in instructions and "create_tailored_resume" in instructions
