@@ -18,14 +18,14 @@ Sugira uma vez, sem insistir, que o Thiago reduza os pedidos de permissão do na
 
    Chame `create_tailored_resume` com o `application_id` (o PDF recebe o nome da empresa e do cargo da vaga, para não confundir vagas da mesma empresa). Se a validação rejeitar algo, ajuste a seleção ou o texto ao que o currículo geral diz e gere de novo. Guarde o caminho do PDF e o id do currículo.
 3. **Formulário.**
-   - **Perfil:** chame `get_profile`. Use os campos com status `ok`; os com `preencher` são bloqueios (passo 4); os `manual` o Thiago digita; os `cofre` são preenchidos na revisão (passo 5). As `notes` de cada campo dizem como responder (por exemplo, em escalas fixas). Se a tool der erro, leia o [perfil.md](perfil.md).
+   - **Perfil:** chame `get_profile`. Use os campos com status `ok`; os com `preencher` são bloqueios (passo 4); os `manual` o Thiago digita; os `cofre` são preenchidos com `get_sensitive_field`: já neste passo se `sensitive_autofill` for verdadeiro (autorização permanente do Thiago), senão na revisão (passo 5). As `notes` de cada campo dizem como responder (por exemplo, em escalas fixas). Se a tool der erro, leia o [perfil.md](perfil.md).
    - **Acesso:** abra a vaga no navegador e entre pelo login padrão de `get_config` (`login_method`). Com `linkedin`, aplique ou entre com a conta do LinkedIn; com `google`, entre com a conta Google de `login_email`. Se o site não oferecer esse método, use o outro e avise o Thiago. Se `login_method` não estiver configurado, pergunte e grave com `set_config`.
    - **Vaga encerrada:** se a página mostrar "Not currently accepting applications" (ou equivalente), não preencha nada: informe ao Thiago e, se a vaga já estiver registrada, chame `update_application` com status `descartada` e `discard_reason` "vaga encerrada".
    - **Dados:** preencha com os dados do perfil e do currículo geral.
    - **Anexo:** anexe o PDF personalizado. Se o navegador não conseguir anexar (por exemplo, a ferramenta de upload não aceita caminhos do disco ou o arquivo está no Windows, fora do seu ambiente), não pare nem espere: preencha o resto, deixe a aba aberta e siga o passo 4 com `pendente_usuario`. No `pending`, diga qual arquivo anexar usando o `windows_path` do currículo (de `create_tailored_resume` ou `get_resume`), no formato: "Anexar <nome do PDF> (currículo ID <n>, em <windows_path>); <o que mais falta>; revisar e enviar". Depois siga para a próxima vaga (veja "Abas abertas").
    - **Pretensão salarial:** use o `value_to_inform` da avaliação salarial (a coluna `salary_ask` da candidatura). Se não estiver à mão, ele está em `salary_evaluation`, no `get_history`. Ao registrar o envio, grave em `salary_expectation` o valor exatamente como foi informado no formulário.
    - **Consentimentos:** marque os de privacidade e LGPD exigidos pelo formulário. Se o navegador recusar marcar os termos de uso ou a declaração, ou o envio, trate como etapa do Thiago: aba aberta, `pendente_usuario` e o item no `pending` ("aceitar os termos e enviar").
-4. **Bloqueios.** Campos com status `cofre` em `get_profile` não bloqueiam: eles são preenchidos na revisão (passo 5), com a confirmação do Thiago. Se o formulário exigir criar conta com senha, um documento ou dado sensível que não está no cofre, ou uma resposta que não está no perfil nem no currículo:
+4. **Bloqueios.** Campos com status `cofre` em `get_profile` não bloqueiam: com `sensitive_autofill` verdadeiro eles já foram preenchidos no passo 3; sem a autorização, são preenchidos na revisão (passo 5), com a confirmação do Thiago. Se o formulário exigir criar conta com senha, um documento ou dado sensível que não está no cofre, ou uma resposta que não está no perfil nem no currículo:
    - registre cada campo novo no perfil (seção "Campos novos do perfil" abaixo);
    - preencha todo o resto e deixe a aba aberta;
    - chame `update_application` com status `pendente_usuario`, `pending` listando cada item que falta e o `resume_id`;
@@ -35,10 +35,10 @@ Sugira uma vez, sem insistir, que o Thiago reduza os pedidos de permissão do na
    - o currículo anexado;
    - a pretensão informada;
    - as respostas abertas;
-   - os dados do cofre que o formulário pede, um por linha: "vou preencher o seu CPF na vaga X da empresa Y (domínio Z)".
+   - os dados do cofre que o formulário pede, um por linha: "vou preencher o seu CPF na vaga X da empresa Y (domínio Z)" (com `sensitive_autofill`, "preenchi o seu CPF...", sem pedir confirmação).
 
    Dados do cofre:
-   - Só depois que o Thiago confirmar explicitamente, chame `get_sensitive_field` com o campo, o `application_id` e a URL atual do formulário (`form_url`). Digite o valor só no campo do formulário: nunca o escreva na conversa.
+   - Sem `sensitive_autofill`, só depois que o Thiago confirmar explicitamente, chame `get_sensitive_field` com o campo, o `application_id` e a URL atual do formulário (`form_url`). Digite o valor só no campo do formulário: nunca o escreva na conversa.
    - Se a tool recusar (domínio diferente do da vaga, candidatura não triada, campo fora do cofre), não preencha. Chame `update_application` com status `pendente_usuario`, `pending` dizendo qual dado falta e o motivo da recusa, e avise o Thiago.
 
    Clique em enviar somente depois que ele confirmar.

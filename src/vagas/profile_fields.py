@@ -108,9 +108,12 @@ class ProfileFiles:
                 if value.startswith("<"):
                     field["status"] = "preencher"
                     to_fill.append(label)
+                elif _key(value) == _key(MANUAL) and by_label.get(_key(label)) in vault_fields:
+                    # Documento cadastrado no cofre vale mais que um "informar manualmente" desatualizado.
+                    field["vault_field"], field["status"] = by_label[_key(label)], "cofre"
                 elif _key(value) == _key(MANUAL):
                     field["status"] = "manual"
-                elif value.startswith("no cofre"):
+                elif re.match(r"(no )?cofre\b", normalize_text(value)):  # "no cofre (...)", "cofre", "Cofre."
                     vault_field = by_label.get(_key(label))
                     field["vault_field"] = vault_field
                     field["status"] = "cofre" if vault_field in vault_fields else "cofre_vazio"

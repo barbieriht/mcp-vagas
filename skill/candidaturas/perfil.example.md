@@ -11,6 +11,7 @@ Este arquivo guarda só o que não está no currículo ou respostas padrão de f
 - GitHub: https://github.com/fulano
 - Endereço: Rua Exemplo, 100, CEP 00000-000, Cidade - UF
 - Naturalidade: Cidade - UF
+- Data de nascimento: <PREENCHER: DD/MM/AAAA>
 
 ## Respostas padrão
 - Idiomas: português (nativo), inglês intermediário-avançado (B2, certificado), espanhol básico (A2.3, certificado)
@@ -28,7 +29,7 @@ Este arquivo guarda só o que não está no currículo ou respostas padrão de f
 - Cargo público: nunca ocupou
 
 ## Outros campos de formulário
-Campos pedidos por formulários que não se encaixam nas seções acima. Dados sensíveis: só o campo, com "informar manualmente", ou "no cofre (get_sensitive_field)" para documentos cadastrados no cofre (`python -m vagas.sensitive set <campo>`).
+Campos pedidos por formulários que não se encaixam nas seções acima. Dados sensíveis: só o campo, com "informar manualmente", ou "no cofre (get_sensitive_field)" para documentos cadastrados no cofre (`python -m vagas.sensitive set <campo>`). Documento cadastrado no cofre vale mesmo se a linha disser "informar manualmente". Para o modelo preencher o cofre sem confirmar cada uso, grave `sensitive_autofill = "sim"` no config.toml (ou peça ao Claude).
 - <Rótulo do campo como o formulário pede>: <...>
 - CPF: informar manualmente
 - RG: informar manualmente

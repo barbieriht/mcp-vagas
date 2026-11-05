@@ -327,3 +327,16 @@ async def test_choosing_the_salary_rule_reevaluates_the_registered_jobs(db_path)
         saved = payload(await client.call_tool("set_config", {"key": "salary_rule", "value": "meio_termo"}))
 
     assert saved["reevaluated"] == {"reevaluated": 0, "changed": [], "errors": []}
+
+
+@pytest.mark.parametrize("typed, stored", [("sim", "sim"), ("Sim.", "sim"), ("true", "sim"), ("ligado", "sim"),
+                                           ("não", "nao"), ("false", "nao"), ("desligado", "nao")])
+async def test_sensitive_autofill_is_off_by_default_and_tolerant(db_path, typed, stored):
+    async with Client(build_server(db_path)) as client:
+        before = payload(await client.call_tool("get_config", {}))
+        saved = payload(await client.call_tool("set_config", {"key": "sensitive_autofill", "value": typed}))
+
+    autofill = before["settings"]["sensitive_autofill"]
+    assert (autofill["value"], autofill["source"]) == ("nao", "default")
+    assert "sensitive_autofill" not in before["needs_setup"]
+    assert saved["value"] == stored
