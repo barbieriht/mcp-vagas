@@ -5,6 +5,8 @@ Lida pelo MCP em `evaluate_salary` (variável `VAGAS_SALARY_POLICY`), que escolh
 - Modo: minimo
   - minimo: aplicar se a mediana de mercado for maior ou igual ao mínimo da faixa
   - faixa: aplicar só se a mediana estiver dentro da faixa
+  - O `máximo` de uma faixa é o teto da pretensão: no modo minimo ele só limita o valor informado e nunca exclui a vaga da triagem; no modo faixa, a vaga cuja mediana passa do máximo é descartada.
+  - Como a pretensão sai do valor de mercado (teto, meio-termo, percentil 25 ou ponto baixo) é escolhido no `config.toml` (`salary_rule`), não aqui.
 - Multiplicador PJ: 1.4
 - Remoto nacional (BRL, CLT): mínimo 8000, máximo 12000
 - Híbrido/presencial em São Paulo e região (BRL, CLT): mínimo 10000, máximo 15000
@@ -20,7 +22,7 @@ Maiúsculas, acentos e ponto final no fim da linha são ignorados.
 - **Faixas:** uma linha por faixa, no formato `- <nome> (<moeda>[, CLT]): mínimo <valor>[, máximo <valor>]`.
   - Moeda: `BRL`, `USD` ou `EUR`. Obrigatória; as moedas nunca são convertidas entre si.
   - `CLT`: opcional. A faixa marcada com `CLT` é multiplicada pelo multiplicador em vagas PJ; sem ela, o valor vale para qualquer regime.
-  - Valores mensais, como `8000`, `8.000` ou `R$ 8.000,00`. `máximo` é opcional.
+  - Valores mensais, como `8000`, `8.000` ou `R$ 8.000,00`. `máximo` é opcional: é o teto da pretensão (no modo minimo, limita o valor sem excluir a vaga).
   - Modalidade: as palavras remoto, híbrido ou presencial no nome dizem a quais modalidades a faixa vale (`Híbrido/presencial` = as duas). Sem nenhuma delas, vale para todas.
   - Local: as cidades depois de "em", separadas por vírgula ou "e" (por exemplo, `em São Paulo, Campinas e Osasco`; "e região" no fim é aceito e ignorado). A faixa vale quando a cidade da vaga (a primeira parte do local, como "Campinas" em "Campinas, São Paulo, Brasil") é uma delas; o nome do estado não conta. Sem "em", vale para qualquer local.
   - No lugar dos valores, `usar a faixa do <nome de outra faixa>` copia os valores daquela faixa.

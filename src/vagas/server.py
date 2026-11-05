@@ -94,8 +94,11 @@ def build_server(
     def resumes():
         return store(lambda conn: ResumeStore(conn, draft_path or default_draft_path(db_path)))
 
+    def salary_rule() -> str:
+        return paths_config.resolve("salary_rule", db_path)[0]
+
     def salaries():
-        return store(lambda conn: SalaryStore(conn, policy_path=default_policy_path(db_path)))
+        return store(lambda conn: SalaryStore(conn, policy_path=default_policy_path(db_path), rule=salary_rule()))
 
     def job_searches():
         return store(JobSearchStore)
@@ -120,7 +123,8 @@ def build_server(
     def triages():
         return store(lambda conn: Triage(
             conn, fetcher=job_fetcher or http_fetch, criteria_path=default_criteria_path(db_path),
-            policy_path=default_policy_path(db_path), draft_path=draft_path or default_draft_path(db_path)))
+            policy_path=default_policy_path(db_path), draft_path=draft_path or default_draft_path(db_path),
+            salary_rule=salary_rule()))
 
     @server.tool()
     def get_config() -> dict[str, Any]:
@@ -131,7 +135,8 @@ def build_server(
         (resume_out = pasta dos PDFs de currículo, export_dir = pasta dos CSVs, master_resume = arquivo
         YAML do currículo geral, login_method = entrar nos sites de vagas por "linkedin" ou "google",
         login_email = conta Google usada quando login_method é "google", max_open_tabs = limite de abas de
-        candidatura abertas esperando o usuário, padrão 12, nunca perguntado) traz {value, source
+        candidatura abertas esperando o usuário, padrão 12, nunca perguntado; salary_rule = regra da
+        pretensão salarial, padrão "teto", perguntada só depois da primeira busca de vagas) traz {value, source
         (env/config/default/unset), description, kind, default, suggestions, choices, env}.
         needs_setup lista as chaves que o usuário nunca definiu: pergunte uma por vez (para pastas,
         ofereça a sugestão mais adequada: suggestions, ou o default quando houver; para login_method,
@@ -148,15 +153,22 @@ def build_server(
 
         key: resume_out, export_dir ou master_resume (value: caminho absoluto, aceita C:\\Users\\...);
         login_method (value: "linkedin" ou "google"/"gmail"); login_email (value: e-mail da conta Google);
-        max_open_tabs (value: número de 1 a 30).
+        max_open_tabs (value: número de 1 a 30); salary_rule (value: teto, meio_termo, percentil_25 ou
+        ponto_baixo). Ao gravar salary_rule, as vagas a_aplicar e pendente_usuario já avaliadas são
+        reavaliadas com a regra nova: o retorno traz "reevaluated" ({reevaluated, changed, errors}),
+        para mostrar ao usuário a tabela ajustada (before -> after de cada vaga).
         Sem value, confirma o padrão da chave (só export_dir e master_resume têm padrão). Use depois de
         perguntar ao usuário, nunca escolha sozinho a pasta dos currículos. Retorna {key, value, source,
         config_file, warnings}; se source for "env", uma variável de ambiente do servidor sobrepõe o valor.
         """
         try:
-            return paths_config.set_value(key, value, db_path)
+            saved = paths_config.set_value(key, value, db_path)
         except VagasError as exc:
             raise ToolError(str(exc)) from exc
+        if key == "salary_rule":
+            with salaries() as s:
+                saved["reevaluated"] = s.reevaluate_applications()
+        return saved
 
     @server.tool()
     def find_application(url: str | None = None, company: str | None = None) -> dict[str, Any]:
@@ -247,6 +259,7 @@ def build_server(
         discard_reason: str | None = None,
         resume_id: int | None = None,
         contract: Contract | None = None,
+        salary_expectation: str | None = None,
     ) -> dict[str, Any]:
         """Atualiza uma candidatura existente: etapa do processo, pendência e/ou anotação.
 
@@ -259,6 +272,8 @@ def build_server(
         - discard_reason: motivo, somente ao mudar o status para "descartada".
         - resume_id: vincula o currículo personalizado enviado nesta candidatura.
         - contract: corrige o regime da vaga (clt, pj ou desconhecido).
+        - salary_expectation: pretensão informada no formulário, como foi digitada (ex.: "R$ 15.500").
+          Registre ao enviar a candidatura; fica separada da pretensão calculada (salary_ask).
 
         Mudança de status e nota ficam registradas como eventos (ver get_history).
         Retorna a candidatura atualizada.
@@ -266,7 +281,7 @@ def build_server(
         with repo() as r:
             return r.update_application(
                 id, status=status, note=note, pending=pending, discard_reason=discard_reason,
-                resume_id=resume_id, contract=contract,
+                resume_id=resume_id, contract=contract, salary_expectation=salary_expectation,
             )
 
     @server.tool()
@@ -669,7 +684,8 @@ def build_server(
         Retorna {"company", "market", "fresh_company", "fresh_market", "points"}. "company" e
         "market" são resumos dos dados frescos (mediana mensal, min, max, nº de fontes,
         confidence baixa/media/alta, nothing_found) ou null. Valores mensais na base de cada
-        ponto (CLT ou PJ); a conversão de regime é feita na avaliação.
+        ponto (CLT ou PJ); a conversão de regime é feita na avaliação. Cada ponto traz search_id
+        (para discard_salary_estimate). Pesquisas descartadas não aparecem.
         """
         with salaries() as s:
             return s.find_salary_estimate(role_key, seniority, currency, company=company)
@@ -691,6 +707,10 @@ def build_server(
         como a fonte informa (a conversão para mensal é automática). NUNCA invente valores nem
         estime por conta própria: se não encontrou nada, registre points=[] (com note dizendo onde
         procurou), o que evita repetir a pesquisa antes da validade.
+        Fontes aceitas: Glassdoor, LinkedIn Salary, Indeed Salários, Levels.fyi (empresa), guias
+        salariais de recrutadoras (Robert Half, Michael Page, Hays) e a própria vaga. NÃO registre
+        matérias jornalísticas, blogs nem posts que repetem números ("carreira que paga R$ 22 mil"):
+        eles puxam a mediana para cima. Use só dados do mesmo cargo e senioridade.
         Sem company: dados de mercado para o cargo e senioridade. Moedas nunca são convertidas.
         Faixa salarial publicada na própria vaga: registre com source "vaga" e application_id da
         candidatura (e company); ela passa a ter prioridade na avaliação dessa vaga e não expira.
@@ -699,6 +719,27 @@ def build_server(
         with salaries() as s:
             return s.save_salary_estimate(role_key, seniority, currency, points, company=company, note=note,
                                           application_id=application_id)
+
+    @server.tool()
+    def discard_salary_estimate(search_id: int, reason: str) -> dict[str, Any]:
+        """Descarta uma pesquisa salarial registrada que não serve: fonte fora das aceitas (matéria
+        jornalística, blog), dado de outro cargo ou senioridade, valor transcrito errado. Ela deixa
+        de contar em find_salary_estimate e evaluate_salary (fica no banco, com o motivo). search_id
+        vem dos pontos de find_salary_estimate. Depois de descartar e pesquisar de novo, chame
+        reevaluate_salaries. Retorna {search_id, discarded}."""
+        with salaries() as s:
+            return s.discard_salary_estimate(search_id, reason)
+
+    @server.tool()
+    def reevaluate_salaries() -> dict[str, Any]:
+        """Refaz a avaliação salarial das vagas a_aplicar e pendente_usuario já avaliadas, com os dados
+        frescos e a regra de pretensão atuais (salary_rule). Use depois de registrar ou descartar
+        pesquisas salariais; set_config(salary_rule) já faz isso sozinho.
+        Retorna {reevaluated, changed: [{id, company, role, url, decision, salary_market, before,
+        after}], errors}. Vaga que passou a "nao_aplicar": descarte com update_application e o motivo
+        de evaluate_salary (get_history). "pesquisar": faltam dados frescos."""
+        with salaries() as s:
+            return s.reevaluate_applications()
 
     @server.tool()
     def evaluate_salary(
@@ -727,11 +768,18 @@ def build_server(
         application_id, a avaliação fica gravada na candidatura (salary_evaluation, em get_history).
         Local não coberto pela política ou arquivo ausente/incompleto: erro dizendo o que corrigir.
 
+        Pretensão (value_to_inform): sai do valor de referência (median) pela regra salary_rule do
+        config: teto (a mediana), meio_termo (média entre o mínimo da política e a mediana),
+        percentil_25 (quartil inferior das fontes) ou ponto_baixo (mediana do ponto baixo de cada
+        fonte); nunca abaixo do mínimo nem acima do máximo (teto) da faixa da política. O teto só
+        limita a pretensão (capped=true), não exclui a vaga. Com application_id, grava também as
+        colunas salary_basis, salary_market, salary_rule e salary_ask da candidatura.
+
         decision: "aplicar" (use value_to_inform no campo de pretensão), "nao_aplicar" (registre a
         vaga como descartada usando reason como motivo) ou "pesquisar" (pesquise salários e chame
         save_salary_estimate antes). needs_research=true sugere pesquisar também a empresa.
-        Retorna {decision, value_to_inform, basis, contract, median, range, sources, confidence,
-        needs_research, reason, policy: {band, mode, my_min, my_max, pj_multiplier}, research_queries}.
+        Retorna {decision, value_to_inform, rule, capped, basis, contract, median, range, sources,
+        confidence, needs_research, reason, policy: {band, mode, my_min, my_max, pj_multiplier}, research_queries}.
         research_queries: quando faltam dados (decision "pesquisar" ou needs_research), consultas de
         pesquisa prontas, da mais específica à mais geral: cargo da vaga + empresa + cidade, cargo +
         empresa, empresa no Levels.fyi, mercado na cidade e no Brasil. Use na ordem e registre com
@@ -766,13 +814,21 @@ def build_server(
 
         Cada linha: {id, company, role, work_mode, contract (clt/pj/desconhecido), location, seniority, match_score, missing (principais
         termos ausentes), related ({ausente: [termos da mesma família no currículo]}), value_to_inform
-        (pretensão, quando a avaliação salarial decidiu aplicar), salary_basis, url, pending (lista:
+        (pretensão, quando a avaliação salarial decidiu aplicar), salary_market (valor de referência:
+        mediana da vaga, da empresa ou do mercado), salary_rule (regra da pretensão), salary_basis
+        (vaga, empresa, mercado ou sem_dados), url, pending (lista:
         "modalidade", "senioridade", "salário não avaliado", "pesquisa salarial" ou o pending registrado)}.
-        Retorna {ready, pending, counts}. Mostre as linhas como estão, sem recalcular.
+        Retorna {ready, pending, counts, salary_rule: {value, chosen}}. Mostre as linhas como estão, sem
+        recalcular. salary_rule.chosen=false: o usuário ainda não escolheu a regra da pretensão;
+        pergunte (ver a skill) e grave com set_config.
         """
         with store(lambda conn: build_work_list(
                 Repo(conn), ResumeStore(conn, draft_path or default_draft_path(db_path)))) as result:
-            return result
+            try:
+                rule, source = paths_config.resolve("salary_rule", db_path)
+            except VagasError as exc:
+                raise ToolError(str(exc)) from exc
+            return {**result, "salary_rule": {"value": rule, "chosen": source in ("env", "config")}}
 
     @server.tool()
     def start_search_run(

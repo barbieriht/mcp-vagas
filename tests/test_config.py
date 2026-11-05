@@ -291,3 +291,39 @@ async def test_max_open_tabs_rejects_bad_input(db_path, value, message):
 
     assert result.is_error and message in result.content[0].text
     assert not config_path(db_path).exists()
+
+
+async def test_salary_rule_defaults_to_ceiling_and_is_asked_after_the_first_search(db_path):
+    async with Client(build_server(db_path)) as client:
+        result = payload(await client.call_tool("get_config", {}))
+
+    rule = result["settings"]["salary_rule"]
+    assert (rule["value"], rule["source"], rule["default"]) == ("teto", "default", "teto")
+    assert rule["choices"] == ["teto", "meio_termo", "percentil_25", "ponto_baixo"]
+    assert "salary_rule" not in result["needs_setup"]
+    assert resolve("salary_rule", db_path) == ("teto", "default")
+
+
+@pytest.mark.parametrize("typed, stored", [
+    ("Meio-termo", "meio_termo"), ("meio termo.", "meio_termo"), ("teto por faixa", "teto"),
+    ("Percentil 25", "percentil_25"), ("p25", "percentil_25"), ("Ponto baixo", "ponto_baixo"),
+])
+async def test_salary_rule_is_tolerant_and_stored_normalized(db_path, typed, stored):
+    async with Client(build_server(db_path)) as client:
+        saved = payload(await client.call_tool("set_config", {"key": "salary_rule", "value": typed}))
+
+    assert saved["value"] == stored and resolve("salary_rule", db_path) == (stored, "config")
+
+
+async def test_salary_rule_rejects_unknown_values(db_path):
+    async with Client(build_server(db_path)) as client:
+        result = await client.call_tool("set_config", {"key": "salary_rule", "value": "média"})
+
+    assert result.is_error and "meio_termo" in result.content[0].text
+
+
+async def test_choosing_the_salary_rule_reevaluates_the_registered_jobs(db_path):
+    async with Client(build_server(db_path)) as client:
+        saved = payload(await client.call_tool("set_config", {"key": "salary_rule", "value": "meio_termo"}))
+
+    assert saved["reevaluated"] == {"reevaluated": 0, "changed": [], "errors": []}

@@ -1,5 +1,5 @@
-"""Configuração do MCP: caminhos de cada tarefa (PDFs de currículo, CSVs, rascunho do currículo geral)
-e o login padrão nos sites de vagas (LinkedIn ou Google, e com qual e-mail).
+"""Configuração do MCP: caminhos de cada tarefa (PDFs de currículo, CSVs, rascunho do currículo geral),
+o login padrão nos sites de vagas (LinkedIn ou Google, e com qual e-mail) e a regra da pretensão salarial.
 
 Um arquivo só, `config.toml`, ao lado do banco (ou em VAGAS_CONFIG). Prioridade de cada valor:
 variável de ambiente > config.toml > padrão. Não depende de MCP.
@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any
 
 from vagas.db import default_db_path
+from vagas.models import SALARY_RULES
+from vagas.normalize import normalize_text
 from vagas.repo import VagasError
 from vagas.resume_extract import wsl_path
 
@@ -26,6 +28,12 @@ IGNORED_WINDOWS_USERS = {
 LOGIN_METHODS = ("linkedin", "google")
 _LOGIN_ALIASES = {"linkedin": "linkedin", "linked in": "linkedin", "google": "google", "gmail": "google",
                   "conta google": "google"}
+_SALARY_RULE_ALIASES = {
+    **{rule.replace("_", " "): rule for rule in SALARY_RULES},
+    "teto por faixa": "teto", "mediana": "teto", "meio termo minimo mercado": "meio_termo",
+    "percentil": "percentil_25", "p25": "percentil_25", "quartil inferior": "percentil_25",
+    "ponto baixo de cada fonte": "ponto_baixo",
+}
 
 
 @dataclass(frozen=True)
@@ -36,8 +44,10 @@ class Setting:
     default_name: str | None = None  # relativo à pasta do banco; None = sem padrão (precisa ser configurado)
     suggested_folder: str | None = None  # nome da pasta sugerida dentro de Documents
     choices: tuple[str, ...] = ()  # só para kind "choice"
-    default_literal: int | None = None  # padrão fixo (kind "int"): nunca é perguntado
+    default_literal: int | str | None = None  # padrão fixo (kind "int" ou "choice")
     bounds: tuple[int, int] = (0, 0)  # mínimo e máximo (kind "int")
+    ask_at_setup: bool = True  # False = fora de needs_setup (tem padrão, ou é perguntada em outro momento)
+    aliases: dict[str, str] | None = None  # kind "choice": formas aceitas (texto normalizado) -> valor guardado
 
 
 SETTINGS: dict[str, Setting] = {
@@ -50,7 +60,10 @@ SETTINGS: dict[str, Setting] = {
     "login_email": Setting("VAGAS_LOGIN_EMAIL", "text", "E-mail da conta Google usada para entrar "
                            "(só vale com login_method = google)"),
     "max_open_tabs": Setting("VAGAS_MAX_OPEN_TABS", "int", "Máximo de abas de candidatura deixadas abertas esperando "
-                             "o usuário (1 a 30)", default_literal=12, bounds=(1, 30)),
+                             "o usuário (1 a 30)", default_literal=12, bounds=(1, 30), ask_at_setup=False),
+    "salary_rule": Setting("VAGAS_SALARY_RULE", "choice", "Regra da pretensão salarial a partir do valor de mercado "
+                           "(perguntada depois da primeira busca de vagas)", choices=SALARY_RULES,
+                           default_literal="teto", ask_at_setup=False, aliases=_SALARY_RULE_ALIASES),
 }
 PATH_KINDS = ("dir", "file")
 
@@ -145,7 +158,7 @@ def _needs_answer(key: str, db_path: Path | str | None) -> bool:
     """A conta Google só é perguntada a quem escolheu entrar por ela."""
     if key == "login_email":
         return resolve("login_method", db_path)[0] == "google"
-    return SETTINGS[key].kind != "int"
+    return SETTINGS[key].ask_at_setup
 
 
 def describe(db_path: Path | str | None = None) -> dict[str, Any]:
@@ -173,6 +186,11 @@ def _clean_choice(key: str, value: str) -> str | None:
     text = " ".join(value.strip().rstrip(".").split())
     if key == "login_email":
         return text.lower() if re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", text) else None
+    aliases = SETTINGS[key].aliases
+    if aliases is not None:
+        norm = " ".join(re.sub(r"[-_/.,]", " ", normalize_text(text)).split())
+        return aliases.get(norm) or (norm.replace(" ", "_") if norm.replace(" ", "_") in SETTINGS[key].choices
+                                     else None)
     return _LOGIN_ALIASES.get(text.lower())
 
 
@@ -183,9 +201,11 @@ def _validated_text(key: str, value: str | None) -> str:
     cleaned = _clean_choice(key, value)
     if cleaned is None and key == "login_email":
         raise VagasError(f"{value!r} não parece um e-mail; informe a conta Google completa, como nome@gmail.com.")
-    if cleaned is None:
+    if cleaned is None and key == "login_method":
         raise VagasError(f"Valor inválido para {key}: {value!r}. Use {' ou '.join(setting.choices)} "
                          "(\"gmail\" vale como google).")
+    if cleaned is None:
+        raise VagasError(f"Valor inválido para {key}: {value!r}. Use um de: {', '.join(setting.choices)}.")
     return cleaned
 
 
@@ -234,7 +254,8 @@ def set_value(key: str, value: str | None, db_path: Path | str | None = None) ->
     lines = ["# Configuração do mcp-vagas: um caminho por tarefa e o login padrão. Edite à mão ou peça ao Claude (set_config).",
              "# login_method = \"linkedin\" ou \"google\"; login_email = conta Google (quando o login é por Google).",
              "# Variáveis de ambiente (VAGAS_RESUME_OUT, VAGAS_EXPORT_DIR, VAGAS_MASTER_RESUME, VAGAS_LOGIN_METHOD,",
-             "# VAGAS_LOGIN_EMAIL, VAGAS_MAX_OPEN_TABS) têm prioridade. max_open_tabs = número de abas (1 a 30)."]
+             "# VAGAS_LOGIN_EMAIL, VAGAS_MAX_OPEN_TABS, VAGAS_SALARY_RULE) têm prioridade. max_open_tabs = número de abas",
+             "# (1 a 30). salary_rule = teto, meio_termo, percentil_25 ou ponto_baixo (regra da pretensão salarial)."]
     lines += [f"{name} = {current[name] if SETTINGS[name].kind == 'int' else _quote(current[name])}"
               for name in SETTINGS if name in current]
     target.write_text("\n".join(lines) + "\n", encoding="utf-8")

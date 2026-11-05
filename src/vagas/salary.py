@@ -19,7 +19,8 @@ from typing import Any
 from pydantic import Field, ValidationError, model_validator
 
 from vagas.models import (
-    CONTRACTS, CURRENCIES, ROLE_KEYS, ROLE_NAMES, SALARY_MODES, SENIORITIES, SENIORITY_LABELS, Contract, Period,
+    CONTRACTS, CURRENCIES, ROLE_KEYS, ROLE_NAMES, SALARY_MODES, SALARY_RULES, SENIORITIES, SENIORITY_LABELS,
+    Contract, Period,
 )
 from vagas.normalize import normalize_company, normalize_text
 from vagas.repo import VagasError, _require_choice, _utcnow
@@ -29,6 +30,13 @@ from vagas.salary_policy import default_policy_path, load_policy
 DEFAULT_TTL_DAYS = 90
 HOURS_PER_MONTH = 160
 CLT_BRL_SALARIES_PER_YEAR = 13.33  # 12 salários + 13º + 1/3 de férias
+REEVALUATED_STATUSES = ("a_aplicar", "pendente_usuario")
+RULE_LABELS = {
+    "teto": "mediana, limitada ao teto da política",
+    "meio_termo": "meio-termo entre o seu mínimo e a mediana",
+    "percentil_25": "quartil inferior das fontes",
+    "ponto_baixo": "mediana do ponto baixo de cada fonte",
+}
 
 
 class SalaryPoint(_Model):
@@ -108,6 +116,25 @@ def _point_value(point: dict[str, Any]) -> float:
     return sum(present) / len(present)
 
 
+def _point_low(point: dict[str, Any]) -> float:
+    """Ponto baixo da fonte: a média publicada ou, sem ela, o mínimo da faixa."""
+    for key in ("avg_value", "min_value", "max_value"):
+        if point[key] is not None:
+            return point[key]
+    raise AssertionError("ponto sem valores")
+
+
+def _base_ask(rule: str, values: list[float], lows: list[float], median: float, lo: float) -> float:
+    """Valor da regra antes de limitar ao mínimo e ao teto."""
+    if rule == "meio_termo":
+        return (lo + median) / 2
+    if rule == "percentil_25":
+        return statistics.quantiles(values, n=4, method="inclusive")[0] if len(values) > 1 else values[0]
+    if rule == "ponto_baixo":
+        return statistics.median(lows)
+    return median
+
+
 def _confidence(sources: int) -> str | None:
     return {0: None, 1: "baixa", 2: "media"}.get(sources, "alta")
 
@@ -132,9 +159,13 @@ def _ttl_days() -> int:
 
 class SalaryStore:
     def __init__(self, conn: sqlite3.Connection, now: Callable[[], str] = _utcnow,
-                 policy_path: Path | str | None = None):
+                 policy_path: Path | str | None = None, rule: str = "teto"):
+        if rule not in SALARY_RULES:
+            raise VagasError(f"Regra de pretensão inválida: {rule!r}. Use uma de: {', '.join(SALARY_RULES)} "
+                             "(set_config com a chave salary_rule).")
         self.conn = conn
         self.now = now
+        self.rule = rule
         self.policy_path = Path(policy_path) if policy_path is not None else default_policy_path()
         self.ttl = timedelta(days=_ttl_days())
 
@@ -203,7 +234,7 @@ class SalaryStore:
         rows = self.conn.execute(
             """
             SELECT * FROM salary_searches
-            WHERE role_key = ? AND seniority = ? AND currency = ? AND company_norm IS ?
+            WHERE role_key = ? AND seniority = ? AND currency = ? AND company_norm IS ? AND discarded_at IS NULL
             ORDER BY searched_at DESC, id DESC
             """,
             (role_key, seniority, currency, company_norm),
@@ -213,7 +244,7 @@ class SalaryStore:
         for row in rows:
             points = [dict(p) for p in self.conn.execute(
                 """
-                SELECT source, source_url, contract, period, min_value, avg_value, max_value
+                SELECT search_id, source, source_url, contract, period, min_value, avg_value, max_value
                 FROM salary_points WHERE search_id = ? ORDER BY id
                 """,
                 (row["id"],),
@@ -227,6 +258,54 @@ class SalaryStore:
                 "points": points,
             })
         return searches
+
+    def discard_salary_estimate(self, search_id: int, reason: str) -> dict[str, Any]:
+        """Descarta uma pesquisa (fonte ruim, dado de outro cargo): ela deixa de contar nas avaliações."""
+        row = self.conn.execute("SELECT discarded_at FROM salary_searches WHERE id = ?", (search_id,)).fetchone()
+        if row is None:
+            raise VagasError(f"Pesquisa salarial {search_id} não existe; os ids vêm em search_id dos pontos "
+                             "de find_salary_estimate.")
+        if not reason or not reason.strip():
+            raise VagasError("Informe 'reason': por que a pesquisa não serve (ex.: matéria jornalística).")
+        with self.conn:
+            self.conn.execute("UPDATE salary_searches SET discarded_at = ?, discard_reason = ? WHERE id = ?",
+                              (self.now(), reason.strip(), search_id))
+        return {"search_id": search_id, "discarded": True}
+
+    def reevaluate_applications(self, statuses: tuple[str, ...] = REEVALUATED_STATUSES) -> dict[str, Any]:
+        """Refaz a avaliação salarial das candidaturas já avaliadas, com a regra e os dados atuais.
+
+        Usa os parâmetros gravados na avaliação (role_key, senioridade, moeda, regime); avaliações
+        antigas, sem eles, os recebem do título, da candidatura e do texto do motivo.
+        """
+        from vagas.job_posting import classify_role
+
+        rows = self.conn.execute(
+            f"SELECT id, company, role, url, seniority, salary_evaluation, salary_ask FROM applications "
+            f"WHERE salary_evaluation IS NOT NULL AND status IN ({', '.join('?' * len(statuses))}) ORDER BY id",
+            statuses).fetchall()
+        changed, errors = [], []
+        for row in rows:
+            previous = json.loads(row["salary_evaluation"])
+            inputs = previous.get("inputs") or {}
+            currency = re.search(r"\b(BRL|USD|EUR)\b", previous.get("reason") or "")
+            args = {
+                "role_key": inputs.get("role_key") or classify_role(row["role"])[0],
+                "seniority": inputs.get("seniority") or row["seniority"],
+                "currency": inputs.get("currency") or (currency[1] if currency else "BRL"),
+                "contract": inputs.get("contract") or previous.get("contract") or "desconhecido",
+            }
+            company = None if row["company"].startswith("(") else row["company"]
+            try:
+                result = self.evaluate_salary(**args, company=company, application_id=row["id"])
+            except VagasError as exc:
+                errors.append({"id": row["id"], "company": row["company"], "error": str(exc)})
+                continue
+            if result["value_to_inform"] != row["salary_ask"] or result["decision"] != previous.get("decision"):
+                changed.append({"id": row["id"], "company": row["company"], "role": row["role"], "url": row["url"],
+                                "decision": result["decision"], "salary_market": result["median"],
+                                "before": row["salary_ask"], "after": result["value_to_inform"]})
+        return {"reevaluated": len(rows) - len(errors), "changed": changed, "errors": errors}
 
     def evaluate_salary(
         self,
@@ -277,11 +356,17 @@ class SalaryStore:
             role_key, seniority, company_scope=result["needs_research"], market_scope=market_missing,
         ) if result["needs_research"] or market_missing else []
         if application_id is not None:
-            record = {**result, "evaluated_at": self.now()}
+            inputs = {"role_key": role_key, "seniority": seniority, "currency": currency, "contract": contract}
+            record = {**result, "inputs": inputs, "evaluated_at": self.now()}
             with self.conn:
                 self.conn.execute(
-                    "UPDATE applications SET salary_evaluation = ? WHERE id = ?",
-                    (json.dumps(record, ensure_ascii=False), application_id),
+                    """
+                    UPDATE applications SET salary_evaluation = ?, salary_basis = ?, salary_market = ?,
+                                            salary_rule = ?, salary_ask = ?
+                    WHERE id = ?
+                    """,
+                    (json.dumps(record, ensure_ascii=False), result["basis"], result["median"], result["rule"],
+                     result["value_to_inform"], application_id),
                 )
         return result
 
@@ -321,10 +406,22 @@ class SalaryStore:
         lo = my_min * scale
         hi = None if my_max is None else my_max * scale
         result: dict[str, Any] = {
-            "decision": None, "value_to_inform": None, "basis": None, "contract": job, "median": None,
-            "range": None, "sources": 0, "confidence": None,
+            "decision": None, "value_to_inform": None, "rule": None, "capped": False, "basis": None,
+            "contract": job, "median": None, "range": None, "sources": 0, "confidence": None,
             "needs_research": has_company and not found["fresh_company"], "reason": "",
         }
+
+        def ask(values, lows, median, floor, upper) -> dict[str, Any]:
+            """Pretensão pela regra, entre o piso e o teto; o teto (máximo da política) não exclui a vaga."""
+            base = _base_ask(self.rule, values, lows, median, lo)
+            capped = hi is not None and base > hi
+            if upper is not None and floor > upper:
+                floor = lo
+            value = _round_within(base, floor, upper)
+            note = f"pretensão pela regra {self.rule} ({RULE_LABELS[self.rule]}): {fmt(value)}"
+            if capped:
+                note += f", limitada ao teto de {fmt(hi)} da política (o teto não exclui a vaga)"
+            return {"value_to_inform": value, "rule": self.rule, "capped": capped, "note": note}
 
         published = self._published_range(application_id, currency) if application_id is not None else None
         if published is not None:
@@ -341,10 +438,11 @@ class SalaryStore:
                 return {**result, "decision": "nao_aplicar",
                         "reason": f"Piso da faixa publicada na vaga {fmt(vmin)} acima da sua faixa, máximo "
                                   f"{fmt(hi)} ({job.upper()})."}
-            value = _round_within(result["median"], lo, vmax if hi is None else min(vmax, hi))
-            return {**result, "decision": "aplicar", "value_to_inform": value,
+            chosen = ask([vmin, vmax], [vmin], result["median"], max(lo, vmin), vmax if hi is None else min(vmax, hi))
+            note = chosen.pop("note")
+            return {**result, **chosen, "decision": "aplicar",
                     "reason": f"Faixa publicada na vaga {fmt(vmin)}–{fmt(vmax)} ({job.upper()}) compatível com seu "
-                              f"mínimo {fmt(lo)}; informar {fmt(value)}."}
+                              f"mínimo {fmt(lo)}; {note}."}
 
         if has_company and fresh["company"]:
             basis, points = "empresa", fresh["company"]
@@ -353,7 +451,7 @@ class SalaryStore:
             basis, points = "mercado", fresh["market"]
         elif found["fresh_market"]:
             value = _round_within(lo, lo, hi)
-            return {**result, "decision": "aplicar", "basis": "sem_dados", "value_to_inform": value,
+            return {**result, "decision": "aplicar", "basis": "sem_dados", "value_to_inform": value, "rule": "minimo",
                     "reason": f"Pesquisa recente não encontrou salários para este cargo; aplicar informando "
                               f"seu mínimo, {fmt(value)} ({job.upper()})."}
         else:
@@ -362,6 +460,7 @@ class SalaryStore:
                               "save_salary_estimate antes de avaliar."}
 
         values = [to_job(p["monthly_value"], p["contract"]) for p in points]
+        lows = [to_job(monthly(_point_low(p), p["period"], p["contract"], currency), p["contract"]) for p in points]
         median = round(statistics.median(values), 2)
         sources = len({p["source"].strip().lower() for p in points})
         result.update(basis=basis, median=median, range=[min(values), max(values)],
@@ -374,10 +473,11 @@ class SalaryStore:
         if mode == "faixa" and median > hi:
             return {**result, "decision": "nao_aplicar",
                     "reason": f"Mediana {where} {fmt(median)} acima da sua faixa, máximo {fmt(hi)} ({job.upper()})."}
-        value = _round_within(median, lo, hi)
-        return {**result, "decision": "aplicar", "value_to_inform": value,
+        chosen = ask(values, lows, median, lo, hi)
+        note = chosen.pop("note")
+        return {**result, **chosen, "decision": "aplicar",
                 "reason": f"Mediana {where} {fmt(median)} compatível com seu mínimo {fmt(lo)} ({job.upper()}); "
-                          f"informar {fmt(value)}."}
+                          f"{note}."}
 
     def _published_range(self, application_id: int, currency: str) -> dict[str, Any] | None:
         row = self.conn.execute(
