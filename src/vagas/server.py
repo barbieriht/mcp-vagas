@@ -75,7 +75,9 @@ def build_server(
         "No primeiro uso, chame get_config: se needs_setup trouxer chaves, pergunte ao usuário onde guardar "
         "cada coisa (pasta dos currículos em PDF, pasta dos CSVs, arquivo do currículo geral), sugerindo "
         "uma das suggestions (ou o default) e grave a resposta com set_config. Não escolha sozinho a pasta "
-        "dos currículos."))
+        "dos currículos. Ao citar uma vaga ao usuário (resumos, listas, tabelas, pendências), escreva o nome "
+        "dela como link Markdown para a página da vaga, no formato [Cargo — Empresa](url), usando o campo url "
+        "que as tools retornam; se a vaga não tiver url, escreva o nome sem link. Não mostre a URL crua ao lado."))
 
     @contextmanager
     def store(factory: Callable[[sqlite3.Connection], Any]) -> Iterator[Any]:

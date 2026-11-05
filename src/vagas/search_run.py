@@ -225,7 +225,7 @@ class SearchRunner:
                 "needs": kinds})
         elif decision == "descartada":
             summary["descartadas"].append({"id": app["id"], "company": app["company"], "role": app["role"],
-                                           "reason": app["discard_reason"]})
+                                           "url": app["url"], "reason": app["discard_reason"]})
         elif decision == "possivel_duplicata":
             summary["possiveis_duplicatas"].append({
                 "company": posting.get("company"), "title": posting.get("title"), "url": url,

@@ -12,6 +12,10 @@ Fontes da verdade:
 - [perfil.md](perfil.md) para os dados de formulário. Ele é carregado só na hora de preencher.
 - **MCP "vagas"** como registro de tudo o que acontece com cada vaga.
 
+## Vagas citadas viram link
+
+Sempre que citar uma vaga ao Thiago (resumo, tabela, lista de trabalho, pendência, duplicata), escreva o nome dela como link Markdown para a página da vaga: `[Cargo — Empresa](url)`, com o `url` que as tools retornam. Assim ele abre a vaga clicando no nome. Não repita a URL crua ao lado. Se a vaga não tiver `url`, escreva o nome sem link.
+
 ## Primeiro uso
 
 Antes de qualquer fluxo, e sempre que uma tool reclamar de pasta não configurada, chame `get_config`.

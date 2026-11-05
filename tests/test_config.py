@@ -177,6 +177,13 @@ async def test_server_instructions_tell_the_model_to_check_the_config_first(db_p
     assert "get_config" in instructions and "set_config" in instructions
 
 
+async def test_server_instructions_ask_for_job_names_as_markdown_links(db_path):
+    async with Client(build_server(db_path)) as client:
+        instructions = client.instructions
+
+    assert "[Cargo — Empresa](url)" in instructions
+
+
 async def set_login(client, method, email=None):
     arguments = {"key": "login_method", "value": method}
     saved = payload(await client.call_tool("set_config", arguments))
