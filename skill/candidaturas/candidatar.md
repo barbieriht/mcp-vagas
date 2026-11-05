@@ -16,7 +16,7 @@ Sugira uma vez, sem insistir, que o Thiago reduza os pedidos de permissão do na
    - reescreva parágrafos longos como bullets objetivos, em inglês;
    - descreva cada responsabilidade com o mesmo verbo e o mesmo escopo do currículo geral.
 
-   Chame `create_tailored_resume` com o `application_id`. Se a validação rejeitar algo, ajuste a seleção ou o texto ao que o currículo geral diz e gere de novo. Guarde o caminho do PDF e o id do currículo.
+   Chame `create_tailored_resume` com o `application_id` (o PDF recebe o nome da empresa e do cargo da vaga, para não confundir vagas da mesma empresa). Se a validação rejeitar algo, ajuste a seleção ou o texto ao que o currículo geral diz e gere de novo. Guarde o caminho do PDF e o id do currículo.
 3. **Formulário.**
    - **Perfil:** chame `get_profile`. Use os campos com status `ok`; os com `preencher` são bloqueios (passo 4); os `manual` o Thiago digita; os `cofre` são preenchidos na revisão (passo 5). As `notes` de cada campo dizem como responder (por exemplo, em escalas fixas). Se a tool der erro, leia o [perfil.md](perfil.md).
    - **Acesso:** abra a vaga no navegador e entre pelo login padrão de `get_config` (`login_method`). Com `linkedin`, aplique ou entre com a conta do LinkedIn; com `google`, entre com a conta Google de `login_email`. Se o site não oferecer esse método, use o outro e avise o Thiago. Se `login_method` não estiver configurado, pergunte e grave com `set_config`.

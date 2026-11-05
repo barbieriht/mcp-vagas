@@ -48,7 +48,9 @@ class TailoredSelection(_Model):
     """Seleção sobre o currículo geral. Campos factuais (empresa, organização, cargo, papel, datas,
     local, instituição, grau, certificação, idioma) não são aceitos: vêm sempre do currículo geral."""
 
-    label: Text | None = Field(None, description="Empresa ou rótulo usado no nome do arquivo")
+    label: Text | None = Field(None, description=(
+        "Rótulo do nome do arquivo quando o currículo não é de uma candidatura. Com application_id, "
+        "o nome usa a empresa e o cargo da candidatura e este campo é ignorado."))
     headline: Text | None = Field(None, description="Headline reescrita; ausente = a do currículo geral")
     summary: Text | None = Field(None, description="Resumo; ausente = o do currículo geral, se houver")
     sections: list[SectionPick] = Field(min_length=1, description="Seções na ordem em que devem aparecer")

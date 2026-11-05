@@ -48,6 +48,29 @@ def test_tailored_resume_can_be_linked_on_creation(repo, store, out_dir):
     assert [r["id"] for r in repo.get_history(app["id"])["resumes"]] == [resume["id"]]
 
 
+def test_resume_for_an_application_is_named_after_company_and_role(repo, store, out_dir):
+    ds = new_application(repo, url="https://example.com/vagas/1")["application"]
+    mle = new_application(repo, role="Machine Learning Engineer Pleno", url="https://example.com/vagas/2")["application"]
+
+    first = store.create_tailored_resume(SELECTION, out_dir, application_id=ds["id"])
+    second = store.create_tailored_resume(SELECTION, out_dir, application_id=mle["id"])
+
+    assert first["path"].endswith("Fulana_Tal_Resume_Nubank_Data_Scientist.pdf")
+    assert second["path"].endswith("Fulana_Tal_Resume_Nubank_Machine_Learning_Engineer_Pleno.pdf")
+    assert store.get_resume(second["id"])["label"] == "Nubank - Machine Learning Engineer Pleno"
+
+
+def test_long_role_titles_are_shortened_on_a_word_boundary(repo, store, out_dir):
+    role = "Cientista de Dados Sênior - Machine Learning (Remoto) | Squad de Crédito e Prevenção a Fraudes"
+    app = new_application(repo, role=role)["application"]
+
+    resume = store.create_tailored_resume(SELECTION, out_dir, application_id=app["id"])
+
+    name = resume["path"].rsplit("/", 1)[1]
+    assert name.startswith("Fulana_Tal_Resume_Nubank_Cientista_de_Dados_Senior_Machine_Learning")
+    assert len(name) <= 100 and not name.endswith("_.pdf")
+
+
 def test_linking_to_unknown_application_is_rejected_before_generating(store, out_dir):
     with pytest.raises(VagasError, match="999"):
         store.create_tailored_resume(SELECTION, out_dir, application_id=999)

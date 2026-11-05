@@ -97,7 +97,7 @@ def test_store_uses_the_application_terms_or_its_description(store):
     a = s.suggest_tailored_selection(with_terms["application"]["id"])
     b = s.suggest_tailored_selection(with_text["application"]["id"])
 
-    assert a["terms"] == ["LangChain"] and a["selection"]["label"] == "Beta"
+    assert a["terms"] == ["LangChain"] and a["selection"]["label"] == "Beta - AI Engineer"
     assert b["terms"] == ["Kubernetes", "Terraform"]
     with pytest.raises(VagasError, match="não existe"):
         s.suggest_tailored_selection(999)
