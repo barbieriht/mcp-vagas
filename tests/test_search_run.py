@@ -101,6 +101,8 @@ def test_run_searches_triages_and_summarizes(setup):
     assert summary["decisions"] == {"a_aplicar": 3, "descartada": 1}
     assert {d["company"] for d in summary["descartadas"]} == {"CI&T"}
     assert all(a["id"] for a in summary["a_aplicar"])
+    # Toda vaga citada no resumo tem a URL, para virar link Markdown.
+    assert all(v["url"] for v in summary["a_aplicar"] + summary["descartadas"])
     assert "pesquisa_salarial" in summary["needs"]
     assert run["progress"]["searches_done"] == run["progress"]["searches_total"] == 7
     assert run["progress"]["jobs_done"] == 4
