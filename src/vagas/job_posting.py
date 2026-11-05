@@ -43,7 +43,8 @@ def _plain(text: str) -> str:
 
 _SENIORITY = [
     ("estagio", r"\b(estagio|estagiari\w*|intern|internship)\b"),
-    ("especialista", r"\b(especialista|specialist|staff|principal|lead|lider)\b"),
+    ("staff", r"\b(staff|principal)\b"),
+    ("especialista", r"\b(especialista|specialist|lead|lider)\b"),
     ("senior", r"\b(senior|sr)\b"),
     ("pleno", r"\b(pleno|pl|mid)\b"),
     ("junior", r"\b(junior|jr)\b"),

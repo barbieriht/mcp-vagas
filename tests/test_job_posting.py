@@ -108,7 +108,7 @@ def test_page_without_job_data_is_a_readable_error():
     ("Engenheira de Dados Especialista", "data_engineer", "especialista", True),
     ("Analista de Dados Pl", "data_analyst", "pleno", True),
     ("Estágio em Ciência de Dados", "data_scientist", "estagio", True),
-    ("Staff Machine Learning Engineer", "ml_engineer", "especialista", True),
+    ("Staff Machine Learning Engineer", "ml_engineer", "staff", True),
     ("Desenvolvedor Backend", "outro", None, False),
 ])
 def test_classify_role(title, role_key, seniority, certain):

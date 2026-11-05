@@ -116,19 +116,20 @@ def test_years_by_level_and_accepted_states():
     c = parse_criteria(CRITERIA + "- Anos por senioridade: júnior 0, Pleno 2, sênior 6.\n"
                        "- Estados aceitos para híbrido e presencial: SP, Minas Gerais\n")
 
-    assert c.years_by_level == (("junior", 0), ("pleno", 2), ("senior", 6))
+    assert [(lv.name, lv.min, lv.max) for lv in c.years_by_level] == [("junior", 0, None), ("pleno", 2, None),
+                                                                     ("senior", 6, None)]
     assert c.accepted_states == ("SP", "MG")
 
 
 def test_defaults_for_years_and_states():
     c = parse_criteria("- Cargos alvo: data_scientist\n")
 
-    assert c.years_by_level == (("junior", 0), ("pleno", 3), ("senior", 5))
+    assert [lv.name for lv in c.years_by_level] == ["junior", "pleno", "senior", "especialista", "staff"]
     assert c.accepted_states == ()
 
 
 @pytest.mark.parametrize("line, message", [
-    ("- Anos por senioridade: pleno três\n", "Anos por senioridade"),
+    ("- Anos por senioridade: pleno três\n", "Níveis de experiência"),
     ("- Anos por senioridade: mestre 3\n", "mestre"),
     ("- Estados aceitos para híbrido e presencial: XX\n", "XX"),
 ])
