@@ -136,6 +136,7 @@ As demais opções continuam por variável de ambiente:
 | `VAGAS_RESUME_OUT` | sobrepõe `resume_out` do `config.toml` | nenhum (configurada no primeiro uso) |
 | `VAGAS_SALARY_POLICY` | política salarial lida por `evaluate_salary` | `politica-salarial.md` ao lado do banco (o instalador cria um symlink para o da Skill) |
 | `VAGAS_SENSITIVE_FILE` | cofre de dados sensíveis (CPF, RG...), cifrado pela DPAPI do Windows | `cofre.json` ao lado do banco |
+| `VAGAS_AUTOFILL_DOMAINS` | sobrepõe `autofill_domains` do `config.toml` (domínios extras da extensão do Chrome) | nenhum |
 | `VAGAS_SKILL_DIR` | pasta `skill/candidaturas` do repositório, onde `add_profile_field` grava os campos novos do perfil | a pasta para onde aponta o symlink da política salarial (criado pelo instalador) |
 | `VAGAS_TRIAGE_CRITERIA` | critérios fixos de triagem lidos por `triage_job` | `criterios-triagem.md` ao lado do banco (o instalador cria um symlink para o da Skill) |
 | `VAGAS_SALARY_TTL_DAYS` | validade do cache de salários, em dias | `90` |
@@ -168,6 +169,7 @@ O Claude Desktop roda no Windows e chama o servidor dentro do WSL pelo `wsl.exe`
 python3 scripts/instalar_desktop.py                   # servidor, configuração, teste e zip da Skill
 python3 scripts/instalar_desktop.py --sem-skill       # só servidor e configuração
 python3 scripts/instalar_desktop.py --fechar-desktop  # e fecha o Desktop no fim, para recarregar
+python3 scripts/instalar_desktop.py --sem-extensao    # sem a extensão do Chrome
 ```
 
 O script:
@@ -393,7 +395,6 @@ Status possíveis: `a_aplicar` (vaga encontrada e triada, aguardando candidatura
 | `read_job_posting` | lê a página de uma vaga (Gupy, LinkedIn Jobs e sites com dados estruturados) e devolve os campos normalizados; Indeed e Glassdoor bloqueiam leitura automática |
 | `triage_job` | triagem inteira de uma vaga numa chamada: duplicata, leitura, critérios fixos, aderência, registro e salário; devolve o que ainda exige julgamento ou pesquisa |
 | `rescore_applications` | recalcula a aderência das candidaturas abertas pelo currículo atual (`approve_master` já faz isso numa versão nova) |
-| `get_sensitive_field` | entrega um dado do cofre (CPF, RG...) para um formulário confiável de uma candidatura triada, com a sua confirmação; registra o uso sem o valor |
 | `suggest_tailored_selection` | propõe a seleção inicial do currículo personalizado de uma candidatura, pelos termos da vaga |
 | `get_profile` | perfil estruturado para formulários: campos com status (preenchido, a preencher, manual, no cofre) |
 | `add_profile_field` | acrescenta um campo de formulário ao `perfil.md` e ao `perfil.example.md` (dados sensíveis só como "informar manualmente") |
@@ -447,7 +448,7 @@ Tudo fica na sua máquina: o banco, o `config.toml`, o YAML do currículo e os P
 
 ### Cofre de dados sensíveis
 
-CPF, RG e outros documentos da lista fechada podem ficar num cofre local, para o Claude preenchê-los nos formulários com a sua confirmação. Cada valor é cifrado pela DPAPI do Windows, ligada ao seu usuário: o arquivo no WSL só guarda o texto cifrado (decisão em [docs/adr/0001](docs/adr/0001-cofre-de-dados-sensiveis-com-dpapi.md)). Senhas, dados bancários e cartões nunca entram no cofre.
+CPF, RG e outros documentos da lista fechada podem ficar num cofre local, para a extensão do Chrome preenchê-los nos formulários com a sua confirmação. Cada valor é cifrado pela DPAPI do Windows, ligada ao seu usuário: o arquivo no WSL só guarda o texto cifrado (decisão em [docs/adr/0001](docs/adr/0001-cofre-de-dados-sensiveis-com-dpapi.md)). Senhas, dados bancários e cartões nunca entram no cofre.
 
 O cadastro é feito só por você, no terminal do WSL. O valor é digitado sem aparecer na tela e não passa pela conversa:
 
@@ -459,9 +460,21 @@ O cadastro é feito só por você, no terminal do WSL. O valor é digitado sem a
 
 Campos aceitos: `cpf`, `rg`, `rg_orgao_emissor`, `cnh`, `pis`, `ctps`, `titulo_eleitor`, `passaporte` e `nome_mae`. O CPF tem os dígitos verificadores conferidos. O comando marca no `perfil.md` os campos que estão no cofre ("no cofre"), sem o valor.
 
-Na candidatura, o Claude só recebe um dado do cofre (`get_sensitive_field`) quando três condições valem:
-- a candidatura foi triada e está aberta (`a_aplicar` ou `pendente_usuario`);
-- o formulário está em https, no domínio da vaga, na Gupy ou no LinkedIn;
-- você confirmou aquele uso na revisão antes do envio.
+### Extensão do Chrome: documentos do cofre
 
-Cada uso fica no histórico da candidatura (campo, domínio, data), sem o valor. Se algo não bater, a candidatura fica `pendente_usuario` com o motivo.
+O Claude in Chrome não digita documentos de identidade, nem com a sua autorização. Por isso, quem preenche CPF, RG e os demais documentos do cofre é uma extensão local do Chrome, sem passar pelo modelo (decisão em [docs/adr/0002](docs/adr/0002-documentos-preenchidos-pela-extensao-do-chrome.md)). O Claude preenche o resto do formulário e deixa esses campos para ela.
+
+**Instalação:** `scripts/instalar_desktop.py` copia a extensão para `%LOCALAPPDATA%\vagas\extensao` e registra o host de native messaging no Chrome. Na primeira vez, carregue a extensão: abra `chrome://extensions`, ligue o **Modo do desenvolvedor**, clique em **Carregar sem compactação** e escolha essa pasta. Nas atualizações, o instalador troca os arquivos; clique em recarregar na extensão ou reinicie o Chrome.
+
+**Como funciona:**
+- A extensão procura campos de texto vazios, visíveis e habilitados com rótulo de documento (CPF, RG, órgão emissor, CNH, PIS, CTPS, título de eleitor, passaporte, nome da mãe). Campos ocultos e já preenchidos ficam como estão.
+- Só preenche em https, em sites de vagas: agregadores (LinkedIn, Indeed, Glassdoor, Catho, InfoJobs, Vagas.com), plataformas de recrutamento (Gupy, Workday, Greenhouse, Lever, InHire, Sólides e outras, lista em `vagas.autofill`), os domínios de `autofill_domains` no `config.toml` e o site próprio das candidaturas abertas.
+- Na primeira vez de cada empresa, abre uma janela da extensão: **Permitir sempre para a empresa**, **Só desta vez** ou **Não preencher**. Nem a página nem o agente do navegador conseguem responder a essa janela. Nos agregadores, onde várias empresas publicam no mesmo endereço, a confirmação vale só para a vaga.
+- Cada preenchimento fica em `autofill.log`, ao lado do banco (data, endereço, documentos), sem os valores. O ícone da extensão mostra **OK** quando preencheu e **!** quando houve erro (passe o mouse para ver o motivo).
+
+Empresas com "Permitir sempre":
+
+```bash
+~/.local/share/vagas/venv/bin/python -m vagas.autofill list
+~/.local/share/vagas/venv/bin/python -m vagas.autofill revoke acme.gupy.io   # ou: revoke --all
+```

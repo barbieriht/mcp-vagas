@@ -77,7 +77,7 @@ class _Profile:
         self.lines.insert(last + 1, line)
 
 
-VAULT = "no cofre (get_sensitive_field)"
+VAULT = "no cofre (extensão do Chrome)"
 
 
 class ProfileFiles:

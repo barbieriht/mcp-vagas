@@ -25,8 +25,8 @@ Fonte da verdade: o currículo geral.
 
 ## Outros campos de formulário
 Campos pedidos por formulários.
-- CPF: no cofre (get_sensitive_field)
-- RG: no cofre (get_sensitive_field)
+- CPF: no cofre (extensão do Chrome)
+- RG: no cofre (extensão do Chrome)
 - Senha do portal: informar manualmente
 """
 
@@ -71,7 +71,8 @@ async def test_get_profile_via_mcp(db_path, skill, tmp_path, monkeypatch):
     other = {f["label"]: f for f in profile["sections"][2]["fields"]}
     assert other["CPF"]["status"] == "cofre"
     assert "52998224725" not in str(profile)
-    assert "get_sensitive_field" in tools["get_profile"].description
+    assert "extensão do Chrome" in tools["get_profile"].description and "sensitive_autofill" not in profile
+    assert "get_sensitive_field" not in tools
 
 
 @pytest.mark.parametrize("marker", ["cofre (get_sensitive_field)", "Cofre", "no cofre.", "No cofre (get_sensitive_field)"])

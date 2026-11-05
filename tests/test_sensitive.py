@@ -5,7 +5,7 @@ import stat
 import pytest
 
 from vagas.repo import VagasError
-from vagas.sensitive import ALLOWED_FIELDS, DpapiBackend, Vault, main, valid_cpf
+from vagas.sensitive import ALLOWED_FIELDS, DpapiBackend, Vault, main, site, valid_cpf
 
 
 class FakeBackend:
@@ -102,3 +102,34 @@ def test_readme_lists_every_allowed_field():
 
     readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
     assert all(f"`{field}`" in readme for field in ALLOWED_FIELDS)
+
+
+@pytest.mark.parametrize("host, expected", [
+    ("acme.gupy.io", "gupy.io"), ("www.linkedin.com", "linkedin.com"), ("jobs.empresa.com.br", "empresa.com.br"),
+    ("empresa.com.br", "empresa.com.br"), ("careers.acme.co.uk", "acme.co.uk"), ("boards.greenhouse.io", "greenhouse.io"),
+])
+def test_site_is_the_registrable_domain(host, expected):
+    assert site(host) == expected
+
+
+def test_cli_marks_the_profile(tmp_path, monkeypatch):
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "perfil.md").write_text("# Perfil\n\n## Outros campos de formulário\n- CPF: informar manualmente\n",
+                                     encoding="utf-8")
+    (skill / "perfil.example.md").write_text("# Perfil\n\n## Outros campos de formulário\n- CPF: informar manualmente\n",
+                                             encoding="utf-8")
+    monkeypatch.setenv("VAGAS_SKILL_DIR", str(skill))
+    monkeypatch.setenv("VAGAS_SENSITIVE_FILE", str(tmp_path / "cofre.json"))
+    answers = iter(["12.345.678-9", "12.345.678-9"])
+    monkeypatch.setattr("vagas.sensitive.getpass.getpass", lambda prompt="": next(answers))
+
+    main(["set", "rg"], backend=FakeBackend())
+    after_set = (skill / "perfil.md").read_text(encoding="utf-8")
+    main(["remove", "rg"], backend=FakeBackend())
+    after_remove = (skill / "perfil.md").read_text(encoding="utf-8")
+
+    assert "- RG: no cofre (extensão do Chrome)\n" in after_set
+    assert "- RG: informar manualmente\n" in after_remove
+    assert "12.345.678-9" not in after_set
+    assert "- RG: informar manualmente" in (skill / "perfil.example.md").read_text(encoding="utf-8")

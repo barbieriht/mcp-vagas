@@ -21,6 +21,7 @@ Servidor MCP local (stdio) em Python + SQLite para registrar e deduplicar candid
 - Dependências fixadas no `pyproject.toml`: `mcp`, `pydantic` (modelos com schema para as tools), `PyYAML` (currículo editável), `typst` (PDF do currículo; compilador embutido, só fontes embutidas) e `pypdf` (contagem de páginas e testes). Extra opcional `[linkedin]`: `playwright` (leitor do perfil do próprio usuário; sem técnicas de disfarce: diante de login/checkpoint, parar e pedir ação). Nada além disso sem discutir.
 - PDFs de currículo vão para `$VAGAS_RESUME_OUT` (sem padrão; ex.: `/mnt/c/Users/<usuário>/Curriculos`). Template em `src/vagas/templates/resume.typ`, dados via `sys.inputs` (JSON), nunca interpolados no código Typst.
 - Currículo geral: rascunho YAML em `$VAGAS_MASTER_RESUME` (padrão `curriculo.yaml` ao lado do banco); versões aprovadas ficam no banco, que é a fonte da verdade.
+- Documentos do cofre (CPF, RG...) nos formulários: só pela extensão do Chrome (`extension/`) e pelo host `vagas.autofill_host`, cujo stdout é o canal de native messaging. A regra de domínio, empresa e confirmação fica em `vagas.autofill` (Python, testada); o JS só acha campos e preenche. Teste ponta a ponta em `tests/test_extension.py` (Chromium do Playwright).
 - `skill/candidaturas/perfil.md` tem dados pessoais e fica fora do git; manter `perfil.example.md` com a mesma estrutura.
 
 ## Agent skills

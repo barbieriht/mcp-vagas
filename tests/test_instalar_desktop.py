@@ -123,3 +123,33 @@ def test_personal_link_is_created_kept_and_never_replaces_a_real_file(skill, tmp
     write(data / "politica-salarial.md", "própria\n")
     assert "mantido" in inst.link_personal(data, skill, "politica-salarial.md")
     assert (data / "politica-salarial.md").read_text() == "própria\n"
+
+
+def test_extension_id_is_fixed_by_the_manifest_key():
+    manifest = json.loads((SCRIPT.parents[1] / "extension" / "manifest.json").read_text(encoding="utf-8"))
+
+    assert inst.extension_id(manifest["key"]) == "ebbppobebhjfconpancjbjpijelcnimc"
+
+
+def test_native_host_only_answers_the_extension():
+    manifest = inst.host_manifest("C:\\Users\\T\\AppData\\Local\\vagas\\vagas-host.bat", "abc")
+
+    assert manifest == {"name": "com.barbieriht.vagas", "description": manifest["description"],
+                        "path": "C:\\Users\\T\\AppData\\Local\\vagas\\vagas-host.bat", "type": "stdio",
+                        "allowed_origins": ["chrome-extension://abc/"]}
+
+
+def test_native_host_runs_the_stable_server_copy_in_wsl():
+    bat = inst.host_bat("Ubuntu", "/home/u/.local/share/vagas/venv/bin/python", ENV)
+
+    assert bat.startswith("@echo off\r\n")
+    assert ('wsl.exe -d "Ubuntu" -e env "VAGAS_DB=/home/u/.local/share/vagas/vagas.db" '
+            '"/home/u/.local/share/vagas/venv/bin/python" -m vagas.autofill_host\r\n') in bat
+    assert "VAGAS_RESUME_OUT" not in bat
+
+
+def test_native_host_is_registered_for_the_current_user_in_chrome():
+    command = inst.registry_command("C:\\x\\com.barbieriht.vagas.json")
+
+    assert command == ["reg.exe", "add", "HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\com.barbieriht.vagas",
+                       "/ve", "/t", "REG_SZ", "/d", "C:\\x\\com.barbieriht.vagas.json", "/f"]

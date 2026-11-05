@@ -29,7 +29,7 @@ Este arquivo guarda só o que não está no currículo ou respostas padrão de f
 - Cargo público: nunca ocupou
 
 ## Outros campos de formulário
-Campos pedidos por formulários que não se encaixam nas seções acima. Dados sensíveis: só o campo, com "informar manualmente", ou "no cofre (get_sensitive_field)" para documentos cadastrados no cofre (`python -m vagas.sensitive set <campo>`). Documento cadastrado no cofre vale mesmo se a linha disser "informar manualmente". Para o modelo preencher o cofre sem confirmar cada uso, grave `sensitive_autofill = "sim"` no config.toml (ou peça ao Claude).
+Campos pedidos por formulários que não se encaixam nas seções acima. Dados sensíveis: só o campo, com "informar manualmente", ou "no cofre (extensão do Chrome)" para documentos cadastrados no cofre (`python -m vagas.sensitive set <campo>`). Documento cadastrado no cofre vale mesmo se a linha disser "informar manualmente". Quem preenche esses documentos nos formulários é a extensão do Chrome, com a sua confirmação na primeira vez de cada empresa.
 - <Rótulo do campo como o formulário pede>: <...>
 - CPF: informar manualmente
 - RG: informar manualmente
