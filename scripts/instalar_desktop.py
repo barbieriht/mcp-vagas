@@ -140,7 +140,7 @@ def host_manifest(bat_windows_path: str, ext_id: str) -> dict:
 def host_bat(distro: str, python: str, env: dict[str, str]) -> str:
     """.bat que o Chrome executa: roda o host no WSL com a cópia estável do servidor."""
     variables = " ".join(f'"{key}={value}"' for key, value in env.items() if key in HOST_ENV_KEYS)
-    return (f'@echo off\r\nwsl.exe -d "{distro}" -e env {variables} "{python}" -m vagas.autofill_host\r\n')
+    return (f'@echo off\r\nwsl.exe -d {distro} -e env {variables} "{python}" -m vagas.autofill_host\r\n')
 
 
 def registry_command(manifest_windows_path: str) -> list[str]:
@@ -218,7 +218,8 @@ def install_extension(localappdata: Path, distro: str, python: Path, env: dict[s
     manifest = base / f"{HOST_NAME}.json"
     manifest.write_text(json.dumps(host_manifest(_windows_path(bat), extension_id(key)), indent=2) + "\n",
                         encoding="utf-8")
-    done = subprocess.run(registry_command(_windows_path(manifest)), capture_output=True, text=True, cwd="/mnt/c")
+    done = subprocess.run(registry_command(_windows_path(manifest)), capture_output=True, text=True, cwd="/mnt/c",
+                          encoding="cp850", errors="replace")  # saída do reg.exe na página de código do console
     if done.returncode != 0:
         fail(f"não consegui registrar o host da extensão no Chrome:\n{done.stderr or done.stdout}")
     return target

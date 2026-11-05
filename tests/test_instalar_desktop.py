@@ -143,7 +143,7 @@ def test_native_host_runs_the_stable_server_copy_in_wsl():
     bat = inst.host_bat("Ubuntu", "/home/u/.local/share/vagas/venv/bin/python", ENV)
 
     assert bat.startswith("@echo off\r\n")
-    assert ('wsl.exe -d "Ubuntu" -e env "VAGAS_DB=/home/u/.local/share/vagas/vagas.db" '
+    assert ('wsl.exe -d Ubuntu -e env "VAGAS_DB=/home/u/.local/share/vagas/vagas.db" '
             '"/home/u/.local/share/vagas/venv/bin/python" -m vagas.autofill_host\r\n') in bat
     assert "VAGAS_RESUME_OUT" not in bat
 
