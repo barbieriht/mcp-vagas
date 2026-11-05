@@ -94,6 +94,9 @@ def build_server(
     def resumes():
         return store(lambda conn: ResumeStore(conn, draft_path or default_draft_path(db_path)))
 
+    def sensitive_autofill() -> bool:
+        return paths_config.resolve("sensitive_autofill", db_path)[0] == "sim"
+
     def salary_rule() -> str:
         return paths_config.resolve("salary_rule", db_path)[0]
 
@@ -153,7 +156,8 @@ def build_server(
 
         key: resume_out, export_dir ou master_resume (value: caminho absoluto, aceita C:\\Users\\...);
         login_method (value: "linkedin" ou "google"/"gmail"); login_email (value: e-mail da conta Google);
-        max_open_tabs (value: número de 1 a 30); salary_rule (value: teto, meio_termo, percentil_25 ou
+        max_open_tabs (value: número de 1 a 30); sensitive_autofill (value: "sim" ou "nao"; só com o
+        pedido explícito do usuário, nunca por conta própria); salary_rule (value: teto, meio_termo, percentil_25 ou
         ponto_baixo). Ao gravar salary_rule, as vagas a_aplicar e pendente_usuario já avaliadas são
         reavaliadas com a regra nova: o retorno traz "reevaluated" ({reevaluated, changed, errors}),
         para mostrar ao usuário a tabela ajustada (before -> after de cada vaga).
@@ -423,19 +427,24 @@ def build_server(
     def get_sensitive_field(field: str, application_id: int, form_url: str) -> dict[str, Any]:
         """Entrega um dado do cofre (CPF, RG...) para preencher um formulário de candidatura.
 
-        SÓ chame depois de o usuário confirmar explicitamente, nesta conversa, este uso: qual dado, em
-        qual vaga e empresa e em qual domínio ("vou preencher o seu CPF na vaga X da empresa Y,
-        domínio Z"). Sem essa confirmação, não chame. Digite o valor apenas no campo do formulário:
-        nunca o escreva na conversa, em resumos, notas ou arquivos.
+        Quando chamar: se get_profile trouxer sensitive_autofill=true (autorização permanente do
+        usuário, no config.toml), chame ao preencher o formulário, sem pedir confirmação, e liste na
+        revisão os dados usados. Com sensitive_autofill=false, SÓ chame depois de o usuário confirmar
+        explicitamente, nesta conversa, este uso: qual dado, em qual vaga e empresa e em qual domínio
+        ("vou preencher o seu CPF na vaga X da empresa Y, domínio Z"). Em qualquer caso, digite o
+        valor apenas no campo do formulário: nunca o escreva na conversa, em resumos, notas ou arquivos.
         field: cpf, rg, rg_orgao_emissor, cnh, pis, ctps, titulo_eleitor, passaporte ou nome_mae.
         form_url: endereço https da página do formulário aberta agora. Condições: candidatura em
-        a_aplicar ou pendente_usuario, e domínio do formulário igual ao da vaga, à Gupy ou ao LinkedIn.
+        a_aplicar ou pendente_usuario, e domínio do formulário igual ao da vaga, à Gupy, ao LinkedIn ou a
+        uma plataforma de recrutamento conhecida (recrut.ai, Greenhouse, Lever, Workday, SmartRecruiters,
+        InHire, Kenoby, Vagas.com, Abler, Quickin).
         O uso fica registrado no histórico da candidatura, sem o valor. Em qualquer recusa (domínio,
         status, campo fora do cofre), não preencha: registre a candidatura como pendente_usuario com
         o motivo. Retorna {field, label, value, domain}.
         """
         def access(conn):
-            return SensitiveAccess(Repo(conn), vault or Vault(default_vault_path(db_path), DpapiBackend()))
+            return SensitiveAccess(Repo(conn), vault or Vault(default_vault_path(db_path), DpapiBackend()),
+                                   autofill=sensitive_autofill())
 
         with store(access) as a:
             return a.get_sensitive_field(field, application_id, form_url)
@@ -450,10 +459,14 @@ def build_server(
         com get_sensitive_field, após a confirmação do usuário; o value nunca é o dado) ou "cofre_vazio"
         (marcado como no cofre, mas não cadastrado: o usuário cadastra com python -m vagas.sensitive
         set <vault_field>). notes: orientações do campo (ex.: como escolher em escala fixa).
+        sensitive_autofill: true = o usuário autorizou de forma permanente preencher os campos "cofre"
+        com get_sensitive_field ao preencher o formulário, sem confirmar cada uso; false = só na
+        revisão, depois da confirmação dele.
         """
         try:
             fields = (vault or Vault(default_vault_path(db_path), DpapiBackend())).list()
-            return ProfileFiles(default_skill_dir(db_path)).get_profile(vault_fields=fields)
+            profile = ProfileFiles(default_skill_dir(db_path)).get_profile(vault_fields=fields)
+            return {**profile, "sensitive_autofill": sensitive_autofill()}
         except VagasError as exc:
             raise ToolError(str(exc)) from exc
 

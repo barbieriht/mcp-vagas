@@ -150,7 +150,9 @@ class Vault:
         return sorted(self._load())
 
 
-TRUSTED_SITES = ("gupy.io", "linkedin.com")
+# Gupy, LinkedIn e plataformas de recrutamento (ATS) para onde as vagas costumam levar o candidato.
+TRUSTED_SITES = ("gupy.io", "linkedin.com", "recrut.ai", "greenhouse.io", "lever.co", "myworkdayjobs.com",
+                 "smartrecruiters.com", "inhire.app", "kenoby.com", "vagas.com.br", "abler.com.br", "quickin.io")
 OPEN_STATUSES = ("a_aplicar", "pendente_usuario")
 _SECOND_LEVEL = {"com", "org", "net", "gov", "edu", "co", "art", "ind", "inf"}
 
@@ -166,9 +168,10 @@ def site(host: str) -> str:
 class SensitiveAccess:
     """Entrega condicionada de um dado do cofre para um formulário de candidatura."""
 
-    def __init__(self, repo, vault: Vault):
+    def __init__(self, repo, vault: Vault, autofill: bool = False):
         self.repo = repo
         self.vault = vault
+        self.autofill = autofill  # sensitive_autofill: autorização permanente do usuário
 
     def get_sensitive_field(self, field: str, application_id: int, form_url: str) -> dict[str, str]:
         field = check_field(field)
@@ -184,13 +187,15 @@ class SensitiveAccess:
         job_host = urlsplit(app["url"] or "").hostname
         allowed = {*TRUSTED_SITES, *([site(job_host)] if job_host else [])}
         if form_site not in allowed:
-            raise VagasError(f"O domínio do formulário ({parts.hostname}) não é o da vaga nem Gupy/LinkedIn "
+            raise VagasError(f"O domínio do formulário ({parts.hostname}) não é o da vaga nem de uma plataforma de "
+                             "recrutamento conhecida "
                              f"(permitidos: {', '.join(sorted(allowed))}). Não preencha: registre como "
                              "pendente_usuario com este motivo.")
         value = self.vault.get(field)
         self.repo.update_application(application_id, note=(
-            f"Dado do cofre informado: {ALLOWED_FIELDS[field]} no formulário em {parts.hostname}, com confirmação "
-            "do usuário."))
+            f"Dado do cofre informado: {ALLOWED_FIELDS[field]} no formulário em {parts.hostname}, "
+            + ("com autorização permanente do usuário (sensitive_autofill)." if self.autofill
+               else "com confirmação do usuário.")))
         return {"field": field, "label": ALLOWED_FIELDS[field], "value": value, "domain": parts.hostname}
 
 

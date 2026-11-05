@@ -28,6 +28,8 @@ IGNORED_WINDOWS_USERS = {
 LOGIN_METHODS = ("linkedin", "google")
 _LOGIN_ALIASES = {"linkedin": "linkedin", "linked in": "linkedin", "google": "google", "gmail": "google",
                   "conta google": "google"}
+_YES_NO = {"sim": "sim", "s": "sim", "yes": "sim", "true": "sim", "ligado": "sim", "ligada": "sim", "on": "sim",
+           "nao": "nao", "n": "nao", "no": "nao", "false": "nao", "desligado": "nao", "desligada": "nao", "off": "nao"}
 _SALARY_RULE_ALIASES = {
     **{rule.replace("_", " "): rule for rule in SALARY_RULES},
     "teto por faixa": "teto", "mediana": "teto", "meio termo minimo mercado": "meio_termo",
@@ -61,6 +63,9 @@ SETTINGS: dict[str, Setting] = {
                            "(só vale com login_method = google)"),
     "max_open_tabs": Setting("VAGAS_MAX_OPEN_TABS", "int", "Máximo de abas de candidatura deixadas abertas esperando "
                              "o usuário (1 a 30)", default_literal=12, bounds=(1, 30), ask_at_setup=False),
+    "sensitive_autofill": Setting("VAGAS_SENSITIVE_AUTOFILL", "choice", "Autorização permanente para preencher os "
+                                  "dados do cofre (CPF, RG...) nos formulários sem confirmar cada uso", choices=("sim", "nao"),
+                                  default_literal="nao", ask_at_setup=False, aliases=_YES_NO),
     "salary_rule": Setting("VAGAS_SALARY_RULE", "choice", "Regra da pretensão salarial a partir do valor de mercado "
                            "(perguntada depois da primeira busca de vagas)", choices=SALARY_RULES,
                            default_literal="teto", ask_at_setup=False, aliases=_SALARY_RULE_ALIASES),
@@ -253,9 +258,10 @@ def set_value(key: str, value: str | None, db_path: Path | str | None = None) ->
     target.parent.mkdir(parents=True, exist_ok=True)
     lines = ["# Configuração do mcp-vagas: um caminho por tarefa e o login padrão. Edite à mão ou peça ao Claude (set_config).",
              "# login_method = \"linkedin\" ou \"google\"; login_email = conta Google (quando o login é por Google).",
-             "# Variáveis de ambiente (VAGAS_RESUME_OUT, VAGAS_EXPORT_DIR, VAGAS_MASTER_RESUME, VAGAS_LOGIN_METHOD,",
+             "# Variáveis de ambiente (VAGAS_RESUME_OUT, VAGAS_EXPORT_DIR, VAGAS_MASTER_RESUME, VAGAS_LOGIN_METHOD, VAGAS_SENSITIVE_AUTOFILL,",
              "# VAGAS_LOGIN_EMAIL, VAGAS_MAX_OPEN_TABS, VAGAS_SALARY_RULE) têm prioridade. max_open_tabs = número de abas",
-             "# (1 a 30). salary_rule = teto, meio_termo, percentil_25 ou ponto_baixo (regra da pretensão salarial)."]
+             "# (1 a 30). salary_rule = teto, meio_termo, percentil_25 ou ponto_baixo (regra da pretensão salarial).",
+             "# sensitive_autofill = \"sim\" autoriza preencher os dados do cofre sem confirmar cada uso (padrão \"nao\")."]
     lines += [f"{name} = {current[name] if SETTINGS[name].kind == 'int' else _quote(current[name])}"
               for name in SETTINGS if name in current]
     target.write_text("\n".join(lines) + "\n", encoding="utf-8")

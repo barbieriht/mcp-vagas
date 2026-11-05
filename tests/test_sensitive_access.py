@@ -135,3 +135,36 @@ def test_cli_marks_the_profile(tmp_path, monkeypatch):
     assert "- RG: informar manualmente\n" in after_remove
     assert "12.345.678-9" not in after_set
     assert "- RG: informar manualmente" in (skill / "perfil.example.md").read_text(encoding="utf-8")
+
+
+def test_standing_authorization_is_logged_as_such(repo, vault):
+    application = app(repo)
+
+    SensitiveAccess(repo, vault, autofill=True).get_sensitive_field("cpf", application["id"], "https://acme.gupy.io/a")
+
+    notes = [e["note"] for e in repo.events(application["id"]) if e.get("note")]
+    assert "autorização permanente" in notes[0]
+
+
+async def test_profile_tells_whether_vault_fields_are_filled_without_asking(db_path, vault, tmp_path, monkeypatch):
+    monkeypatch.setenv("VAGAS_SKILL_DIR", str(tmp_path))
+    (tmp_path / "perfil.md").write_text("## Outros\n- CPF: no cofre (get_sensitive_field)\n", encoding="utf-8")
+    server = build_server(db_path, vault=vault)
+    async with Client(server) as client:
+        before = (await client.call_tool("get_profile", {})).structured_content
+        saved = (await client.call_tool("set_config", {"key": "sensitive_autofill", "value": "sim"})).structured_content
+        after = (await client.call_tool("get_profile", {})).structured_content
+        tools = {t.name: t for t in (await client.list_tools()).tools}
+
+    assert before["sensitive_autofill"] is False and after["sensitive_autofill"] is True
+    assert saved["value"] == "sim"
+    assert "sensitive_autofill" in tools["get_sensitive_field"].description
+
+
+def test_known_recruiting_platforms_are_trusted(repo, vault):
+    application = repo.add_application(company="Insi", role="DS", source="linkedin", status="a_aplicar",
+                                       url="https://www.linkedin.com/jobs/view/1/")["application"]
+
+    result = SensitiveAccess(repo, vault).get_sensitive_field("cpf", application["id"], "https://insi.recrut.ai/apply")
+
+    assert result["domain"] == "insi.recrut.ai"

@@ -72,3 +72,37 @@ async def test_get_profile_via_mcp(db_path, skill, tmp_path, monkeypatch):
     assert other["CPF"]["status"] == "cofre"
     assert "52998224725" not in str(profile)
     assert "get_sensitive_field" in tools["get_profile"].description
+
+
+@pytest.mark.parametrize("marker", ["cofre (get_sensitive_field)", "Cofre", "no cofre.", "No cofre (get_sensitive_field)"])
+def test_vault_marker_is_read_tolerantly(tmp_path, marker):
+    (tmp_path / "perfil.md").write_text(f"## Outros\n- RG: {marker}\n", encoding="utf-8")
+
+    field = ProfileFiles(tmp_path).get_profile(vault_fields=["rg"])["sections"][0]["fields"][0]
+
+    assert (field["status"], field["vault_field"]) == ("cofre", "rg")
+
+
+def test_a_document_stored_in_the_vault_wins_over_a_stale_manual_marker(tmp_path):
+    (tmp_path / "perfil.md").write_text("## Outros\n- CPF: informar manualmente\n- RG: informar manualmente\n",
+                                        encoding="utf-8")
+
+    fields = {f["label"]: f for f in ProfileFiles(tmp_path).get_profile(vault_fields=["cpf"])["sections"][0]["fields"]}
+
+    assert fields["CPF"]["status"] == "cofre" and fields["CPF"]["vault_field"] == "cpf"
+    assert fields["RG"]["status"] == "manual"
+
+
+def test_birth_date_is_an_ordinary_profile_field(tmp_path):
+    (tmp_path / "perfil.md").write_text("## Contato\n- Data de nascimento: <PREENCHER: DD/MM/AAAA>\n", encoding="utf-8")
+
+    profile = ProfileFiles(tmp_path).get_profile(vault_fields=[])
+
+    assert profile["to_fill"] == ["Data de nascimento"]
+
+
+def test_example_profile_asks_for_the_birth_date():
+    from pathlib import Path
+
+    example = Path(__file__).resolve().parents[1] / "skill" / "candidaturas" / "perfil.example.md"
+    assert "- Data de nascimento:" in example.read_text(encoding="utf-8")
