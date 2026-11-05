@@ -23,7 +23,6 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Protocol
-from urllib.parse import urlsplit
 
 from vagas.db import default_db_path
 from vagas.repo import VagasError
@@ -150,9 +149,6 @@ class Vault:
         return sorted(self._load())
 
 
-# Gupy, LinkedIn e plataformas de recrutamento (ATS) para onde as vagas costumam levar o candidato.
-TRUSTED_SITES = ("gupy.io", "linkedin.com", "recrut.ai", "greenhouse.io", "lever.co", "myworkdayjobs.com",
-                 "smartrecruiters.com", "inhire.app", "kenoby.com", "vagas.com.br", "abler.com.br", "quickin.io")
 OPEN_STATUSES = ("a_aplicar", "pendente_usuario")
 _SECOND_LEVEL = {"com", "org", "net", "gov", "edu", "co", "art", "ind", "inf"}
 
@@ -163,40 +159,6 @@ def site(host: str) -> str:
     if len(parts) >= 3 and len(parts[-1]) == 2 and parts[-2] in _SECOND_LEVEL:
         return ".".join(parts[-3:])
     return ".".join(parts[-2:])
-
-
-class SensitiveAccess:
-    """Entrega condicionada de um dado do cofre para um formulário de candidatura."""
-
-    def __init__(self, repo, vault: Vault, autofill: bool = False):
-        self.repo = repo
-        self.vault = vault
-        self.autofill = autofill  # sensitive_autofill: autorização permanente do usuário
-
-    def get_sensitive_field(self, field: str, application_id: int, form_url: str) -> dict[str, str]:
-        field = check_field(field)
-        app = self.repo.get(application_id)
-        if app["status"] not in OPEN_STATUSES:
-            raise VagasError(f"A candidatura {application_id} está com status {app['status']!r}: dados do cofre só "
-                             "vão para candidaturas triadas e abertas (a_aplicar ou pendente_usuario).")
-        parts = urlsplit((form_url or "").strip())
-        if parts.scheme != "https" or not parts.hostname:
-            raise VagasError("O formulário precisa estar num endereço https (informe a URL completa da página do "
-                             "formulário).")
-        form_site = site(parts.hostname)
-        job_host = urlsplit(app["url"] or "").hostname
-        allowed = {*TRUSTED_SITES, *([site(job_host)] if job_host else [])}
-        if form_site not in allowed:
-            raise VagasError(f"O domínio do formulário ({parts.hostname}) não é o da vaga nem de uma plataforma de "
-                             "recrutamento conhecida "
-                             f"(permitidos: {', '.join(sorted(allowed))}). Não preencha: registre como "
-                             "pendente_usuario com este motivo.")
-        value = self.vault.get(field)
-        self.repo.update_application(application_id, note=(
-            f"Dado do cofre informado: {ALLOWED_FIELDS[field]} no formulário em {parts.hostname}, "
-            + ("com autorização permanente do usuário (sensitive_autofill)." if self.autofill
-               else "com confirmação do usuário.")))
-        return {"field": field, "label": ALLOWED_FIELDS[field], "value": value, "domain": parts.hostname}
 
 
 def _mark_profile(field: str, stored: bool) -> str | None:

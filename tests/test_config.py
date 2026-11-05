@@ -5,7 +5,7 @@ import pytest
 from mcp import Client
 
 from resume_fixture import fictitious_resume
-from vagas.config import config_path, normalize_path, resolve, suggest_dirs
+from vagas.config import SETTINGS, config_path, normalize_path, resolve, split_domains, suggest_dirs
 from vagas.server import build_server
 
 pytestmark = pytest.mark.anyio
@@ -177,6 +177,13 @@ async def test_server_instructions_tell_the_model_to_check_the_config_first(db_p
     assert "get_config" in instructions and "set_config" in instructions
 
 
+async def test_server_instructions_leave_identity_documents_to_the_browser_extension(db_path):
+    async with Client(build_server(db_path)) as client:
+        instructions = client.instructions
+
+    assert "extensão do Chrome" in instructions and "CPF" in instructions
+
+
 async def test_server_instructions_ask_for_job_names_as_markdown_links(db_path):
     async with Client(build_server(db_path)) as client:
         instructions = client.instructions
@@ -329,17 +336,25 @@ async def test_choosing_the_salary_rule_reevaluates_the_registered_jobs(db_path)
     assert saved["reevaluated"] == {"reevaluated": 0, "changed": [], "errors": []}
 
 
-@pytest.mark.parametrize("typed, stored", [("sim", "sim"), ("Sim.", "sim"), ("true", "sim"), ("ligado", "sim"),
-                                           ("não", "nao"), ("false", "nao"), ("desligado", "nao")])
-async def test_sensitive_autofill_is_off_by_default_and_tolerant(db_path, typed, stored):
+@pytest.mark.parametrize("typed, stored", [
+    ("meuats.com", "meuats.com"),
+    ("https://www.MeuATS.com/vagas, carreiras.empresa.com.br; outra.io", "meuats.com, carreiras.empresa.com.br, outra.io"),
+])
+async def test_autofill_domains_are_optional_and_tolerant(db_path, typed, stored):
     async with Client(build_server(db_path)) as client:
         before = payload(await client.call_tool("get_config", {}))
-        saved = payload(await client.call_tool("set_config", {"key": "sensitive_autofill", "value": typed}))
+        saved = payload(await client.call_tool("set_config", {"key": "autofill_domains", "value": typed}))
+        bad = await client.call_tool("set_config", {"key": "autofill_domains", "value": "não é domínio"})
 
-    autofill = before["settings"]["sensitive_autofill"]
-    assert (autofill["value"], autofill["source"]) == ("nao", "default")
-    assert "sensitive_autofill" not in before["needs_setup"]
+    assert before["settings"]["autofill_domains"]["source"] == "unset"
+    assert "autofill_domains" not in before["needs_setup"]
     assert saved["value"] == stored
+    assert split_domains(saved["value"]) == stored.split(", ")
+    assert bad.is_error and "domínio" in bad.content[0].text
+
+
+def test_the_old_standing_authorization_is_gone(db_path):
+    assert "sensitive_autofill" not in SETTINGS
 
 
 async def test_server_instructions_point_to_the_profile_and_tailored_resume_tools(db_path):

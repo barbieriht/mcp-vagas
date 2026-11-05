@@ -63,9 +63,9 @@ SETTINGS: dict[str, Setting] = {
                            "(só vale com login_method = google)"),
     "max_open_tabs": Setting("VAGAS_MAX_OPEN_TABS", "int", "Máximo de abas de candidatura deixadas abertas esperando "
                              "o usuário (1 a 30)", default_literal=12, bounds=(1, 30), ask_at_setup=False),
-    "sensitive_autofill": Setting("VAGAS_SENSITIVE_AUTOFILL", "choice", "Autorização permanente para preencher os "
-                                  "dados do cofre (CPF, RG...) nos formulários sem confirmar cada uso", choices=("sim", "nao"),
-                                  default_literal="nao", ask_at_setup=False, aliases=_YES_NO),
+    "autofill_domains": Setting("VAGAS_AUTOFILL_DOMAINS", "text", "Domínios extras onde a extensão do Chrome preenche "
+                                "os documentos do cofre, separados por vírgula (além dos sites de vagas conhecidos e "
+                                "dos sites das candidaturas abertas)", ask_at_setup=False),
     "salary_rule": Setting("VAGAS_SALARY_RULE", "choice", "Regra da pretensão salarial a partir do valor de mercado "
                            "(perguntada depois da primeira busca de vagas)", choices=SALARY_RULES,
                            default_literal="teto", ask_at_setup=False, aliases=_SALARY_RULE_ALIASES),
@@ -186,9 +186,31 @@ def normalize_path(value: str) -> Path:
     return wsl_path(value.strip()).expanduser()
 
 
+_DOMAIN = re.compile(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+")
+
+
+def split_domains(value: str) -> list[str]:
+    """"https://www.MeuATS.com/vagas, outra.io" -> ["meuats.com", "outra.io"]; ValueError se algum não for domínio."""
+    domains = []
+    for item in re.split(r"[,;\s]+", value.strip().lower()):
+        item = re.sub(r"^[a-z]+://", "", item).split("/")[0].rstrip(".")
+        item = item[4:] if item.startswith("www.") else item
+        if not item:
+            continue
+        if not _DOMAIN.fullmatch(item):
+            raise ValueError(item)
+        domains.append(item)
+    return list(dict.fromkeys(domains))
+
+
 def _clean_choice(key: str, value: str) -> str | None:
     """Tolera maiúscula, espaços e ponto final; devolve a forma guardada, ou None se não reconhecer."""
     text = " ".join(value.strip().rstrip(".").split())
+    if key == "autofill_domains":
+        try:
+            return ", ".join(split_domains(text)) or None
+        except ValueError:
+            return None
     if key == "login_email":
         return text.lower() if re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", text) else None
     aliases = SETTINGS[key].aliases
@@ -206,6 +228,8 @@ def _validated_text(key: str, value: str | None) -> str:
     cleaned = _clean_choice(key, value)
     if cleaned is None and key == "login_email":
         raise VagasError(f"{value!r} não parece um e-mail; informe a conta Google completa, como nome@gmail.com.")
+    if cleaned is None and key == "autofill_domains":
+        raise VagasError(f"{value!r} não é uma lista de domínios; informe algo como \"meuats.com, carreiras.empresa.com.br\".")
     if cleaned is None and key == "login_method":
         raise VagasError(f"Valor inválido para {key}: {value!r}. Use {' ou '.join(setting.choices)} "
                          "(\"gmail\" vale como google).")
@@ -258,10 +282,10 @@ def set_value(key: str, value: str | None, db_path: Path | str | None = None) ->
     target.parent.mkdir(parents=True, exist_ok=True)
     lines = ["# Configuração do mcp-vagas: um caminho por tarefa e o login padrão. Edite à mão ou peça ao Claude (set_config).",
              "# login_method = \"linkedin\" ou \"google\"; login_email = conta Google (quando o login é por Google).",
-             "# Variáveis de ambiente (VAGAS_RESUME_OUT, VAGAS_EXPORT_DIR, VAGAS_MASTER_RESUME, VAGAS_LOGIN_METHOD, VAGAS_SENSITIVE_AUTOFILL,",
+             "# Variáveis de ambiente (VAGAS_RESUME_OUT, VAGAS_EXPORT_DIR, VAGAS_MASTER_RESUME, VAGAS_LOGIN_METHOD, VAGAS_AUTOFILL_DOMAINS,",
              "# VAGAS_LOGIN_EMAIL, VAGAS_MAX_OPEN_TABS, VAGAS_SALARY_RULE) têm prioridade. max_open_tabs = número de abas",
              "# (1 a 30). salary_rule = teto, meio_termo, percentil_25 ou ponto_baixo (regra da pretensão salarial).",
-             "# sensitive_autofill = \"sim\" autoriza preencher os dados do cofre sem confirmar cada uso (padrão \"nao\")."]
+             "# autofill_domains = domínios extras onde a extensão do Chrome preenche CPF, RG... (separados por vírgula)."]
     lines += [f"{name} = {current[name] if SETTINGS[name].kind == 'int' else _quote(current[name])}"
               for name in SETTINGS if name in current]
     target.write_text("\n".join(lines) + "\n", encoding="utf-8")

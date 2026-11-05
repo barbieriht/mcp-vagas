@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Vagas: documentos do cofre",
+  "version": "1.0.0",
+  "description": "Preenche CPF, RG e outros documentos do cofre do mcp-vagas nos formulários de candidatura, com a sua confirmação por empresa.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApyT8nwdtcWkiQvh2zOu+LoUE+gYY/UkRLhKWsLAqjrdOvhpY2lFPNQgniFq+5JCvFYCETUrVHK78C4qjxcCg4oOMOVscK9zzZC57GgI+qYjTk8+OkWnEnY/fwQCT4+qAxPMHbjfPVbYcuJtqLWwX65e+XgrObqDKIQb17/H6kNHnvmxNj2FRL1G9NNJaKqGUYHu/f0vVbWeq/C9H0MkERk4/GJlOg/Z2CldlOD8jcPZBwv0naTgXZWva4n7Liu7XAaVQ3ZMH09KJSFjBZYlTFs2JgzmzCP/fhK2lgCalzoOEKydLDKL+1gJIVnnAhZrmwBcoJm3d6O1CR4YMdq8uXQIDAQAB",
+  "permissions": [
+    "nativeMessaging",
+    "storage"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Vagas: documentos do cofre"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "all_frames": true,
+      "run_at": "document_idle"
+    }
+  ]
+}

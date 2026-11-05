@@ -13,5 +13,5 @@ Escolhemos a DPAPI porque atende aos três critérios da spec #100: não guardar
 ## Consequências
 
 - O cadastro é só pelo terminal (`python -m vagas.sensitive set <campo>`, com valor sem eco), e o valor nunca passa pela conversa no cadastro.
-- Na entrega para preencher um formulário, o valor passa pelo contexto do modelo. As condições de entrega e a confirmação do usuário (#102) restringem isso a formulários legítimos.
+- A entrega para os formulários passou a ser da extensão do Chrome, sem passar pelo modelo ([ADR 0002](0002-documentos-preenchidos-pela-extensao-do-chrome.md)).
 - Apagar o perfil do Windows ou trocar de máquina torna o cofre ilegível. Nesse caso é preciso cadastrar de novo; não há sincronização.

@@ -5,14 +5,18 @@ Uso, na raiz do repositório:
     python3 scripts/instalar_desktop.py                  # tudo
     python3 scripts/instalar_desktop.py --sem-skill      # só servidor e configuração
     python3 scripts/instalar_desktop.py --fechar-desktop # fecha o Desktop no fim, para recarregar
+    python3 scripts/instalar_desktop.py --sem-extensao   # sem a extensão do Chrome
 
 Passos: atualiza a cópia estável do servidor, registra o servidor no claude_desktop_config.json
-(com backup), testa o servidor pelo wsl.exe, gera o zip da Skill na pasta Downloads do Windows
+(com backup), testa o servidor pelo wsl.exe, instala a extensão do Chrome (cópia em
+%LOCALAPPDATA%\\vagas\\extensao e host de native messaging registrado no HKCU), gera o zip da Skill na pasta Downloads do Windows
 e, opcionalmente, fecha o Desktop. O envio do zip (Configurações → Skills) continua manual.
 Variáveis já registradas no Claude Code (VAGAS_DB, VAGAS_RESUME_OUT, VAGAS_EXPORT_DIR, VAGAS_CONFIG) são repassadas; as pastas, quando não há variável, o Claude pergunta no primeiro uso (config.toml).
 """
 
 import argparse
+import base64
+import hashlib
 import json
 import os
 import shutil
@@ -32,6 +36,9 @@ SKILL_FILES = ("SKILL.md", "candidatar.md", "buscar.md", "curriculo.md", "perfil
                "criterios-triagem.md")
 PERSONAL_FILES = ("perfil.md", "politica-salarial.md", "criterios-triagem.md")
 MCP_FILES = ("politica-salarial.md", "criterios-triagem.md")  # lidos pelo servidor, ao lado do banco
+EXTENSION_DIR = REPO / "extension"
+HOST_NAME = "com.barbieriht.vagas"
+HOST_ENV_KEYS = ("VAGAS_DB", "VAGAS_CONFIG", "VAGAS_SENSITIVE_FILE")  # o host só lê banco, config e cofre
 
 
 # --- Partes puras (testadas) ---------------------------------------------------------------
@@ -118,6 +125,29 @@ def build_zip(skill_dir: Path, dest: Path) -> None:
                 z.write(skill_dir / name, f"{skill_dir.name}/{name}")
 
 
+def extension_id(key: str) -> str:
+    """Id da extensão carregada sem compactação: fixo pela "key" do manifest (SHA-256 da chave, letras a-p)."""
+    digest = hashlib.sha256(base64.b64decode(key)).hexdigest()[:32]
+    return "".join(chr(ord("a") + int(c, 16)) for c in digest)
+
+
+def host_manifest(bat_windows_path: str, ext_id: str) -> dict:
+    """Manifest do host de native messaging: só a extensão do mcp-vagas pode chamá-lo."""
+    return {"name": HOST_NAME, "description": "mcp-vagas: documentos do cofre para a extensão do Chrome",
+            "path": bat_windows_path, "type": "stdio", "allowed_origins": [f"chrome-extension://{ext_id}/"]}
+
+
+def host_bat(distro: str, python: str, env: dict[str, str]) -> str:
+    """.bat que o Chrome executa: roda o host no WSL com a cópia estável do servidor."""
+    variables = " ".join(f'"{key}={value}"' for key, value in env.items() if key in HOST_ENV_KEYS)
+    return (f'@echo off\r\nwsl.exe -d {distro} -e env {variables} "{python}" -m vagas.autofill_host\r\n')
+
+
+def registry_command(manifest_windows_path: str) -> list[str]:
+    return ["reg.exe", "add", f"HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\{HOST_NAME}",
+            "/ve", "/t", "REG_SZ", "/d", manifest_windows_path, "/f"]
+
+
 # --- Integração com Windows e WSL ------------------------------------------------------------
 
 def step(message: str) -> None:
@@ -171,6 +201,30 @@ def smoke_test(distro: str, python: Path) -> None:
     print(f"    servidor respondeu pelo wsl.exe com {tools[0]} tools")
 
 
+def _windows_path(path: Path) -> str:
+    return subprocess.run(["wslpath", "-w", str(path)], capture_output=True, text=True).stdout.strip()
+
+
+def install_extension(localappdata: Path, distro: str, python: Path, env: dict[str, str]) -> Path:
+    """Copia a extensão para o Windows e registra o host de native messaging no Chrome (HKCU)."""
+    base = localappdata / "vagas"
+    target = base / "extensao"
+    if target.exists():
+        shutil.rmtree(target)
+    shutil.copytree(EXTENSION_DIR, target)
+    bat = base / "vagas-host.bat"
+    bat.write_text(host_bat(distro, str(python), env), encoding="utf-8", newline="")
+    key = json.loads((EXTENSION_DIR / "manifest.json").read_text(encoding="utf-8"))["key"]
+    manifest = base / f"{HOST_NAME}.json"
+    manifest.write_text(json.dumps(host_manifest(_windows_path(bat), extension_id(key)), indent=2) + "\n",
+                        encoding="utf-8")
+    done = subprocess.run(registry_command(_windows_path(manifest)), capture_output=True, text=True, cwd="/mnt/c",
+                          encoding="cp850", errors="replace")  # saída do reg.exe na página de código do console
+    if done.returncode != 0:
+        fail(f"não consegui registrar o host da extensão no Chrome:\n{done.stderr or done.stdout}")
+    return target
+
+
 def close_desktop() -> None:
     # Só processos do Claude Desktop (Microsoft Store ou instalador), nunca o Claude Code nativo.
     script = ("Get-Process claude -ErrorAction SilentlyContinue | "
@@ -183,6 +237,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--sem-skill", action="store_true", help="não gera o zip da Skill")
     parser.add_argument("--fechar-desktop", action="store_true", help="fecha o Claude Desktop no fim")
+    parser.add_argument("--sem-extensao", action="store_true", help="não instala a extensão do Chrome")
     args = parser.parse_args(argv)
     sys.stdout.reconfigure(line_buffering=True)  # mantém a ordem com o stderr quando a saída vai para um pipe
 
@@ -219,6 +274,12 @@ def main(argv: list[str] | None = None) -> None:
     step("Testando o servidor como o Desktop vai chamá-lo")
     smoke_test(distro, python)
 
+    extension = None
+    if not args.sem_extensao:
+        step("Instalando a extensão do Chrome (documentos do cofre)")
+        extension = install_extension(Path(win["localappdata"]), distro, python, env)
+        print(f"    {extension}\n    host registrado: {HOST_NAME}")
+
     zip_path = None
     if not args.sem_skill:
         step("Gerando o zip da Skill")
@@ -244,6 +305,10 @@ def main(argv: list[str] | None = None) -> None:
         print(f"    2. Em Configurações → Skills, enviar {windows_zip} (substituindo a versão anterior)")
         print("    3. Opcional: enviar também os zips de Downloads\\vagas-comandos (comandos /apply, /search-jobs...),"
               " se o Desktop oferecer comandos de Skills")
+    if extension:
+        print(f"    Extensão do Chrome: na primeira vez, abra chrome://extensions, ligue o Modo do desenvolvedor,"
+              f" clique em Carregar sem compactação e escolha {_windows_path(extension)}. Nas próximas, só clique"
+              " em recarregar na extensão (ou reinicie o Chrome).")
 
 
 if __name__ == "__main__":
