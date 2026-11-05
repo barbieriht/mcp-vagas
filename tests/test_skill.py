@@ -166,13 +166,14 @@ def test_application_flow_uses_profile_and_selection_tools():
     assert "`add_profile_field`" in text[text.index("## Campos novos do perfil"):]
 
 
-def test_vault_use_requires_confirmation_in_the_review_step():
+def test_identity_documents_are_left_for_the_user_without_workarounds():
     text = (SKILL_DIR / "candidatar.md").read_text(encoding="utf-8")
+    form = text[text.index("**Perfil:**"):text.index("**Acesso:**")]
     review = text[text.index("5. **Revisão antes do envio.**"):text.index("6. **Registro final.**")]
 
-    assert "confirmar explicitamente" in review
-    assert review.index("confirmar explicitamente") < review.index("`get_sensitive_field`")
-    assert "`pendente_usuario`" in review
+    assert "não se contorna" in form and "Não chame `get_sensitive_field` no navegador" in form
+    assert "`pending`" in form and "digite o seu CPF" in review
+    assert "confirmar explicitamente" in review and "`pendente_usuario`" in review
 
 
 def test_work_list_command_and_search_summary_use_the_tool():
