@@ -44,6 +44,7 @@ def build_work_list(repo: Repo, resumes: ResumeStore) -> dict[str, Any]:
             "location": app.get("location"), "seniority": app.get("seniority"), "match_score": app.get("match_score"),
             "missing": missing[:MISSING_SHOWN], "related": _related(missing, corpus) if corpus else {},
             "value_to_inform": evaluation.get("value_to_inform") if evaluation.get("decision") == "aplicar" else None,
+            "salary_market": app.get("salary_market"), "salary_rule": app.get("salary_rule"),
             "salary_basis": evaluation.get("basis"), "url": app.get("url"), "pending": _pendencies(app),
         }
         (pending if row["pending"] else ready).append(row)

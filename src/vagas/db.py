@@ -196,6 +196,26 @@ MIGRATIONS = [
         WHERE p.application_id = applications.id AND p.source = 'vaga' AND p.contract IN ('clt', 'pj')
         ORDER BY p.id DESC LIMIT 1), 'desconhecido');
     """,
+    # v14: pretensão em colunas (de onde veio a referência, valor de mercado, regra e pretensão
+    # calculada; salary_expectation segue sendo a pretensão informada no formulário) e pesquisas
+    # salariais descartadas (fonte ruim), que deixam de contar
+    """
+    ALTER TABLE applications ADD COLUMN salary_basis TEXT;
+    ALTER TABLE applications ADD COLUMN salary_market REAL;
+    ALTER TABLE applications ADD COLUMN salary_rule TEXT;
+    ALTER TABLE applications ADD COLUMN salary_ask REAL;
+    UPDATE applications SET
+        salary_basis = json_extract(salary_evaluation, '$.basis'),
+        salary_market = json_extract(salary_evaluation, '$.median'),
+        salary_ask = json_extract(salary_evaluation, '$.value_to_inform'),
+        salary_rule = CASE
+            WHEN json_extract(salary_evaluation, '$.value_to_inform') IS NULL THEN NULL
+            WHEN json_extract(salary_evaluation, '$.basis') = 'sem_dados' THEN 'minimo'
+            ELSE 'teto' END
+    WHERE salary_evaluation IS NOT NULL;
+    ALTER TABLE salary_searches ADD COLUMN discarded_at TEXT;
+    ALTER TABLE salary_searches ADD COLUMN discard_reason TEXT;
+    """,
 ]
 LATEST_VERSION = len(MIGRATIONS)
 

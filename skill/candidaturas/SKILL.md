@@ -65,13 +65,15 @@ Toda vaga passa pela triagem antes de qualquer outra ação. Ela termina com a v
      - empresa pesquisada sem dados do cargo: registre com `company` e a lista de pontos vazia, para a busca não se repetir;
      - dado de mercado: sem `company`. Se não encontrar nada, registre a pesquisa com a lista de pontos vazia.
 
+     Fontes aceitas: Glassdoor, LinkedIn Salary, Indeed Salários, Levels.fyi (dados da empresa), guias salariais de recrutadoras (Robert Half, Michael Page, Hays) e a própria vaga. Não registre matérias jornalísticas, blogs nem posts que repetem números ("carreira que paga R$ 22 mil"): eles puxam a mediana para cima. Registre como a fonte publica: média em `avg_value` quando houver, faixa em `min_value`/`max_value`. Se encontrar no cache uma pesquisa com fonte fora dessa lista, descarte-a com `discard_salary_estimate` e pesquise de novo.
+
      Use só dados do mesmo cargo: salário de outro cargo da empresa (por exemplo, engenheiro de software genérico) não serve. Depois chame `evaluate_salary` com o `application_id`, o regime (`contract`) e a moeda da vaga. Se o resultado for `nao_aplicar`, chame `update_application` com status `descartada` e `discard_reason` igual ao `reason`.
    - `modalidade`, `senioridade`, `aderencia` e `salario`: siga o `detail`.
    - **Experiência exigida:** vagas que pedem 5 anos ou mais seguem quando a aderência técnica é alta.
    - **Prioridade:** vagas júnior em empresas grandes ou conhecidas merecem atenção extra.
 
    Se o julgamento reprovar a vaga, chame `update_application` com status `descartada` e `discard_reason` explicando o critério.
-4. **Resumo.** Informe ao Thiago a decisão, os motivos (`reasons`), a aderência e, se houver, o valor de pretensão (`value_to_inform`). Termos ausentes com relacionados (`related`) são diferença de ferramenta, não de competência: mostre-os assim ("XGBoost: você tem LightGBM").
+4. **Resumo.** Informe ao Thiago a decisão, os motivos (`reasons`), a aderência e, se houver, o valor de mercado (`median`) e a pretensão (`value_to_inform`, com a regra em `rule`; `capped` = limitada ao teto da política). Termos ausentes com relacionados (`related`) são diferença de ferramenta, não de competência: mostre-os assim ("XGBoost: você tem LightGBM").
 
 ### Triagem manual (plano B)
 

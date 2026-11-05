@@ -184,3 +184,13 @@ def test_update_sets_and_validates_contract(repo):
     assert transitions(repo, app["id"]) == [(None, "aplicada", None)]
     with pytest.raises(VagasError, match="contract"):
         repo.update_application(app["id"], contract="mei")
+
+
+def test_informed_salary_expectation_is_kept_apart_from_the_calculated_ask(repo):
+    app = add(repo, status="a_aplicar")
+    with repo.conn:
+        repo.conn.execute("UPDATE applications SET salary_ask = 15500 WHERE id = ?", (app["id"],))
+
+    updated = repo.update_application(app["id"], status="aplicada", salary_expectation="R$ 15.000")
+
+    assert (updated["salary_ask"], updated["salary_expectation"]) == (15500, "R$ 15.000")

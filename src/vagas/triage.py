@@ -249,10 +249,11 @@ class Triage:
         criteria_path: Path | str | None = None,
         policy_path: Path | str | None = None,
         draft_path: Path | str | None = None,
+        salary_rule: str = "teto",
     ):
         self.repo = Repo(conn)
         self.resumes = ResumeStore(conn, draft_path or default_draft_path())
-        self.salaries = SalaryStore(conn, policy_path=policy_path or default_policy_path())
+        self.salaries = SalaryStore(conn, policy_path=policy_path or default_policy_path(), rule=salary_rule)
         self.fetcher = fetcher
         self.criteria_path = Path(criteria_path) if criteria_path is not None else default_criteria_path()
 

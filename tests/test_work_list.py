@@ -100,3 +100,13 @@ def test_rows_show_the_contract(stores):
 
     assert [(r["company"], r["contract"]) for r in result["ready"]] == [("Alfa", "pj"), ("Beta", "desconhecido")]
     assert result["pending"][0]["contract"] == "clt"
+
+
+async def test_work_list_tells_whether_the_salary_rule_was_chosen(db_path):
+    async with Client(build_server(db_path)) as client:
+        before = (await client.call_tool("work_list", {})).structured_content
+        await client.call_tool("set_config", {"key": "salary_rule", "value": "meio_termo"})
+        after = (await client.call_tool("work_list", {})).structured_content
+
+    assert before["salary_rule"] == {"value": "teto", "chosen": False}
+    assert after["salary_rule"] == {"value": "meio_termo", "chosen": True}

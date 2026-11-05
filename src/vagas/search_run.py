@@ -241,13 +241,14 @@ def _empty_summary() -> dict[str, Any]:
 
 def default_runner(conn: sqlite3.Connection) -> SearchRunner:
     """Executor com os caminhos padrão (os mesmos do servidor: banco, critérios, política, currículo)."""
+    from vagas.config import resolve
     from vagas.resume_repo import default_draft_path
     from vagas.salary_policy import default_policy_path
     from vagas.triage import Triage, default_criteria_path
 
     board = JobBoard(conn, criteria_path=default_criteria_path(), draft_path=default_draft_path())
     triage = Triage(conn, criteria_path=default_criteria_path(), policy_path=default_policy_path(),
-                    draft_path=default_draft_path())
+                    draft_path=default_draft_path(), salary_rule=resolve("salary_rule")[0])
     return SearchRunner(conn, board, triage)
 
 

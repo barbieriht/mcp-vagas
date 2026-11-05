@@ -17,6 +17,11 @@ Currency = Literal["BRL", "USD", "EUR"]
 Period = Literal["hora", "mes", "ano"]
 Contract = Literal["clt", "pj", "desconhecido"]
 SalaryMode = Literal["minimo", "faixa"]
+# Como a pretensão sai do valor de referência (mediana da vaga, da empresa ou do mercado):
+# teto = a própria mediana; meio_termo = média entre o mínimo da política e a mediana;
+# percentil_25 = quartil inferior das fontes; ponto_baixo = mediana do ponto baixo de cada fonte.
+# Em todas, o máximo da faixa da política limita o valor (sem excluir a vaga).
+SalaryRule = Literal["teto", "meio_termo", "percentil_25", "ponto_baixo"]
 
 # Nomes de cada família de cargo (português, inglês): consultas de busca e valores aceitos nos critérios.
 ROLE_NAMES: dict[str, tuple[str, str]] = {
@@ -46,5 +51,6 @@ SENIORITIES: tuple[str, ...] = get_args(Seniority)
 CURRENCIES: tuple[str, ...] = get_args(Currency)
 CONTRACTS: tuple[str, ...] = get_args(Contract)
 SALARY_MODES: tuple[str, ...] = get_args(SalaryMode)
+SALARY_RULES: tuple[str, ...] = get_args(SalaryRule)
 RESUME_SOURCE_KINDS: tuple[str, ...] = get_args(ResumeSourceKind)
 LINKEDIN_SECTIONS: tuple[str, ...] = get_args(LinkedInSection)

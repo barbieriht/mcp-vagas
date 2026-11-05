@@ -20,6 +20,13 @@ A busca termina quando:
    - quantas vagas já estavam registradas e quantas buscas foram puladas por serem recentes.
 
    Pergunte em quais ele quer se candidatar. Cada uma segue o fluxo de [candidatar.md](candidatar.md).
+6. **Regra da pretensão (só na primeira vez).** Se `work_list` trouxer `salary_rule.chosen` falso, pergunte ao Thiago como a pretensão deve sair do valor de mercado (`salary_market`). Mostre as opções com o exemplo de uma vaga da tabela:
+   - `teto` (padrão): a mediana do mercado, limitada ao máximo de cada faixa da [política salarial](politica-salarial.md). O teto não exclui vagas da triagem: só limita a pretensão delas;
+   - `meio_termo`: a média entre o mínimo da política e a mediana do mercado;
+   - `percentil_25`: o quartil inferior das fontes de mercado;
+   - `ponto_baixo`: a mediana do ponto baixo de cada fonte (a média publicada ou, sem ela, o mínimo da faixa).
+
+   Grave a resposta com `set_config` (`salary_rule`). As vagas já registradas são reavaliadas na hora: mostre a tabela ajustada com `reevaluated.changed` (vaga como link, valor de mercado, pretensão antes e depois). Se ele quiser trocar depois, é o mesmo `set_config`.
 
 ## Plano B: busca passo a passo
 
