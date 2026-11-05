@@ -29,8 +29,12 @@ Sugira uma vez, sem insistir, que o Thiago reduza os pedidos de permissão do na
    - registre cada campo novo no perfil (seção "Campos novos do perfil" abaixo);
    - preencha todo o resto e deixe a aba aberta;
    - chame `update_application` com status `pendente_usuario`, `pending` listando cada item que falta e o `resume_id`;
-   - avise o Thiago e encerre a vaga.
-5. **Revisão antes do envio.** Pare antes do botão final de envio. Mostre ao Thiago:
+   - numa vaga só, avise o Thiago e encerre a vaga; em lote, deixe o aviso para o resumo e siga para a próxima vaga.
+5. **Revisão antes do envio.** Nunca clique no botão final de envio sem a confirmação do Thiago.
+   - **Em lote:** não pare para esta revisão. Com o formulário completo, deixe a aba aberta no botão de envio, chame `update_application` com status `pendente_usuario`, o `resume_id` e `pending` começando por "pronta para envio" (com o que ele precisa conferir: currículo, pretensão, respostas abertas) e siga para a próxima vaga. A revisão acontece junto, na revisão do lote (veja "Abas abertas").
+   - **Numa vaga só:** pare antes do botão final de envio.
+
+   Em qualquer caso, a revisão mostra ao Thiago:
    - a vaga;
    - o currículo anexado;
    - a pretensão informada;
@@ -48,11 +52,12 @@ Sugira uma vez, sem insistir, que o Thiago reduza os pedidos de permissão do na
 
 ## Abas abertas
 
-Cada vaga deixada em `pendente_usuario` com o formulário aberto ocupa uma aba. Para não sobrecarregar o computador do Thiago:
-- Chame `get_config` e leia `max_open_tabs` (padrão 12; ele muda com `set_config`).
+Em lote, `max_open_tabs` é quantos formulários você deixa abertos antes de pausar e perguntar ao Thiago como seguir. Cada vaga deixada em `pendente_usuario` com o formulário aberto ocupa uma aba, tanto a pronta para envio quanto a que tem algo faltando.
+- Chame `get_config` e leia `max_open_tabs` (padrão 12; ele muda com `set_config`). Se o Thiago disser na conversa quantas abas quer, grave com `set_config` antes de começar.
 - Conte as abas de candidatura que você deixou abertas nesta conversa. Depois de um envio confirmado (`aplicada`), feche a aba da vaga. Nunca feche abas que você não abriu.
-- Ao chegar no limite, não abra outro formulário: encerre o lote, deixe as vagas restantes como `a_aplicar` e entregue o resumo, pedindo ao Thiago que conclua e feche as abas pendentes e peça de novo para continuar.
-- No resumo, uma linha por aba aberta: empresa, cargo, o PDF a anexar (nome e `windows_path`) e o que falta.
+- Enquanto houver vagas no pedido e o número de abas abertas estiver abaixo do limite, siga para a próxima vaga, sem pausar.
+- Ao chegar no limite (ou ao fim da lista), não abra outro formulário: faça a **revisão do lote**. Mostre uma linha por aba aberta: a vaga como link, o currículo anexado (ou o PDF a anexar, com nome e `windows_path`), a pretensão, as respostas abertas e o que falta. As prontas para envio vêm primeiro. Ela entra no resumo do lote ([SKILL.md](SKILL.md)). Pergunte quais enviar e o que fazer com as demais.
+- Para cada vaga que o Thiago confirmar, clique em enviar, registre como `aplicada` (passo 6) e feche a aba. Com abas liberadas, continue o lote pelas vagas restantes, que seguem como `a_aplicar`.
 
 ## Campos novos do perfil
 

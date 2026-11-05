@@ -39,11 +39,12 @@ Grave cada resposta com `set_config` (sem `value` para aceitar o `default`) e le
 ## Várias vagas
 
 Quando o Thiago pede para se candidatar a várias vagas, trate uma de cada vez e não espere por ele entre elas. Sua tarefa em cada vaga termina no envio da candidatura (ou num bloqueio); testes de perfil ou de habilidade são dele.
+- Formulário completo: não pare para revisar cada formulário. Deixe a aba aberta, registre `pendente_usuario` com `pending` "pronta para envio…" e siga para a próxima; o envio sai na revisão do lote ([candidatar.md](candidatar.md#abas-abertas)).
 - `aplicada`: registre, anote em `pending` qualquer teste ou etapa pedida depois do envio e siga para a próxima vaga.
 - `pendente_usuario`: algo bloqueou o envio (por exemplo, o navegador não anexou o PDF). Registre o `pending`, deixe a aba aberta, respeitando o limite de abas de [candidatar.md](candidatar.md#abas-abertas), e siga para a próxima.
 - `encerrada` e `descartada`: informe o motivo no resumo e siga para a próxima.
 
-Só pare no meio do lote se a causa afetar todas as vagas (por exemplo, o login pedido pelo site não funciona ou a sessão expirou). Ao final, entregue um resumo único com: candidaturas feitas; **pendências do Thiago** (cada teste ou etapa com link e prazo, e cada `pendente_usuario` com o que falta e, quando houver PDF a anexar, o currículo certo daquela vaga: nome do arquivo e `windows_path`); vagas descartadas ou encerradas. O comando `/pending` lista essas pendências depois.
+Só pause o lote em três casos: as abas abertas chegaram a `max_open_tabs` (padrão 12), as vagas do pedido acabaram, ou a causa afeta todas as vagas (por exemplo, o login pedido pelo site não funciona ou a sessão expirou). Formulário pronto, campo que falta ou anexo que não subiu não são motivo para pausar. Ao pausar e ao final, entregue um resumo único com: candidaturas feitas; **pendências do Thiago** (cada teste ou etapa com link e prazo, e cada `pendente_usuario` com o que falta e, quando houver PDF a anexar, o currículo certo daquela vaga: nome do arquivo e `windows_path`); vagas descartadas ou encerradas. O comando `/pending` lista essas pendências depois.
 
 ## Triagem
 

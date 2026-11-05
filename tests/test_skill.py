@@ -235,3 +235,15 @@ def test_browser_permissions_are_suggested_once_before_the_first_application():
 
     assert "Automatically approve" in text and "Always allow actions on this site" in text
     assert text.index("Automatically approve") < text.index("1. **Triagem.**")
+
+
+def test_batch_fills_forms_up_to_the_tab_limit_and_reviews_them_together():
+    flow = (SKILL_DIR / "candidatar.md").read_text(encoding="utf-8")
+    review = flow[flow.index("5. **Revisão antes do envio.**"):flow.index("6. **Registro final.**")]
+    tabs = flow[flow.index("## Abas abertas"):flow.index("## Campos novos do perfil")]
+    batch = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    batch = batch[batch.index("## Várias vagas"):batch.index("## Triagem")]
+
+    assert "**Em lote:**" in review and "pronta para envio" in review and "próxima vaga" in review
+    assert "pronta para envio" in tabs and "revisão do lote" in tabs.lower()
+    assert "não pare para revisar" in batch.lower() and "`max_open_tabs`" in batch
