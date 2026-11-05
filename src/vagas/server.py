@@ -561,7 +561,9 @@ def build_server(
         responsabilidades (ex.: "contributed" não vira "led").
 
         application_id: candidatura à qual o currículo fica vinculado (opcional; também pode ser
-        vinculado depois com add_application/update_application e resume_id).
+        vinculado depois com add_application/update_application e resume_id). Passe-o sempre que o
+        currículo for para uma vaga: o arquivo se chama "<Nome>_<Sobrenome>_Resume_<Empresa>_<Cargo>.pdf"
+        (cargo longo é encurtado), para distinguir vagas da mesma empresa. Sem ele, o nome usa o label.
         Retorna {"id", "path", "windows_path", "pages", "warnings"}; o PDF vai para VAGAS_RESUME_OUT.
         windows_path é o caminho como o usuário o vê no Windows (null fora de /mnt/<letra>): use-o ao
         pedir que ele anexe o arquivo na vaga.

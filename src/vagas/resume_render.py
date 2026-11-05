@@ -14,6 +14,7 @@ import typst
 from vagas.repo import VagasError
 
 MAX_PAGES = 2
+MAX_LABEL_CHARS = 70  # parte do rótulo no nome do arquivo; cargos longos são cortados entre palavras
 
 
 def default_output_dir(db_path: Path | str | None = None) -> Path | None:
@@ -59,8 +60,14 @@ def _file_stem(name: str, label: str | None) -> str:
     short = " ".join([words[0], words[-1]]) if len(words) > 1 else name
     parts = [_slug(short), "Resume"]
     if label and _slug(label):
-        parts.append(_slug(label))
+        parts.append(_shorten(_slug(label)))
     return "_".join(parts)
+
+
+def _shorten(slug: str) -> str:
+    if len(slug) <= MAX_LABEL_CHARS:
+        return slug
+    return slug[:MAX_LABEL_CHARS + 1].rsplit("_", 1)[0]
 
 
 def _free_path(out_dir: Path, stem: str) -> Path:

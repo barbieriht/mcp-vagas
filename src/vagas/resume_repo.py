@@ -330,18 +330,23 @@ class ResumeStore:
         self, selection: Any, out_dir: Path | str | None, application_id: int | None = None,
     ) -> dict[str, Any]:
         """Valida a seleção contra o currículo geral, gera o PDF e registra. Nada é gravado se falhar."""
-        if application_id is not None and not self.conn.execute(
-            "SELECT 1 FROM applications WHERE id = ?", (application_id,)
-        ).fetchone():
-            raise VagasError(f"Candidatura {application_id} não existe.")
         if not isinstance(selection, TailoredSelection):
             try:
                 selection = TailoredSelection.model_validate(selection)
             except ValidationError as exc:
                 raise VagasError(describe_errors(exc, "Seleção inválida")) from exc
+        label = selection.label
+        if application_id is not None:
+            app = self.conn.execute(
+                "SELECT company, role FROM applications WHERE id = ?", (application_id,)
+            ).fetchone()
+            if app is None:
+                raise VagasError(f"Candidatura {application_id} não existe.")
+            # A mesma empresa pode ter várias vagas: o nome do arquivo identifica a vaga, não só a empresa.
+            label = f"{app['company']} - {app['role']}"
         master = self.get_master_resume()
         resolved = resolve(master["resume"], selection)
-        rendered = render_resume(resolved, out_dir, label=selection.label)
+        rendered = render_resume(resolved, out_dir, label=label)
         with self.conn:
             cursor = self.conn.execute(
                 """
@@ -349,7 +354,7 @@ class ResumeStore:
                     master_resume_id, application_id, label, selection, resolved, pdf_path, pages, created_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (master["version_id"], application_id, selection.label,
+                (master["version_id"], application_id, label,
                  json.dumps(selection.model_dump(exclude_none=True), ensure_ascii=False),
                  json.dumps(resolved, ensure_ascii=False), rendered["path"], rendered["pages"], self.now()),
             )
@@ -363,7 +368,7 @@ class ResumeStore:
             terms = self.score_job_match(app["description"], company=app["company"], title=app["role"],
                                          location=app.get("location"))["matched"]
         master = self.get_master_resume()["resume"]
-        result = suggest_selection(master, terms, label=app["company"])
+        result = suggest_selection(master, terms, label=f"{app['company']} - {app['role']}")
         resolve(master, TailoredSelection.model_validate(result["selection"]))  # a sugestão sempre passa
         return result
 
