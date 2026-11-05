@@ -614,7 +614,7 @@ def build_server(
         Encadeia, sem você repetir as etapas: find_application (URL), read_job_posting, critérios
         fixos do arquivo criterios-triagem.md (empresas ignoradas, vagas afirmativas/exclusivas PcD fora dos
         grupos que o usuário disputa, cargos alvo,
-        locais aceitos), score_job_match, add_application (a_aplicar ou descartada, com search_id),
+        locais aceitos, senioridades a que o usuário se candidata), score_job_match, add_application (a_aplicar ou descartada, com search_id),
         faixa publicada (save_salary_estimate) e evaluate_salary pela política salarial.
         decision:
         - "ja_registrada": URL já registrada; siga pelo status de application, como em find_application;
@@ -631,7 +631,11 @@ def build_server(
         Se o julgamento reprovar a vaga, use update_application com status "descartada".
         Página bloqueada ou sem dados estruturados: erro; leia a vaga pelo navegador e faça a triagem
         pelos passos manuais da Skill.
-        Retorna {decision, application, posting (sem a descrição), match ({score, matched, missing,
+        Níveis de experiência (tabela do criterios-triagem.md): só embasam. level = {your_years (anos
+        somados do currículo geral), your_level, job_level, job_years (faixa do nível da vaga), within
+        (o usuário está na faixa), listed (nível entre as "Senioridades buscadas")}. Vaga de nível fora
+        da lista: descartada; da lista, segue mesmo fora do enquadramento (o motivo fica em reasons).
+        Retorna {decision, level, application, posting (sem a descrição), match ({score, matched, missing,
         related, optional}, como em score_job_match), salary, reasons, needs}.
         """
         with triages() as t:

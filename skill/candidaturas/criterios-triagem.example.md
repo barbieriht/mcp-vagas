@@ -10,8 +10,18 @@ Lidos pelo MCP em `triage_job` e `suggest_job_searches` (variável `VAGAS_TRIAGE
 - Vagas afirmativas que posso disputar: nenhuma
 - Locais aceitos para híbrido e presencial: São Paulo, Campinas
 - Senioridades buscadas:
-- Anos por senioridade: junior 0, pleno 3, senior 5
+- Níveis de experiência: junior 0-2, pleno 2-5, senior 5-8, especialista 7-12+, staff 10-15+
 - Estados aceitos para híbrido e presencial: SP
+
+Os níveis de experiência só embasam a candidatura: a triagem compara os seus anos de experiência (somados do currículo geral) com a faixa do nível da vaga e mostra o enquadramento. Quem decide é a lista de "Senioridades buscadas": vaga de nível que está nela segue mesmo fora do seu enquadramento; vaga de nível fora dela é descartada.
+
+| Nível | Experiência aproximada | Característica |
+|---|---|---|
+| Júnior | 0–2 anos | Desenvolvimento de competências fundamentais |
+| Pleno | 2–5 anos | Autonomia na execução e resolução de problemas |
+| Sênior | 5–8 anos | Liderança técnica e resolução de problemas complexos |
+| Especialista | 7–12+ anos | Profundidade técnica e referência em um domínio específico |
+| Staff / Principal | 10–15+ anos | Influência arquitetural e técnica em escala organizacional |
 
 ## Valores aceitos
 
@@ -30,6 +40,6 @@ Listas separadas por vírgula. Maiúsculas, acentos e ponto final são ignorados
 - **Termos de vaga exclusiva PcD:** textos livres, procurados no título e na descrição da vaga.
 - **Vagas afirmativas que posso disputar:** grupos cujas vagas afirmativas ou exclusivas você quer disputar: `mulheres`, `pessoas negras`, `LGBTQIA+`, `PcD`, `50+`, `indígenas`, ou `nenhuma`. A triagem detecta vagas afirmativas pelo título e pela descrição ("vaga exclusiva para mulheres", "afirmativa para pessoas negras") e descarta as de grupos que não estão na lista; sem a linha, vale `nenhuma`. Frases de inclusão ("incentivamos candidaturas de mulheres...") não contam. Vaga que se diz afirmativa sem citar um grupo reconhecido vira um item `afirmativa` em `needs`, para o seu julgamento. Com `PcD` na lista, os termos de PcD acima deixam de descartar a vaga.
 - **Locais aceitos para híbrido e presencial:** nomes de cidades, procurados no local da vaga. Vagas remotas são sempre aceitas pelo local. Vaga híbrida ou presencial fora desses locais não é descartada: a triagem pede o seu julgamento (deslocamento viável?).
-- **Anos por senioridade** (opcional): para vagas cujo título não diz a senioridade, a triagem usa os anos de experiência pedidos na descrição ("4+ years", "mínimo de 5 anos", "3 a 5 anos": vale o menor). Cada item é uma senioridade e o mínimo de anos: `junior 0, pleno 3, senior 5` (o padrão). Senioridades aceitas: as mesmas de "Senioridades buscadas".
+- **Níveis de experiência** (opcional; também aceito como "Anos por senioridade"): a faixa de anos de cada nível, no formato `pleno 2-5` (ou `2 a 5`, `2–5`); `+` no fim ou só o mínimo (`staff 10+`, `pleno 3`) deixam a faixa sem teto. Sem a linha, vale a tabela acima: `junior 0-2, pleno 2-5, senior 5-8, especialista 7-12, staff 10-15`. Serve para: classificar vagas cujo título não diz o nível, pelos anos pedidos na descrição ("4+ years", "mínimo de 5 anos", "3 a 5 anos": vale o menor, e o nível é o maior cujo mínimo cabe); e mostrar o seu enquadramento. Níveis aceitos: os mesmos de "Senioridades buscadas".
 - **Estados aceitos para híbrido e presencial** (opcional): siglas ou nomes de estados (`SP`, `Minas Gerais`). Vaga híbrida ou presencial em outro estado é descartada; no mesmo estado mas fora dos locais aceitos, a triagem pede o seu julgamento. Vazio: não filtra por estado.
-- **Senioridades buscadas** (opcional, só afeta `suggest_job_searches`): `estagio`, `junior`, `pleno`, `senior` ou `especialista`; também com acento, como Estágio, Júnior e Sênior. Com valores, cada cargo vira uma busca por senioridade; vazio, as buscas saem sem senioridade.
+- **Senioridades buscadas** (opcional; também aceito como "Senioridades a que me candidato"): `estagio`, `junior`, `pleno`, `senior`, `especialista` ou `staff` (Staff/Principal); também com acento, como Estágio, Júnior e Sênior. São os níveis a que você se candidata: vaga de nível fora da lista é descartada na triagem, mesmo que você se enquadre nele; vaga de nível da lista segue mesmo fora do seu enquadramento. Nas buscas, cada cargo vira uma busca por senioridade. Vazio: todos os níveis seguem e as buscas saem sem senioridade.
