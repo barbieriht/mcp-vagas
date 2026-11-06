@@ -1,11 +1,12 @@
-// Acha campos de documentos (CPF, RG...) vazios e visíveis e pede os valores ao service worker,
-// que consulta o host do mcp-vagas. A decisão (site confiável, empresa, confirmação) fica no host;
+// Acha campos de documentos (CPF, RG...) vazios e visíveis e caixas de aceite desmarcadas, e pede os
+// valores ao service worker, que consulta o host do mcp-vagas (só termos de uso e privacidade são marcados). A decisão (site confiável, empresa, confirmação) fica no host;
 // aqui só há um filtro barato para não chamar o host em toda página.
 (() => {
   if (window.__vagasCofre) return;
   window.__vagasCofre = true;
 
   const MAYBE_DOCUMENT = /cpf|\brg\b|identidade|registro geral|cnh|habilita|motorista|\bpis\b|pasep|\bnis\b|\bnit\b|ctps|carteira de trabalho|eleitor|passaporte|passport|m[aã]e\b|mother|emissor|expedidor|licen[cs]e/i;
+  const MAYBE_CONSENT = /termo|condi[cç][oõ]es|privacidade|privacy|lgpd|terms|dados/i;
   const TEXT_TYPES = new Set(["", "text", "tel", "number", "search"]);
   const seen = new WeakSet();
   const byId = new Map();
@@ -17,6 +18,7 @@
   function labelOf(input) {
     const parts = [];
     for (const label of input.labels || []) parts.push(clean(label.textContent));
+    if (input.getAttribute("role") === "checkbox") parts.push(clean(input.textContent));
     for (const id of (input.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean)) {
       parts.push(clean(document.getElementById(id)?.textContent));
     }
@@ -46,6 +48,14 @@
       && !input.value && visible(input);
   }
 
+  // Caixa nativa escondida sob um rótulo estilizado: vale a visibilidade do rótulo.
+  function checkable(box) {
+    if (box.getAttribute("role") === "checkbox") {
+      return box.getAttribute("aria-checked") !== "true" && box.getAttribute("aria-disabled") !== "true" && visible(box);
+    }
+    return !box.checked && !box.disabled && (visible(box) || [...(box.labels || [])].some(visible));
+  }
+
   // Setter do protótipo + eventos: frameworks como React só enxergam o valor assim.
   function setValue(input, value) {
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
@@ -66,6 +76,15 @@
       byId.set(id, input);
       fields.push({ id, text, attrs, placeholder: input.getAttribute("placeholder") || "", maxlength: input.maxLength > 0 ? input.maxLength : null });
     }
+    for (const box of document.querySelectorAll("input[type=checkbox], [role=checkbox]")) {
+      if (seen.has(box) || !checkable(box)) continue;
+      const text = labelOf(box);
+      if (!MAYBE_CONSENT.test(text)) continue;
+      seen.add(box);
+      const id = String(nextId++);
+      byId.set(id, box);
+      fields.push({ id, kind: "checkbox", text });
+    }
     if (!fields.length) return;
     let response;
     try {
@@ -74,8 +93,14 @@
       return; // extensão recarregada ou service worker indisponível: nada a fazer nesta página
     }
     for (const [id, value] of Object.entries(response?.values || {})) {
-      const input = byId.get(id);
-      if (input && !input.value) setValue(input, value);
+      const el = byId.get(id);
+      if (!el) continue;
+      if (value === true) {
+        // Clique, não .checked: o framework da página só registra o aceite pelo evento.
+        if (el.getAttribute("role") === "checkbox" ? el.getAttribute("aria-checked") !== "true" : !el.checked) el.click();
+      } else if (!el.value) {
+        setValue(el, value);
+      }
     }
   }
 

@@ -176,6 +176,14 @@ def test_identity_documents_are_left_to_the_browser_extension():
     assert "confirme na janela da extensão" in review
 
 
+def test_terms_of_use_are_left_to_the_browser_extension_but_declarations_are_not():
+    text = (SKILL_DIR / "candidatar.md").read_text(encoding="utf-8")
+    consent = text[text.index("**Consentimentos:**"):text.index("4. **Bloqueios.**")]
+
+    assert "extensão do Chrome" in consent and "Não as marque" in consent and "`pending`" in consent
+    assert "Declaro que" in consent and "perfil" in consent
+
+
 def test_work_list_command_and_search_summary_use_the_tool():
     command = (SKILL_DIR.parent / "comandos" / "work-list" / "SKILL.md").read_text(encoding="utf-8")
     search = (SKILL_DIR / "buscar.md").read_text(encoding="utf-8")

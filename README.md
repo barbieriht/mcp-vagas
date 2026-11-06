@@ -462,15 +462,16 @@ Campos aceitos: `cpf`, `rg`, `rg_orgao_emissor`, `cnh`, `pis`, `ctps`, `titulo_e
 
 ### Extensão do Chrome: documentos do cofre
 
-O Claude in Chrome não digita documentos de identidade, nem com a sua autorização. Por isso, quem preenche CPF, RG e os demais documentos do cofre é uma extensão local do Chrome, sem passar pelo modelo (decisão em [docs/adr/0002](docs/adr/0002-documentos-preenchidos-pela-extensao-do-chrome.md)). O Claude preenche o resto do formulário e deixa esses campos para ela.
+O Claude in Chrome não digita documentos de identidade nem marca termos de uso, nem com a sua autorização. Por isso, quem preenche CPF, RG e os demais documentos do cofre, e marca o aceite dos termos de uso e da política de privacidade, é uma extensão local do Chrome, sem passar pelo modelo (decisão em [docs/adr/0002](docs/adr/0002-documentos-preenchidos-pela-extensao-do-chrome.md)). O Claude preenche o resto do formulário e deixa esses campos para ela.
 
 **Instalação:** `scripts/instalar_desktop.py` copia a extensão para `%LOCALAPPDATA%\vagas\extensao` e registra o host de native messaging no Chrome. Na primeira vez, carregue a extensão: abra `chrome://extensions`, ligue o **Modo do desenvolvedor**, clique em **Carregar sem compactação** e escolha essa pasta. Nas atualizações, o instalador troca os arquivos; clique em recarregar na extensão ou reinicie o Chrome.
 
 **Como funciona:**
 - A extensão procura campos de texto vazios, visíveis e habilitados com rótulo de documento (CPF, RG, órgão emissor, CNH, PIS, CTPS, título de eleitor, passaporte, nome da mãe). Campos ocultos e já preenchidos ficam como estão.
 - Só preenche em https, em sites de vagas: agregadores (LinkedIn, Indeed, Glassdoor, Catho, InfoJobs, Vagas.com), plataformas de recrutamento (Gupy, Workday, Greenhouse, Lever, InHire, Sólides e outras, lista em `vagas.autofill`), os domínios de `autofill_domains` no `config.toml` e o site próprio das candidaturas abertas.
-- Na primeira vez de cada empresa, abre uma janela da extensão: **Permitir sempre para a empresa**, **Só desta vez** ou **Não preencher**. Nem a página nem o agente do navegador conseguem responder a essa janela. Nos agregadores, onde várias empresas publicam no mesmo endereço, a confirmação vale só para a vaga.
-- Cada preenchimento fica em `autofill.log`, ao lado do banco (data, endereço, documentos), sem os valores. O ícone da extensão mostra **OK** quando preencheu e **!** quando houve erro (passe o mouse para ver o motivo).
+- Marca caixas de aceite de termos de uso, condições de uso, política ou aviso de privacidade e LGPD. Nunca marca marketing, novidades, comunicações por e-mail/SMS/WhatsApp, parceiros e terceiros, outros processos, banco de talentos nem declarações de fato ("Declaro que não possuo parentes..."); só aceita "Declaro que li/estou ciente/concordo". Uma caixa que mistura termos e marketing fica desmarcada.
+- Na primeira vez de cada empresa, abre uma janela da extensão com os documentos e o texto de cada termo que será aceito: **Permitir sempre para a empresa**, **Só desta vez** ou **Não preencher**. Um "Permitir sempre" dado antes, só para documentos, pergunta de novo quando aparecem termos. Nem a página nem o agente do navegador conseguem responder a essa janela. Nos agregadores, onde várias empresas publicam no mesmo endereço, a confirmação vale só para a vaga.
+- Cada preenchimento fica em `autofill.log`, ao lado do banco (data, endereço, documentos e o texto exato dos termos aceitos), sem os valores. O ícone da extensão mostra **OK** quando preencheu e **!** quando houve erro (passe o mouse para ver o motivo).
 
 Empresas com "Permitir sempre":
 

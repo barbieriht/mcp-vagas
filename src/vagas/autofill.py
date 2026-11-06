@@ -8,7 +8,9 @@ A extensão (pasta `extension/`) acha os campos na página e pergunta ao host de
 - a primeira vez de cada empresa pede confirmação numa janela da extensão; "sempre" fica guardado
   em `autofill_aprovacoes.json`. Nos agregadores não há empresa confiável na URL: a confirmação vale
   só para a vaga;
-- cada preenchimento vai para `autofill.log`, sem os valores.
+- caixas de aceite de termos de uso e política de privacidade (nunca marketing, parceiros ou
+  declarações de fato) são marcadas com a mesma regra; a confirmação mostra o texto de cada termo;
+- cada preenchimento vai para `autofill.log`, sem os valores (com o texto dos termos aceitos).
 
 Aprovações pelo terminal:
     python -m vagas.autofill list | revoke <chave> | revoke --all
@@ -64,6 +66,19 @@ _EXCLUDE = re.compile(r"\b(data|validade|vencimento|emissao|expedicao|categoria|
                       r"expiration|issue|date|country|pais)\b")
 
 
+_CONSENT = re.compile(
+    r"\btermos?\b.{0,30}\b(uso|servicos?|condicoes)\b|\bcondicoes\s+(gerais\s+)?(de\s+)?uso\b"
+    r"|\b(politica|aviso|declaracao)\s+de\s+privacidade\b|\blgpd\b|\bprotecao\s+de\s+dados\b"
+    r"|\btratamento\s+(dos\s+|de\s+)?(meus\s+)?dados\b|\bterms\s+(of\s+)?(use|service)\b"
+    r"|\bterms\s+and\s+conditions\b|\bprivacy\s+(policy|notice|statement)\b")
+_NOT_CONSENT = re.compile(
+    r"\b(marketing|newsletter|novidades|ofertas|promoc\w*|comunicac\w*|e\s?mails?|sms|whatsapp|parceir\w*|"
+    r"terceir\w*|outr[ao]s\s+(processos|vagas|oportunidades)|banco\s+de\s+talentos|publicidade|receber|receive|"
+    r"partners?|third\s+part\w*)\b")
+_DECLARATION_OF_READING = re.compile(r"\bdeclaro\s+(que\s+)?(li|ter\s+lido|estar\s+ciente|estou\s+ciente|"
+                                     r"concordo|aceito)\b")
+
+
 def _words(text: str) -> str:
     text = re.sub(r"([a-z])([A-Z])", r"\1 \2", text or "")  # cpfCandidato
     return " ".join(re.sub(r"[^a-z0-9]+", " ", normalize_text(text)).split())
@@ -75,6 +90,16 @@ def classify(text: str) -> str | None:
     if not words or _EXCLUDE.search(words):
         return None
     return next((field for field, pattern in _PATTERNS if re.search(pattern, words)), None)
+
+
+def classify_consent(text: str) -> str | None:
+    """"termos" para o aceite de termos de uso / privacidade; None para marketing, parceiros e declarações de fato."""
+    words = _words(text)
+    if not words or _NOT_CONSENT.search(words):
+        return None
+    if re.search(r"\bdeclaro\b", words) and not _DECLARATION_OF_READING.search(words):
+        return None
+    return "termos" if _CONSENT.search(words) else None
 
 
 def classify_field(field: dict[str, Any]) -> str | None:
@@ -172,12 +197,14 @@ class Approvals:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(data, indent=1, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8")
 
-    def has(self, key: str) -> bool:
-        return key in self._load()
+    def covers(self, key: str, terms: bool = False) -> bool:
+        """A aprovação vale para os documentos; para os termos, só se a confirmação os mencionou."""
+        approval = self._load().get(key)
+        return approval is not None and (not terms or bool(approval.get("termos")))
 
-    def add(self, key: str, label: str) -> None:
+    def add(self, key: str, label: str, terms: bool = False) -> None:
         data = self._load()
-        data[key] = {"label": label, "approved_at": _now()}
+        data[key] = {"label": label, "approved_at": _now(), "termos": terms or bool(data.get(key, {}).get("termos"))}
         self._save(data)
 
     def remove(self, key: str) -> bool:
@@ -209,35 +236,44 @@ class Autofill:
         self.extra_domains = extra_domains
 
     def handle(self, request: dict[str, Any]) -> dict[str, Any]:
-        """{url, fields: [{id, text, attrs?, placeholder?, maxlength?}], confirm: None | "once" | "always"}.
+        """{url, fields: [{id, kind?, text, attrs?, placeholder?, maxlength?}], confirm: None | "once" | "always"}.
 
-        Respostas: refused (reason), nothing, confirm (origin, documents; sem valores) ou
-        filled (values por id do campo, label)."""
+        kind "checkbox": caixa de aceite (só termos de uso e privacidade são marcados); os demais campos
+        são de texto (documentos do cofre). Respostas: refused (reason), nothing, confirm (origin,
+        documents, terms; sem valores) ou filled (values por id do campo: texto ou true, label)."""
         try:
             origin = resolve_origin(request.get("url", ""), self.open_sites(), self.extra_domains())
         except VagasError as exc:
             return {"status": "refused", "reason": str(exc)}
+        fields = request.get("fields") or []
         stored = set(self.vault.list())
-        wanted = [(str(f.get("id")), doc, f) for f in request.get("fields") or []
-                  if (doc := classify_field(f)) and doc in stored]
-        if not wanted:
+        wanted = [(str(f.get("id")), doc, f) for f in fields
+                  if f.get("kind") != "checkbox" and (doc := classify_field(f)) and doc in stored]
+        terms = [(str(f.get("id")), " ".join(str(f.get("text") or "").split())) for f in fields
+                 if f.get("kind") == "checkbox" and classify_consent(f.get("text") or "")]
+        if not wanted and not terms:
             return {"status": "nothing"}
         documents = list(dict.fromkeys(ALLOWED_FIELDS[doc] for _, doc, _ in wanted))
+        term_texts = list(dict.fromkeys(text for _, text in terms))
         confirm = request.get("confirm")
-        if origin.remember and self.approvals.has(origin.key):
+        if origin.remember and self.approvals.covers(origin.key, terms=bool(terms)):
             mode = "aprovada"
         elif confirm == "always" and origin.remember:
-            self.approvals.add(origin.key, origin.label)
+            self.approvals.add(origin.key, origin.label, terms=bool(terms))
             mode = "always"
         elif confirm in ("once", "always"):
             mode = "once"
         else:
-            return {"status": "confirm", "documents": documents,
+            return {"status": "confirm", "documents": documents, "terms": term_texts,
                     "origin": {"key": origin.key, "label": origin.label, "host": origin.host,
                                "remember": origin.remember}}
         raw = {doc: self.vault.get(doc) for doc in dict.fromkeys(doc for _, doc, _ in wanted)}
-        values = {field_id: format_value(doc, raw[doc], field) for field_id, doc, field in wanted}
-        self._log({"at": _now(), "host": origin.host, "key": origin.key, "documents": documents, "mode": mode})
+        values: dict[str, str | bool] = {field_id: format_value(doc, raw[doc], field) for field_id, doc, field in wanted}
+        values.update({field_id: True for field_id, _ in terms})
+        entry = {"at": _now(), "host": origin.host, "key": origin.key, "documents": documents, "mode": mode}
+        if term_texts:
+            entry["terms"] = term_texts
+        self._log(entry)
         return {"status": "filled", "values": values, "label": origin.label}
 
     def _log(self, entry: dict[str, Any]) -> None:
@@ -285,7 +321,8 @@ def main(argv: list[str] | None = None) -> None:
     approvals = Approvals(default_approvals_path())
     if args.command == "list":
         items = approvals.list()
-        print("\n".join(f"{a['key']}  ({a['label']}, desde {a['approved_at']})" for a in items) or "Nenhuma aprovação.")
+        print("\n".join(f"{a['key']}  ({a['label']}, desde {a['approved_at']}"
+                        f"{', com termos de uso' if a.get('termos') else ''})" for a in items) or "Nenhuma aprovação.")
     elif args.all:
         approvals.clear()
         print("Todas as aprovações foram removidas.")

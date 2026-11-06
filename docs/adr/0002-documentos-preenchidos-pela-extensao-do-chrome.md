@@ -16,3 +16,7 @@ A decisão de quem recebe o documento fica numa regra fixa e numa confirmação 
 - Os valores não passam mais pelo contexto do modelo, nem no cadastro nem no uso.
 - A extensão observa todas as páginas https, mas só consulta o host quando acha um campo com cara de documento. A decisão final é sempre do host.
 - Num site de plataforma (ex.: `gupy.io`), uma vaga falsa publicada por terceiros também receberia o documento depois da confirmação. A confirmação por empresa mostra o endereço para o usuário julgar.
+
+## Termos de uso (#155)
+
+A extensão também marca o aceite de termos de uso e da política de privacidade, porque o Claude in Chrome também recusa essa marcação. A regra fica na mesma classificação no host, e a confirmação por empresa passa a mostrar o texto de cada termo. A aceitação continua sendo do usuário, dada naquela janela. Ficam de fora, por regra, marketing, parceiros, banco de talentos e declarações de fato: uma declaração marcada automaticamente pode ser falsa. Caixas que misturam termos e marketing também ficam de fora. O `autofill.log` guarda o texto exato aceito, como comprovante.

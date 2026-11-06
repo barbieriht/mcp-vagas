@@ -22,8 +22,18 @@ async function main() {
     document.getElementById("question").textContent = "Este pedido já foi respondido ou expirou.";
     return;
   }
-  const { origin, documents, title } = details;
-  document.getElementById("question").textContent = `Preencher ${list(documents)} em ${origin.label}?`;
+  const { origin, documents, terms = [], title } = details;
+  const actions = [];
+  if (documents.length) actions.push(`preencher ${list(documents)}`);
+  if (terms.length) actions.push(terms.length > 1 ? `aceitar estes ${terms.length} termos` : "aceitar este termo");
+  const question = `${list(actions)} em ${origin.label}?`;
+  document.getElementById("question").textContent = question[0].toUpperCase() + question.slice(1);
+  const accepted = document.getElementById("terms");
+  for (const text of terms) {
+    const item = document.createElement("li");
+    item.textContent = text.length > 240 ? `${text.slice(0, 240)}…` : text;
+    accepted.append(item);
+  }
   document.getElementById("where").textContent = `Endereço: ${origin.host}`;
   if (title) document.getElementById("title").textContent = `Página: ${title}`;
   if (origin.remember) {
