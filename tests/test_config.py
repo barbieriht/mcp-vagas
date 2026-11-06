@@ -181,7 +181,7 @@ async def test_server_instructions_leave_identity_documents_to_the_browser_exten
     async with Client(build_server(db_path)) as client:
         instructions = client.instructions
 
-    assert "extensão do Chrome" in instructions and "CPF" in instructions
+    assert "extensão do Chrome" in instructions and "CPF" in instructions and "termos de uso" in instructions
 
 
 async def test_server_instructions_ask_for_job_names_as_markdown_links(db_path):

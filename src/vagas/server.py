@@ -81,8 +81,9 @@ def build_server(
         "Em formulários de candidatura, os dados pessoais vêm de get_profile (não de cópias de arquivos da Skill), "
         "e o currículo anexado é o personalizado da vaga, gerado com create_tailored_resume antes de abrir o "
         "formulário; se a geração falhar por pasta não configurada, chame get_config. Documentos de identidade "
-        "(CPF, RG e os demais com status cofre no get_profile) quem preenche é a extensão do Chrome do usuário: "
-        "deixe esses campos vazios e não os digite; se continuarem vazios na revisão, liste-os no pending."))
+        "(CPF, RG e os demais com status cofre no get_profile) e as caixas de termos de uso e política de "
+        "privacidade quem preenche é a extensão do Chrome do usuário: deixe-os vazios, não os digite nem marque; "
+        "se continuarem vazios na revisão, liste-os no pending."))
 
     @contextmanager
     def store(factory: Callable[[sqlite3.Connection], Any]) -> Iterator[Any]:

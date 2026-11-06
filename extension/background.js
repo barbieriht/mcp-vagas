@@ -27,7 +27,7 @@ function ask(cacheKey, details) {
   const id = crypto.randomUUID();
   const answer = new Promise((resolve) => {
     pending.set(id, { details, resolve });
-    chrome.windows.create({ url: `${CONFIRM_PAGE}?id=${id}`, type: "popup", width: 480, height: 360, focused: true })
+    chrome.windows.create({ url: `${CONFIRM_PAGE}?id=${id}`, type: "popup", width: 520, height: 460, focused: true })
       .then((win) => { if (pending.has(id)) pending.get(id).windowId = win.id; })
       .catch(() => resolve("no"));
   }).finally(() => { pending.delete(id); asking.delete(cacheKey); });
@@ -52,7 +52,7 @@ async function fill(message, sender) {
     }
     response = await chrome.runtime.sendNativeMessage(HOST, { ...request, confirm: answer });
   }
-  if (response.status === "filled") await badge(tabId, "OK", `documentos preenchidos (${response.label})`);
+  if (response.status === "filled") await badge(tabId, "OK", `preenchido (${response.label})`);
   if (response.status === "error") await badge(tabId, "!", response.message);
   return response;
 }

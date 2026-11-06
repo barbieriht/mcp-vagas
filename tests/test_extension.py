@@ -18,17 +18,25 @@ extension_id = _inst.extension_id
 EXTENSION = REPO / "extension"
 HOST_NAME = "com.barbieriht.vagas"
 
-FORM = """<!doctype html><html><body><form>
+FORM = """<!doctype html><html><head><meta charset="utf-8"></head><body><form>
 <label for="cpf">CPF *</label><input id="cpf" placeholder="000.000.000-00">
 <div><span>Número do RG</span><input name="documento2"></div>
 <label>CPF oculto <input id="hidden" style="display:none"></label>
 <label>CPF já preenchido <input id="filled" value="111"></label>
 <label for="nome">Nome completo</label><input id="nome">
 <label for="rgdata">Data de emissão do RG</label><input id="rgdata">
+<label><input type="checkbox" id="termos"> Li e concordo com os <a href="#">Termos de Uso</a></label>
+<label><input type="checkbox" id="news"> Quero receber novidades por e-mail</label>
+<label><input type="checkbox" id="declaro"> Declaro que não possuo parentes na empresa</label>
+<label><input type="checkbox" id="priv" style="opacity:0;position:absolute;width:1px;height:1px">
+  <span>Aceito a Política de Privacidade</span></label>
+<div role="checkbox" aria-checked="false" id="lgpd" tabindex="0"
+  onclick="this.setAttribute('aria-checked', 'true')">Autorizo o tratamento dos meus dados (LGPD)</div>
 </form>
 <script>
 window.events = [];
 document.getElementById("cpf").addEventListener("input", (e) => window.events.push(e.target.value));
+document.getElementById("termos").addEventListener("change", (e) => window.events.push(e.target.checked));
 </script></body></html>"""
 
 
@@ -89,27 +97,38 @@ def browser(tmp_path):
         context.close()
 
 
-def _open_and_confirm(context, url, choice):
+def _open_and_confirm(context, url, choice, shown=None):
     page = context.new_page()
     with context.expect_page(timeout=15000) as popup:
         page.goto(url)
     confirm = popup.value
     confirm.wait_for_load_state()
-    confirm.get_by_role("button", name=choice).click()
+    button = confirm.get_by_role("button", name=choice)
+    button.wait_for()
+    if shown is not None:
+        shown.append(confirm.inner_text("body"))
+    button.click()
     return page
 
 
 def test_fills_visible_document_fields_after_confirmation_and_remembers_the_company(browser):
     context, tmp_path = browser
 
-    page = _open_and_confirm(context, "https://acme.gupy.io/candidates/jobs/1/apply", "Permitir sempre para acme")
+    shown = []
+    page = _open_and_confirm(context, "https://acme.gupy.io/candidates/jobs/1/apply", "Permitir sempre para acme",
+                             shown)
 
     page.wait_for_function("document.getElementById('cpf').value !== ''", timeout=15000)
+    assert "CPF e RG" in shown[0] and "Li e concordo com os Termos de Uso" in shown[0]
+    assert "novidades" not in shown[0] and "parentes" not in shown[0]
+    assert page.is_checked("#termos") and page.is_checked("#priv")
+    assert page.get_attribute("#lgpd", "aria-checked") == "true"
+    assert not page.is_checked("#news") and not page.is_checked("#declaro")
     assert page.input_value("#cpf") == "529.982.247-25"
     assert page.input_value("[name=documento2]") == "12.345.678-9"
     assert page.input_value("#hidden") == "" and page.input_value("#filled") == "111"
     assert page.input_value("#nome") == "" and page.input_value("#rgdata") == ""
-    assert page.evaluate("window.events") == ["529.982.247-25"]
+    assert sorted(map(str, page.evaluate("window.events"))) == ["529.982.247-25", "True"]
 
     again = context.new_page()
     again.goto("https://acme.gupy.io/candidates/jobs/2/apply")
@@ -127,7 +146,7 @@ def test_declining_leaves_the_fields_empty(browser):
     page = _open_and_confirm(context, "https://www.linkedin.com/jobs/view/4012345678/", "Não preencher")
 
     page.wait_for_timeout(1500)
-    assert page.input_value("#cpf") == ""
+    assert page.input_value("#cpf") == "" and not page.is_checked("#termos")
 
 
 def test_untrusted_sites_are_never_filled_nor_asked(browser):
@@ -137,6 +156,6 @@ def test_untrusted_sites_are_never_filled_nor_asked(browser):
     page.goto("https://golpe.example.com/form")
     page.wait_for_timeout(2500)
 
-    assert page.input_value("#cpf") == ""
+    assert page.input_value("#cpf") == "" and not page.is_checked("#termos")
     assert not [p for p in context.pages if p.url.startswith("chrome-extension://")]
     assert not (tmp_path / "autofill.log").exists()

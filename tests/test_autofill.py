@@ -5,7 +5,7 @@ import struct
 import pytest
 
 from test_sensitive import FakeBackend
-from vagas.autofill import Approvals, Autofill, classify, format_value, resolve_origin
+from vagas.autofill import Approvals, Autofill, classify, classify_consent, format_value, resolve_origin
 from vagas.autofill_host import read_message, serve, write_message
 from vagas.repo import VagasError
 from vagas.sensitive import Vault
@@ -106,7 +106,7 @@ def test_first_use_of_a_company_asks_for_confirmation_without_revealing_values(a
 
     assert response["status"] == "confirm"
     assert response["origin"] == {"key": "acme.gupy.io", "label": "acme", "host": "acme.gupy.io", "remember": True}
-    assert response["documents"] == ["CPF", "RG"]
+    assert response["documents"] == ["CPF", "RG"] and response["terms"] == []
     assert CPF not in json.dumps(response) and "12.345.678-9" not in json.dumps(response)
     assert not (tmp_path / "autofill.log").exists()
 
@@ -201,3 +201,71 @@ def test_host_answers_each_message_and_reports_errors(autofill):
     outgoing.seek(0)
     assert read_message(outgoing)["status"] == "filled"
     assert read_message(outgoing)["status"] == "error"
+
+
+TERMS = "Li e concordo com os Termos de Uso e a Política de Privacidade"
+
+
+@pytest.mark.parametrize("text", [
+    TERMS, "Aceito os termos e condições de uso", "Concordo com as Condições Gerais de Uso",
+    "Declaro que li e aceito o Aviso de Privacidade", "Estou ciente do tratamento dos meus dados conforme a LGPD",
+    "Autorizo o tratamento dos meus dados pessoais para este processo seletivo", "I agree to the Terms of Service",
+    "I have read the Privacy Policy", "Aceito a Política de Proteção de Dados", "Termos de uso *",
+])
+def test_terms_and_privacy_consents_are_recognized(text):
+    assert classify_consent(text) == "termos"
+
+
+@pytest.mark.parametrize("text", [
+    "Aceito receber novidades e ofertas por e-mail", "Quero receber comunicações por WhatsApp",
+    "Autorizo compartilhar meus dados com empresas parceiras", "Aceito participar de outros processos seletivos",
+    "Manter meu currículo no banco de talentos", "Declaro que não possuo parentes na empresa",
+    "Declaro que as informações são verdadeiras", "Li e aceito os termos de uso e quero receber a newsletter",
+    "Tenho disponibilidade para viagens", "Possuo CNH", "Sou pessoa com deficiência", "",
+    "Aceito que meus dados sejam compartilhados com terceiros conforme a Política de Privacidade",
+    "I agree to receive marketing emails",
+])
+def test_other_checkboxes_are_never_accepted(text):
+    assert classify_consent(text) is None
+
+
+def checkbox(text=TERMS, id="t"):
+    return {"id": id, "kind": "checkbox", "text": text}
+
+
+def test_terms_are_confirmed_with_their_text_and_checked(autofill, tmp_path):
+    fields = [{"id": "a", "text": "CPF"}, checkbox(), checkbox("Quero receber novidades", id="n")]
+
+    asked = autofill.handle(request(fields=fields))
+    filled = autofill.handle(request(fields=fields, confirm="once"))
+
+    assert asked["status"] == "confirm" and asked["terms"] == [TERMS] and asked["documents"] == ["CPF"]
+    assert filled["values"] == {"a": CPF, "t": True}
+    entry = json.loads((tmp_path / "autofill.log").read_text(encoding="utf-8").splitlines()[0])
+    assert entry["terms"] == [TERMS] and entry["host"] == "acme.gupy.io"
+
+
+def test_terms_alone_still_ask_and_follow_the_same_site_rule(autofill):
+    assert autofill.handle(request(fields=[checkbox()]))["status"] == "confirm"
+    assert autofill.handle(request(fields=[checkbox()], confirm="once"))["values"] == {"t": True}
+    assert autofill.handle(request(url="https://golpe.com/x", fields=[checkbox()], confirm="once"))["status"] == "refused"
+
+
+def test_an_approval_given_for_documents_only_asks_again_for_terms(autofill):
+    autofill.handle(request(confirm="always"))
+
+    documents_again = autofill.handle(request())
+    with_terms = autofill.handle(request(fields=[{"id": "a", "text": "CPF"}, checkbox()]))
+    autofill.handle(request(fields=[checkbox()], confirm="always"))
+    later = autofill.handle(request(fields=[{"id": "a", "text": "CPF"}, checkbox()]))
+
+    assert documents_again["status"] == "filled"
+    assert with_terms["status"] == "confirm"
+    assert later["status"] == "filled" and later["values"] == {"a": CPF, "t": True}
+
+
+def test_checkbox_labels_never_become_documents(autofill):
+    response = autofill.handle(request(fields=[checkbox("CPF"), {"id": "x", "kind": "checkbox", "text": "RG"}],
+                                       confirm="once"))
+
+    assert response["status"] == "nothing"
