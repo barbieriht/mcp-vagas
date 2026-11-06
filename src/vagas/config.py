@@ -57,10 +57,11 @@ SETTINGS: dict[str, Setting] = {
     "export_dir": Setting("VAGAS_EXPORT_DIR", "dir", "Pasta dos CSVs exportados", "exports", "Vagas"),
     "master_resume": Setting("VAGAS_MASTER_RESUME", "file", "Arquivo YAML editável do currículo geral",
                              "curriculo.yaml", None),
-    "login_method": Setting("VAGAS_LOGIN_METHOD", "choice", "Como entrar nos sites de vagas: pela conta do LinkedIn "
-                            "ou pela conta Google", choices=LOGIN_METHODS),
-    "login_email": Setting("VAGAS_LOGIN_EMAIL", "text", "E-mail da conta Google usada para entrar "
-                           "(só vale com login_method = google)"),
+    "login_method": Setting("VAGAS_LOGIN_METHOD", "choice", "Primeira opção para entrar nos sites de vagas (a outra é "
+                            "a segunda): conta do LinkedIn ou conta Google", choices=LOGIN_METHODS,
+                            default_literal="linkedin", ask_at_setup=False),
+    "login_email": Setting("VAGAS_LOGIN_EMAIL", "text", "E-mail da conta Google usada para entrar quando o site não "
+                           "oferece a primeira opção de login"),
     "max_open_tabs": Setting("VAGAS_MAX_OPEN_TABS", "int", "Máximo de abas de candidatura deixadas abertas esperando "
                              "o usuário (1 a 30)", default_literal=12, bounds=(1, 30), ask_at_setup=False),
     "autofill_domains": Setting("VAGAS_AUTOFILL_DOMAINS", "text", "Domínios extras onde a extensão do Chrome preenche "
@@ -160,9 +161,6 @@ def suggest_dirs(key: str, users_root: Path = WINDOWS_USERS, home: Path | None =
 
 
 def _needs_answer(key: str, db_path: Path | str | None) -> bool:
-    """A conta Google só é perguntada a quem escolheu entrar por ela."""
-    if key == "login_email":
-        return resolve("login_method", db_path)[0] == "google"
     return SETTINGS[key].ask_at_setup
 
 
@@ -281,7 +279,7 @@ def set_value(key: str, value: str | None, db_path: Path | str | None = None) ->
     target = config_path(db_path)
     target.parent.mkdir(parents=True, exist_ok=True)
     lines = ["# Configuração do mcp-vagas: um caminho por tarefa e o login padrão. Edite à mão ou peça ao Claude (set_config).",
-             "# login_method = \"linkedin\" ou \"google\"; login_email = conta Google (quando o login é por Google).",
+             "# login_method = primeira opção de login, \"linkedin\" (padrão) ou \"google\"; login_email = conta Google (segunda opção).",
              "# Variáveis de ambiente (VAGAS_RESUME_OUT, VAGAS_EXPORT_DIR, VAGAS_MASTER_RESUME, VAGAS_LOGIN_METHOD, VAGAS_AUTOFILL_DOMAINS,",
              "# VAGAS_LOGIN_EMAIL, VAGAS_MAX_OPEN_TABS, VAGAS_SALARY_RULE) têm prioridade. max_open_tabs = número de abas",
              "# (1 a 30). salary_rule = teto, meio_termo, percentil_25 ou ponto_baixo (regra da pretensão salarial).",

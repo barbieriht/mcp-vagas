@@ -65,7 +65,7 @@ async def test_first_use_lists_everything_to_configure(db_path):
     async with Client(build_server(db_path)) as client:
         result = payload(await client.call_tool("get_config", {}))
 
-    assert result["needs_setup"] == ["resume_out", "export_dir", "master_resume", "login_method"]
+    assert result["needs_setup"] == ["resume_out", "export_dir", "master_resume", "login_email"]
     assert result["config_file"] == str(config_path(db_path))
     resume_out = result["settings"]["resume_out"]
     assert resume_out["source"] == "unset" and resume_out["value"] is None and resume_out["suggestions"]
@@ -82,7 +82,7 @@ async def test_set_config_saves_creates_the_folder_and_stops_asking(db_path, tmp
     assert saved["value"] == str(target) and saved["source"] == "config" and saved["warnings"] == []
     assert target.is_dir()
     assert 'resume_out = ' in config_path(db_path).read_text(encoding="utf-8")
-    assert result["needs_setup"] == ["export_dir", "master_resume", "login_method"]
+    assert result["needs_setup"] == ["export_dir", "master_resume", "login_email"]
     assert result["settings"]["resume_out"]["value"] == str(target)
 
 
@@ -210,13 +210,19 @@ async def test_login_method_is_tolerant_and_stored_normalized(db_path, typed, st
     assert resolve("login_method", db_path) == (stored, "config")
 
 
-async def test_login_by_linkedin_does_not_ask_for_an_email(db_path):
+async def test_linkedin_comes_first_by_default_and_the_google_account_is_always_asked_as_fallback(db_path):
     async with Client(build_server(db_path)) as client:
+        before = payload(await client.call_tool("get_config", {}))
         await set_login(client, "linkedin")
-        result = payload(await client.call_tool("get_config", {}))
+        after = payload(await client.call_tool("get_config", {}))
+        tools = {t.name: t for t in (await client.list_tools()).tools}
 
-    assert "login_method" not in result["needs_setup"] and "login_email" not in result["needs_setup"]
-    assert result["settings"]["login_method"]["choices"] == ["linkedin", "google"]
+    method = before["settings"]["login_method"]
+    assert (method["value"], method["source"]) == ("linkedin", "default")
+    assert "login_method" not in before["needs_setup"]
+    assert "login_email" in before["needs_setup"] and "login_email" in after["needs_setup"]
+    assert after["settings"]["login_method"]["choices"] == ["linkedin", "google"]
+    assert "segunda opção" in tools["get_config"].description
 
 
 async def test_login_by_google_asks_for_the_account_until_it_is_set(db_path):

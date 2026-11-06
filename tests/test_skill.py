@@ -273,3 +273,13 @@ def test_hybrid_or_remote_availability_is_yes_only_in_the_region_of_the_accepted
     assert "[criterios-triagem.md](criterios-triagem.md)" in rule and "Locais aceitos para híbrido e presencial" in rule
     assert '"sim"' in rule and "região" in rule
     assert "pergunte ao Thiago antes" in rule and "`pending`" in rule
+
+
+def test_login_prefers_linkedin_then_the_google_account():
+    text = (SKILL_DIR / "candidatar.md").read_text(encoding="utf-8")
+    access = text[text.index("**Acesso:**"):text.index("**Vaga encerrada:**")]
+    setup = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+
+    assert access.index("LinkedIn") < access.index("Google") and "`login_email`" in access
+    assert "Sempre que" in access and "nenhum dos dois" in access
+    assert "segunda opção" in setup and "`login_email`" in setup
