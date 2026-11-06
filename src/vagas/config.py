@@ -64,6 +64,10 @@ SETTINGS: dict[str, Setting] = {
                            "oferece a primeira opção de login"),
     "max_open_tabs": Setting("VAGAS_MAX_OPEN_TABS", "int", "Máximo de abas de candidatura deixadas abertas esperando "
                              "o usuário (1 a 30)", default_literal=12, bounds=(1, 30), ask_at_setup=False),
+    "auto_submit": Setting("VAGAS_AUTO_SUBMIT", "choice", "Envio automático das candidaturas que cumprem todas as "
+                           "condições (sem pendências, campos da extensão preenchidos, pretensão da avaliação, sem "
+                           "texto livre escrito pelo Claude); desligado, toda candidatura espera a sua confirmação",
+                           choices=("sim", "nao"), default_literal="nao", ask_at_setup=False, aliases=_YES_NO),
     "autofill_domains": Setting("VAGAS_AUTOFILL_DOMAINS", "text", "Domínios extras onde a extensão do Chrome preenche "
                                 "os documentos do cofre, separados por vírgula (além dos sites de vagas conhecidos e "
                                 "dos sites das candidaturas abertas)", ask_at_setup=False),
@@ -280,9 +284,10 @@ def set_value(key: str, value: str | None, db_path: Path | str | None = None) ->
     target.parent.mkdir(parents=True, exist_ok=True)
     lines = ["# Configuração do mcp-vagas: um caminho por tarefa e o login padrão. Edite à mão ou peça ao Claude (set_config).",
              "# login_method = primeira opção de login, \"linkedin\" (padrão) ou \"google\"; login_email = conta Google (segunda opção).",
-             "# Variáveis de ambiente (VAGAS_RESUME_OUT, VAGAS_EXPORT_DIR, VAGAS_MASTER_RESUME, VAGAS_LOGIN_METHOD, VAGAS_AUTOFILL_DOMAINS,",
+             "# Variáveis de ambiente (VAGAS_RESUME_OUT, VAGAS_EXPORT_DIR, VAGAS_MASTER_RESUME, VAGAS_LOGIN_METHOD, VAGAS_AUTOFILL_DOMAINS, VAGAS_AUTO_SUBMIT,",
              "# VAGAS_LOGIN_EMAIL, VAGAS_MAX_OPEN_TABS, VAGAS_SALARY_RULE) têm prioridade. max_open_tabs = número de abas",
              "# (1 a 30). salary_rule = teto, meio_termo, percentil_25 ou ponto_baixo (regra da pretensão salarial).",
+             "# auto_submit = \"sim\" envia sozinho as candidaturas que cumprem todas as condições (padrão \"nao\").",
              "# autofill_domains = domínios extras onde a extensão do Chrome preenche CPF, RG... (separados por vírgula)."]
     lines += [f"{name} = {current[name] if SETTINGS[name].kind == 'int' else _quote(current[name])}"
               for name in SETTINGS if name in current]

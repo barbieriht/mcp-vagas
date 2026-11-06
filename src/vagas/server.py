@@ -161,7 +161,8 @@ def build_server(
 
         key: resume_out, export_dir ou master_resume (value: caminho absoluto, aceita C:\\Users\\...);
         login_method (value: "linkedin" ou "google"/"gmail": a primeira opção de login; a outra é a segunda);
-        login_email (value: e-mail da conta Google);
+        login_email (value: e-mail da conta Google); auto_submit (value: "sim" ou "nao"; envio automático
+        das candidaturas que cumprem todas as condições da Skill; só a pedido do usuário, nunca por conta própria);
         max_open_tabs (value: número de 1 a 30); autofill_domains (value: domínios extras, separados por
         vírgula, onde a extensão do Chrome preenche os documentos do cofre; só com o pedido do usuário);
         salary_rule (value: teto, meio_termo, percentil_25 ou
