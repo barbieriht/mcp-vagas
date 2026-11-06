@@ -122,6 +122,39 @@ def test_always_is_remembered_for_the_company(autofill, tmp_path):
     assert [a["key"] for a in Approvals(tmp_path / "aprovacoes.json").list()] == ["acme.gupy.io"]
 
 
+def test_trusted_platform_is_approved_once_for_all_its_companies(vault, tmp_path):
+    autofill = Autofill(vault, Approvals(tmp_path / "aprovacoes.json"), log_path=tmp_path / "autofill.log",
+                        open_sites=lambda: {}, extra_domains=lambda: [], platforms=lambda: ["gupy.io"])
+
+    first = autofill.handle(request())
+    autofill.handle(request(confirm="always"))
+    other = autofill.handle(request(url="https://outra.gupy.io/candidates/jobs/2/apply"))
+    lever = autofill.handle(request(url="https://jobs.lever.co/acme/1/apply"))
+
+    assert first["origin"] == {"key": "gupy.io", "label": "gupy.io (todas as empresas)", "host": "acme.gupy.io",
+                               "remember": True}
+    assert other["status"] == "filled"
+    assert lever["status"] == "confirm" and lever["origin"]["key"] == "lever.co/acme"
+    assert [a["key"] for a in Approvals(tmp_path / "aprovacoes.json").list()] == ["gupy.io"]
+
+
+def test_trusted_platform_still_asks_for_a_scope_it_was_not_approved_for(vault, tmp_path):
+    autofill = Autofill(vault, Approvals(tmp_path / "aprovacoes.json"), log_path=tmp_path / "autofill.log",
+                        open_sites=lambda: {}, extra_domains=lambda: [], platforms=lambda: ["gupy.io"])
+    autofill.handle(request(confirm="always"))
+
+    terms = autofill.handle(request(url="https://outra.gupy.io/candidates/jobs/2/apply", fields=[checkbox()]))
+
+    assert terms["status"] == "confirm" and terms["terms"]
+
+
+def test_aggregators_cannot_become_trusted_platforms():
+    origin = resolve_origin("https://www.linkedin.com/jobs/view/4012345678/", open_sites={}, extra_domains=[],
+                            platforms=["linkedin.com"])
+
+    assert (origin.key, origin.remember) == ("linkedin.com/vaga/4012345678", False)
+
+
 def test_once_fills_without_remembering(autofill):
     assert autofill.handle(request(confirm="once"))["status"] == "filled"
     assert autofill.handle(request())["status"] == "confirm"

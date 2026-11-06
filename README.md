@@ -139,6 +139,7 @@ As demais opções continuam por variável de ambiente:
 | `VAGAS_SENSITIVE_FILE` | cofre de dados sensíveis (CPF, RG...), cifrado pela DPAPI do Windows | `cofre.json` ao lado do banco |
 | `VAGAS_AUTO_SUBMIT` | sobrepõe `auto_submit` do `config.toml` (`sim` envia sozinho as candidaturas sem pendências, com os campos da extensão preenchidos, a pretensão da avaliação e sem texto livre escrito pelo Claude) | `nao` |
 | `VAGAS_AUTOFILL_DOMAINS` | sobrepõe `autofill_domains` do `config.toml` (domínios extras da extensão do Chrome) | nenhum |
+| `VAGAS_AUTOFILL_PLATFORMS` | sobrepõe `autofill_platforms` do `config.toml` (plataformas, como `gupy.io`, em que um "Permitir sempre" da extensão vale para todas as empresas) | nenhuma |
 | `VAGAS_SKILL_DIR` | pasta `skill/candidaturas` do repositório, onde `add_profile_field` grava os campos novos do perfil | a pasta para onde aponta o symlink da política salarial (criado pelo instalador) |
 | `VAGAS_TRIAGE_CRITERIA` | critérios fixos de triagem lidos por `triage_job` | `criterios-triagem.md` ao lado do banco (o instalador cria um symlink para o da Skill) |
 | `VAGAS_SALARY_TTL_DAYS` | validade do cache de salários, em dias | `90` |
@@ -474,11 +475,12 @@ O Claude in Chrome não digita documentos de identidade nem marca termos de uso,
 - Marca caixas de aceite de termos de uso, condições de uso, política ou aviso de privacidade e LGPD. Nunca marca marketing, novidades, comunicações por e-mail/SMS/WhatsApp, parceiros e terceiros, outros processos, banco de talentos nem declarações de fato ("Declaro que não possuo parentes..."); só aceita "Declaro que li/estou ciente/concordo". Uma caixa que mistura termos e marketing fica desmarcada.
 - Anexa ao campo de arquivo do currículo (rótulo, botão ou atributos com currículo, CV ou resume; nunca carta de apresentação, foto, portfólio ou documentos) o PDF personalizado da candidatura, lido de onde `create_tailored_resume` o salvou (pasta `resume_out`), sem cópia. A candidatura é a da página (mesma URL, URL com `/apply`, mesmo id de vaga na Gupy); sem uma exata, as candidaturas abertas da mesma empresa ou site, e a janela pede para escolher quando há mais de uma. Vale sempre o último currículo personalizado ligado à candidatura. PDF acima de 700 KB não é enviado (limite do native messaging) e o ícone mostra **!**.
 - Na primeira vez de cada empresa, abre uma janela da extensão com os documentos, o texto de cada termo que será aceito e o currículo que será anexado: **Permitir sempre para a empresa**, **Só desta vez** ou **Não preencher**. Um "Permitir sempre" vale para o que a janela mostrou: se depois aparecerem termos ou um currículo, ela pergunta de novo. Nem a página nem o agente do navegador conseguem responder a essa janela. Nos agregadores, onde várias empresas publicam no mesmo endereço, a confirmação vale só para a vaga.
+- Numa plataforma listada em `autofill_platforms` (ex.: `autofill_platforms = "gupy.io"`), o "Permitir sempre" vale para todas as empresas da plataforma: a janela aparece uma vez, como "gupy.io (todas as empresas)", e não volta a cada empresa nova. Ela ainda pergunta quando aparece algo que não foi aprovado (termos ou currículo) e quando há mais de um currículo possível; o currículo oferecido é sempre de uma candidatura da mesma empresa. Para ligar, peça ao Claude ou acrescente a linha ao `config.toml`. Aceita só plataformas de recrutamento conhecidas, nunca agregadores.
 - Cada preenchimento fica em `autofill.log`, ao lado do banco (data, endereço, documentos, o texto exato dos termos aceitos e o currículo enviado), sem os valores. O ícone da extensão mostra **OK** quando preencheu e **!** quando houve erro (passe o mouse para ver o motivo).
 
 Empresas com "Permitir sempre":
 
 ```bash
 ~/.local/share/vagas/venv/bin/python -m vagas.autofill list
-~/.local/share/vagas/venv/bin/python -m vagas.autofill revoke acme.gupy.io   # ou: revoke --all
+~/.local/share/vagas/venv/bin/python -m vagas.autofill revoke acme.gupy.io   # ou: revoke gupy.io (plataforma), revoke --all
 ```

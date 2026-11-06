@@ -62,10 +62,14 @@ def build_autofill() -> Autofill:
         value = config.resolve("autofill_domains", db_path)[0]
         return config.split_domains(value) if value else []
 
+    def platforms() -> list[str]:
+        value = config.resolve("autofill_platforms", db_path)[0]
+        return config.split_domains(value) if value else []
+
     applications = Applications(db_path)
     return Autofill(Vault(default_vault_path(db_path), DpapiBackend()), Approvals(default_approvals_path(db_path)),
                     log_path=default_log_path(db_path), open_sites=applications.sites, extra_domains=extra_domains,
-                    resumes=applications.with_resumes)
+                    resumes=applications.with_resumes, platforms=platforms)
 
 
 def main() -> None:

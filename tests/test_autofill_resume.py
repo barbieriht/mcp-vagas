@@ -186,3 +186,18 @@ def test_only_one_resume_field_gets_the_file(autofill, make):
     response = ask(autofill, "https://acme.gupy.io/jobs/123", fields=[upload("a"), upload("b")], confirm="once")
 
     assert list(response["values"]) == ["a"]
+
+
+def test_a_trusted_platform_never_offers_another_companys_resume(make, db_path, tmp_path):
+    vault = Vault(tmp_path / "cofre.json", FakeBackend())
+    apps = Applications(db_path)
+    autofill = Autofill(vault, Approvals(tmp_path / "aprovacoes.json"), log_path=tmp_path / "autofill.log",
+                        open_sites=apps.sites, extra_domains=lambda: [], resumes=apps.with_resumes,
+                        platforms=lambda: ["gupy.io"])
+    acme = make("https://acme.gupy.io/jobs/111")
+    make("https://outra.gupy.io/jobs/222", company="Outra")
+
+    response = ask(autofill, "https://acme.gupy.io/candidates/jobs/333/apply")
+
+    assert response["origin"]["key"] == "gupy.io"
+    assert [r["application_id"] for r in response["resumes"]] == [acme["id"]]
