@@ -1,4 +1,4 @@
-// Ponte entre a página e o host do mcp-vagas (native messaging). A confirmação por empresa abre numa
+// Ponte entre a página e o host do mcp-vagas (native messaging). Respostas da janela: { answer, resumeId }. A confirmação por empresa abre numa
 // janela da própria extensão: nem a página nem um agente que controla a aba conseguem respondê-la.
 const HOST = "com.barbieriht.vagas";
 const CONFIRM_PAGE = chrome.runtime.getURL("confirm.html");
@@ -29,7 +29,7 @@ function ask(cacheKey, details) {
     pending.set(id, { details, resolve });
     chrome.windows.create({ url: `${CONFIRM_PAGE}?id=${id}`, type: "popup", width: 520, height: 460, focused: true })
       .then((win) => { if (pending.has(id)) pending.get(id).windowId = win.id; })
-      .catch(() => resolve("no"));
+      .catch(() => resolve({ answer: "no" }));
   }).finally(() => { pending.delete(id); asking.delete(cacheKey); });
   asking.set(cacheKey, answer);
   return answer;
@@ -41,18 +41,27 @@ async function fill(message, sender) {
   let response = await chrome.runtime.sendNativeMessage(HOST, request);
   if (response.status === "confirm") {
     const cacheKey = `${tabId}|${response.origin.key}`;
-    let answer = await remembered(cacheKey);
+    // Escolha entre vários currículos: sempre pergunta (a resposta guardada não diz qual arquivo).
+    const choosing = (response.resumes || []).length > 1;
+    let answer = choosing ? null : await remembered(cacheKey);
+    let resumeId = null;
     if (!answer) {
-      answer = await ask(cacheKey, { ...response, title: sender.tab.title || "", pageUrl: sender.url });
-      if (answer !== "always") await chrome.storage.session.set({ [cacheKey]: answer });
+      const reply = await ask(choosing ? `${cacheKey}|${crypto.randomUUID()}` : cacheKey,
+        { ...response, title: sender.tab.title || "", pageUrl: sender.url });
+      answer = reply.answer;
+      resumeId = reply.resumeId;
+      if (answer !== "always" && !choosing) await chrome.storage.session.set({ [cacheKey]: answer });
     }
     if (answer === "no") {
       await badge(tabId, "", "preenchimento recusado nesta aba");
       return { status: "declined" };
     }
-    response = await chrome.runtime.sendNativeMessage(HOST, { ...request, confirm: answer });
+    const confirmed = { ...request, confirm: answer };
+    if (resumeId !== null && resumeId !== undefined) confirmed.resume_application_id = resumeId;
+    response = await chrome.runtime.sendNativeMessage(HOST, confirmed);
   }
-  if (response.status === "filled") await badge(tabId, "OK", `preenchido (${response.label})`);
+  if (response.warnings?.length) await badge(tabId, "!", response.warnings.join(" "));
+  else if (response.status === "filled") await badge(tabId, "OK", `preenchido (${response.label})`);
   if (response.status === "error") await badge(tabId, "!", response.message);
   return response;
 }
@@ -69,8 +78,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse(pending.get(message.id)?.details || null);
   } else if (message.type === "confirm-answer" && fromConfirmPage(sender)) {
     const entry = pending.get(message.id);
-    const answer = ["always", "once", "no"].includes(message.answer) ? message.answer : "no";
-    if (entry) entry.resolve(entry.details.origin.remember || answer !== "always" ? answer : "once");
+    let answer = ["always", "once", "no"].includes(message.answer) ? message.answer : "no";
+    if (answer === "always" && !entry?.details.origin.remember) answer = "once";
+    const ids = (entry?.details.resumes || []).map((r) => r.application_id);
+    const resumeId = ids.includes(message.resumeId) ? message.resumeId : null;
+    if (entry) entry.resolve({ answer, resumeId });
     sendResponse(true);
   } else if (message.type === "keepalive" && fromConfirmPage(sender)) {
     sendResponse(true); // a janela de confirmação mantém o service worker vivo enquanto espera
@@ -80,6 +92,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 chrome.windows.onRemoved.addListener((windowId) => {
   for (const entry of pending.values()) {
-    if (entry.windowId === windowId) entry.resolve("no");
+    if (entry.windowId === windowId) entry.resolve({ answer: "no" });
   }
 });

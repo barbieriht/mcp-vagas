@@ -32,11 +32,19 @@ FORM = """<!doctype html><html><head><meta charset="utf-8"></head><body><form>
   <span>Aceito a Política de Privacidade</span></label>
 <div role="checkbox" aria-checked="false" id="lgpd" tabindex="0"
   onclick="this.setAttribute('aria-checked', 'true')">Autorizo o tratamento dos meus dados (LGPD)</div>
+<div><button type="button">Anexar currículo</button><input type="file" id="cv" accept=".pdf,.doc" style="display:none"></div>
+<div><span>Carta de apresentação</span><input type="file" id="carta"></div>
 </form>
 <script>
 window.events = [];
 document.getElementById("cpf").addEventListener("input", (e) => window.events.push(e.target.value));
 document.getElementById("termos").addEventListener("change", (e) => window.events.push(e.target.checked));
+window.uploaded = [];
+document.getElementById("cv").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  const head = new TextDecoder().decode(await file.slice(0, 5).arrayBuffer());
+  window.uploaded.push([file.name, file.size, file.type, head]);
+});
 </script></body></html>"""
 
 
@@ -60,12 +68,13 @@ def browser(tmp_path):
         import sys
         sys.path.insert(0, {str(REPO / 'tests')!r})
         from test_sensitive import FakeBackend
-        from vagas.autofill import Approvals, Autofill
+        from vagas.autofill import Applications, Approvals, Autofill
         from vagas.autofill_host import serve
         from vagas.sensitive import Vault
+        apps = Applications({str(tmp_path / 'vagas.db')!r})
         autofill = Autofill(Vault({str(tmp_path / 'cofre.json')!r}, FakeBackend()),
                             Approvals({str(tmp_path / 'aprovacoes.json')!r}), log_path={str(tmp_path / 'autofill.log')!r},
-                            open_sites=lambda: {{}}, extra_domains=lambda: [])
+                            open_sites=apps.sites, extra_domains=lambda: [], resumes=apps.with_resumes)
         serve(sys.stdin.buffer, sys.stdout.buffer, autofill)
     """), encoding="utf-8")
     wrapper = tmp_path / "host.sh"
@@ -79,6 +88,7 @@ def browser(tmp_path):
     vault = Vault(tmp_path / "cofre.json", FakeBackend())
     vault.set("cpf", "529.982.247-25")
     vault.set("rg", "12.345.678-9")
+    pdfs = _applications_with_resumes(tmp_path)
 
     profile = tmp_path / "perfil-chromium"
     hosts = profile / "NativeMessagingHosts"
@@ -93,8 +103,32 @@ def browser(tmp_path):
             str(profile), channel="chromium", headless=True,
             args=[f"--disable-extensions-except={EXTENSION}", f"--load-extension={EXTENSION}"])
         context.route("https://**/*", lambda route: route.fulfill(status=200, content_type="text/html", body=FORM))
-        yield context, tmp_path
+        yield context, tmp_path, pdfs
         context.close()
+
+
+def _applications_with_resumes(tmp_path):
+    """Candidaturas abertas com currículo personalizado gerado de verdade (PDF na pasta de saída)."""
+    from resume_fixture import fictitious_resume
+    from vagas.db import connect
+    from vagas.repo import Repo
+    from vagas.resume_repo import ResumeStore
+
+    conn = connect(tmp_path / "vagas.db")
+    store = ResumeStore(conn, tmp_path / "curriculo.yaml")
+    store.save_master_draft(fictitious_resume())
+    store.approve_master()
+    pdfs = {}
+    for company, role, url in (("Acme", "Data Scientist", "https://acme.gupy.io/jobs/1"),
+                               ("Empresa", "Analista", "https://careers.empresa.com.br/vagas/1"),
+                               ("Empresa", "Engenheiro", "https://careers.empresa.com.br/vagas/2")):
+        app = Repo(conn).add_application(company=company, role=role, source="outro", url=url,
+                                         status="a_aplicar")["application"]
+        created = store.create_tailored_resume({"label": company, "sections": [{"section": "experience"}]},
+                                               tmp_path / "out", application_id=app["id"])
+        pdfs[role] = Path(created["path"])
+    conn.close()
+    return pdfs
 
 
 def _open_and_confirm(context, url, choice, shown=None):
@@ -112,7 +146,7 @@ def _open_and_confirm(context, url, choice, shown=None):
 
 
 def test_fills_visible_document_fields_after_confirmation_and_remembers_the_company(browser):
-    context, tmp_path = browser
+    context, tmp_path, pdfs = browser
 
     shown = []
     page = _open_and_confirm(context, "https://acme.gupy.io/candidates/jobs/1/apply", "Permitir sempre para acme",
@@ -129,19 +163,43 @@ def test_fills_visible_document_fields_after_confirmation_and_remembers_the_comp
     assert page.input_value("#hidden") == "" and page.input_value("#filled") == "111"
     assert page.input_value("#nome") == "" and page.input_value("#rgdata") == ""
     assert sorted(map(str, page.evaluate("window.events"))) == ["529.982.247-25", "True"]
+    pdf = pdfs["Data Scientist"]
+    assert pdf.name in shown[0]
+    page.wait_for_function("window.uploaded.length > 0", timeout=15000)
+    assert page.evaluate("window.uploaded") == [[pdf.name, pdf.stat().st_size, "application/pdf", "%PDF-"]]
+    assert page.evaluate("document.getElementById('carta').files.length") == 0
 
     again = context.new_page()
     again.goto("https://acme.gupy.io/candidates/jobs/2/apply")
-    again.wait_for_function("document.getElementById('cpf').value !== ''", timeout=15000)
+    again.wait_for_function("document.getElementById('cpf').value !== '' && window.uploaded.length > 0", timeout=15000)
     assert len([p for p in context.pages if p.url.startswith("chrome-extension://")]) == 0
     log = (tmp_path / "autofill.log").read_text(encoding="utf-8")
     entries = [json.loads(line) for line in log.splitlines()]
     assert "52998224725" not in log and "529.982" not in log
     assert [(e["host"], e["mode"]) for e in entries] == [("acme.gupy.io", "always"), ("acme.gupy.io", "aprovada")]
+    assert entries[0]["resume"]["name"] == pdf.name
+
+
+def test_with_several_applications_the_window_asks_which_resume(browser):
+    context, _, pdfs = browser
+    page = context.new_page()
+    with context.expect_page(timeout=15000) as popup:
+        page.goto("https://careers.empresa.com.br/candidatura")
+    confirm = popup.value
+    once = confirm.get_by_role("button", name="Só desta vez")
+    once.wait_for()
+
+    disabled_before = once.is_disabled()
+    confirm.get_by_text(pdfs["Engenheiro"].name).click()
+    once.click()
+
+    page.wait_for_function("window.uploaded.length > 0", timeout=15000)
+    assert disabled_before
+    assert page.evaluate("window.uploaded")[0][0] == pdfs["Engenheiro"].name
 
 
 def test_declining_leaves_the_fields_empty(browser):
-    context, _ = browser
+    context, _, _ = browser
 
     page = _open_and_confirm(context, "https://www.linkedin.com/jobs/view/4012345678/", "Não preencher")
 
@@ -150,12 +208,13 @@ def test_declining_leaves_the_fields_empty(browser):
 
 
 def test_untrusted_sites_are_never_filled_nor_asked(browser):
-    context, tmp_path = browser
+    context, tmp_path, _ = browser
     page = context.new_page()
 
     page.goto("https://golpe.example.com/form")
     page.wait_for_timeout(2500)
 
     assert page.input_value("#cpf") == "" and not page.is_checked("#termos")
+    assert page.evaluate("window.uploaded") == []
     assert not [p for p in context.pages if p.url.startswith("chrome-extension://")]
     assert not (tmp_path / "autofill.log").exists()

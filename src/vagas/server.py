@@ -79,11 +79,12 @@ def build_server(
         "dela como link Markdown para a página da vaga, no formato [Cargo — Empresa](url), usando o campo url "
         "que as tools retornam; se a vaga não tiver url, escreva o nome sem link. Não mostre a URL crua ao lado. "
         "Em formulários de candidatura, os dados pessoais vêm de get_profile (não de cópias de arquivos da Skill), "
-        "e o currículo anexado é o personalizado da vaga, gerado com create_tailored_resume antes de abrir o "
-        "formulário; se a geração falhar por pasta não configurada, chame get_config. Documentos de identidade "
-        "(CPF, RG e os demais com status cofre no get_profile) e as caixas de termos de uso e política de "
-        "privacidade quem preenche é a extensão do Chrome do usuário: deixe-os vazios, não os digite nem marque; "
-        "se continuarem vazios na revisão, liste-os no pending."))
+        "e o currículo anexado é o personalizado da vaga, gerado com create_tailored_resume (com o application_id) "
+        "antes de abrir o formulário; se a geração falhar por pasta não configurada, chame get_config. Documentos "
+        "de identidade (CPF, RG e os demais com status cofre no get_profile), as caixas de termos de uso e política "
+        "de privacidade e o anexo do currículo quem preenche é a extensão do Chrome do usuário, que lê o PDF de onde "
+        "create_tailored_resume o salvou: deixe-os vazios, não os digite, marque nem anexe; se continuarem vazios "
+        "na revisão, liste-os no pending (o currículo com o windows_path)."))
 
     @contextmanager
     def store(factory: Callable[[sqlite3.Connection], Any]) -> Iterator[Any]:
