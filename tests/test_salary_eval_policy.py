@@ -148,3 +148,60 @@ async def test_evaluate_salary_reads_the_policy_via_mcp(db_path, policy_path, mo
     assert "politica-salarial" in tools["evaluate_salary"].description
     assert (result["decision"], result["policy"]["band"]) == ("aplicar", "Remoto nacional")
     assert uncovered.is_error and "Recife" in uncovered.content[0].text
+
+
+@pytest.mark.anyio
+async def test_correcting_work_mode_reevaluates_the_salary_via_mcp(db_path, policy_path, monkeypatch):
+    monkeypatch.setenv("VAGAS_SALARY_POLICY", str(policy_path))
+    async with Client(build_server(db_path)) as client:
+        app = payload(await client.call_tool("add_application", {
+            "company": "Acme", "role": "DS", "source": "gupy", "work_mode": "remoto",
+            "status": "a_aplicar"}))["application"]
+        await client.call_tool("save_salary_estimate", {**KEY, "currency": "BRL", "points": [
+            {"source": "glassdoor", "period": "mes", "contract": "clt", "avg_value": 9000}]})
+        before = payload(await client.call_tool("evaluate_salary", {
+            **KEY, "currency": "BRL", "contract": "clt", "application_id": app["id"]}))
+        updated = payload(await client.call_tool("update_application", {
+            "id": app["id"], "work_mode": "presencial", "location": "São Paulo - SP"}))
+        tools = {t.name: t for t in (await client.list_tools()).tools}
+
+    assert (before["decision"], before["policy"]["band"]) == ("aplicar", "Remoto nacional")
+    assert (updated["work_mode"], updated["location"]) == ("presencial", "São Paulo - SP")
+    assert updated["salary_evaluation"]["decision"] == "nao_aplicar"
+    assert updated["salary_evaluation"]["policy"]["band"] == "Híbrido/presencial em São Paulo e região"
+    assert "presencial" in json.dumps(tools["update_application"].input_schema)
+
+
+@pytest.mark.anyio
+async def test_correcting_contract_reevaluates_with_the_new_contract(db_path, policy_path, monkeypatch):
+    monkeypatch.setenv("VAGAS_SALARY_POLICY", str(policy_path))
+    async with Client(build_server(db_path)) as client:
+        app = payload(await client.call_tool("add_application", {
+            "company": "Acme", "role": "DS", "source": "gupy", "work_mode": "remoto",
+            "status": "a_aplicar"}))["application"]
+        await client.call_tool("save_salary_estimate", {**KEY, "currency": "BRL", "points": [
+            {"source": "glassdoor", "period": "mes", "contract": "clt", "avg_value": 9000}]})
+        await client.call_tool("evaluate_salary", {
+            **KEY, "currency": "BRL", "contract": "clt", "application_id": app["id"]})
+        updated = payload(await client.call_tool("update_application", {"id": app["id"], "contract": "pj"}))
+
+    assert updated["salary_evaluation"]["contract"] == "pj"
+    assert updated["salary_evaluation"]["inputs"]["contract"] == "pj"
+
+
+@pytest.mark.anyio
+async def test_reevaluation_error_after_correction_is_reported(db_path, policy_path, monkeypatch):
+    monkeypatch.setenv("VAGAS_SALARY_POLICY", str(policy_path))
+    async with Client(build_server(db_path)) as client:
+        app = payload(await client.call_tool("add_application", {
+            "company": "Acme", "role": "DS", "source": "gupy", "work_mode": "remoto",
+            "status": "a_aplicar"}))["application"]
+        await client.call_tool("save_salary_estimate", {**KEY, "currency": "BRL", "points": [
+            {"source": "glassdoor", "period": "mes", "contract": "clt", "avg_value": 9000}]})
+        await client.call_tool("evaluate_salary", {
+            **KEY, "currency": "BRL", "contract": "clt", "application_id": app["id"]})
+        updated = payload(await client.call_tool("update_application", {
+            "id": app["id"], "work_mode": "hibrido", "location": "Recife"}))
+
+    assert (updated["work_mode"], updated["location"]) == ("hibrido", "Recife")
+    assert "Recife" in updated["salary_error"]

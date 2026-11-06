@@ -272,8 +272,10 @@ def build_server(
         resume_id: int | None = None,
         contract: Contract | None = None,
         salary_expectation: str | None = None,
+        work_mode: WorkMode | None = None,
+        location: str | None = None,
     ) -> dict[str, Any]:
-        """Atualiza uma candidatura existente: etapa do processo, pendência e/ou anotação.
+        """Atualiza uma candidatura existente: etapa do processo, pendência, anotação e/ou dados da vaga.
 
         - status: nova etapa. Qualquer transição entre status válidos é permitida, exceto
           para o mesmo status. Ao concluir uma candidatura pendente, usar status "aplicada"
@@ -284,6 +286,14 @@ def build_server(
         - discard_reason: motivo, somente ao mudar o status para "descartada".
         - resume_id: vincula o currículo personalizado enviado nesta candidatura.
         - contract: corrige o regime da vaga (clt, pj ou desconhecido).
+        - work_mode: corrige ou preenche a modalidade (remoto, hibrido, presencial), por exemplo quando
+          read_job_posting não achou ou inferiu errado.
+        - location: corrige ou preenche o local da vaga (cidade do escritório); "" limpa.
+          Ao mudar contract, work_mode ou location de uma vaga a_aplicar ou pendente_usuario já
+          avaliada, a avaliação salarial é refeita na hora (a faixa da política depende deles);
+          confira salary_evaluation no retorno: se virou "nao_aplicar", descarte com o reason dela.
+          Se a reavaliação falhar (ex.: local fora da política), o retorno traz salary_error e a
+          avaliação anterior não vale mais: resolva (confira o local com o usuário) e chame evaluate_salary.
         - salary_expectation: pretensão informada no formulário, como foi digitada (ex.: "R$ 15.500").
           Registre ao enviar a candidatura; fica separada da pretensão calculada (salary_ask).
 
@@ -291,10 +301,21 @@ def build_server(
         Retorna a candidatura atualizada.
         """
         with repo() as r:
-            return r.update_application(
+            updated = r.update_application(
                 id, status=status, note=note, pending=pending, discard_reason=discard_reason,
                 resume_id=resume_id, contract=contract, salary_expectation=salary_expectation,
+                work_mode=work_mode, location=location,
             )
+        if contract is None and work_mode is None and location is None:
+            return updated
+        with salaries() as s:
+            result = s.reevaluate_applications(ids=(id,))
+        if result["errors"]:
+            return {**updated, "salary_error": result["errors"][0]["error"]}
+        if not result["reevaluated"]:
+            return updated
+        with repo() as r:
+            return r.get(id)
 
     @server.tool()
     def list_applications(

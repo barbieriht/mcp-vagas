@@ -272,18 +272,21 @@ class SalaryStore:
                               (self.now(), reason.strip(), search_id))
         return {"search_id": search_id, "discarded": True}
 
-    def reevaluate_applications(self, statuses: tuple[str, ...] = REEVALUATED_STATUSES) -> dict[str, Any]:
-        """Refaz a avaliação salarial das candidaturas já avaliadas, com a regra e os dados atuais.
+    def reevaluate_applications(self, statuses: tuple[str, ...] = REEVALUATED_STATUSES,
+                                ids: tuple[int, ...] | None = None) -> dict[str, Any]:
+        """Refaz a avaliação salarial das candidaturas já avaliadas, com a regra e os dados atuais
+        (ids: só estas). Modalidade e local vêm da candidatura, assim como o regime quando conhecido.
 
         Usa os parâmetros gravados na avaliação (role_key, senioridade, moeda, regime); avaliações
         antigas, sem eles, os recebem do título, da candidatura e do texto do motivo.
         """
         from vagas.job_posting import classify_role
 
+        only = f" AND id IN ({', '.join('?' * len(ids))})" if ids is not None else ""
         rows = self.conn.execute(
-            f"SELECT id, company, role, url, seniority, salary_evaluation, salary_ask FROM applications "
-            f"WHERE salary_evaluation IS NOT NULL AND status IN ({', '.join('?' * len(statuses))}) ORDER BY id",
-            statuses).fetchall()
+            f"SELECT id, company, role, url, seniority, contract, salary_evaluation, salary_ask FROM applications "
+            f"WHERE salary_evaluation IS NOT NULL AND status IN ({', '.join('?' * len(statuses))}){only} ORDER BY id",
+            (*statuses, *(ids or ()))).fetchall()
         changed, errors = [], []
         for row in rows:
             previous = json.loads(row["salary_evaluation"])
@@ -293,7 +296,8 @@ class SalaryStore:
                 "role_key": inputs.get("role_key") or classify_role(row["role"])[0],
                 "seniority": inputs.get("seniority") or row["seniority"],
                 "currency": inputs.get("currency") or (currency[1] if currency else "BRL"),
-                "contract": inputs.get("contract") or previous.get("contract") or "desconhecido",
+                "contract": (row["contract"] if row["contract"] != "desconhecido" else None)
+                or inputs.get("contract") or previous.get("contract") or "desconhecido",
             }
             company = None if row["company"].startswith("(") else row["company"]
             try:

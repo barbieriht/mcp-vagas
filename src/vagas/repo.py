@@ -148,17 +148,21 @@ class Repo:
         resume_id: int | None = None,
         contract: str | None = None,
         salary_expectation: str | None = None,
+        work_mode: str | None = None,
+        location: str | None = None,
     ) -> dict[str, Any]:
-        """Muda status, pendência, currículo vinculado, regime, pretensão informada e/ou anota.
-        pending="" limpa a pendência.
+        """Muda status, pendência, currículo vinculado, regime, modalidade, local, pretensão
+        informada e/ou anota. pending="" limpa a pendência; location="" limpa o local.
 
-        Mudança de status ou nota gravam evento; só mudar a pendência não grava.
+        Mudança de status ou nota gravam evento; corrigir dados da vaga ou a pendência não grava.
         """
         current = self.get(application_id)
-        if all(v is None for v in (status, note, pending, discard_reason, resume_id, contract, salary_expectation)):
-            raise VagasError("Nada a atualizar: informe status, note, pending, resume_id, contract ou "
-                             "salary_expectation.")
+        if all(v is None for v in (status, note, pending, discard_reason, resume_id, contract, salary_expectation,
+                                   work_mode, location)):
+            raise VagasError("Nada a atualizar: informe status, note, pending, resume_id, contract, work_mode, "
+                             "location ou salary_expectation.")
         _require_choice("contract", contract, CONTRACTS)
+        _require_choice("work_mode", work_mode, WORK_MODES)
         if resume_id is not None:
             self._check_resume(resume_id, application_id)
         _require_choice("status", status, STATUSES)
@@ -182,11 +186,14 @@ class Repo:
             self.conn.execute(
                 """
                 UPDATE applications
-                SET status = ?, pending = ?, discard_reason = ?, contract = ?, salary_expectation = ?, updated_at = ?
+                SET status = ?, pending = ?, discard_reason = ?, contract = ?, salary_expectation = ?,
+                    work_mode = ?, location = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (new_status, new_pending, new_reason, contract or current["contract"],
                  current["salary_expectation"] if salary_expectation is None else (salary_expectation.strip() or None),
+                 work_mode or current["work_mode"],
+                 current["location"] if location is None else (location.strip() or None),
                  now, application_id),
             )
             if status is not None or note is not None:
