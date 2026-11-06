@@ -428,11 +428,12 @@ class Triage:
         mode, location = posting["work_mode"], posting["location"]
         if mode is None:
             needs.append({"kind": "modalidade", "detail": (
-                "A página não informa a modalidade (remoto, híbrido, presencial). Confira na vaga e chame "
-                "evaluate_salary com work_mode, location e o application_id.")})
+                "A página não informa a modalidade (remoto, híbrido, presencial). Confira na vaga, registre com "
+                "update_application (work_mode e location) e chame evaluate_salary com o application_id.")})
             return
         if posting.get("work_mode_inferred"):
-            reasons.append(f"Modalidade {mode} inferida do texto da vaga (a página não publica); confira na vaga.")
+            reasons.append(f"Modalidade {mode} inferida do texto da vaga (a página não publica); confira na vaga e, "
+                           "se estiver errada, corrija com update_application (work_mode).")
         if mode == "remoto":
             reasons.append("Vaga remota.")
             return

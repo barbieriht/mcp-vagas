@@ -186,6 +186,19 @@ def test_update_sets_and_validates_contract(repo):
         repo.update_application(app["id"], contract="mei")
 
 
+def test_update_corrects_work_mode_and_location(repo):
+    app = add(repo, status="a_aplicar", work_mode="remoto")
+
+    updated = repo.update_application(app["id"], work_mode="hibrido", location="São Paulo - SP")
+
+    assert (updated["work_mode"], updated["location"]) == ("hibrido", "São Paulo - SP")
+    assert updated["status"] == "a_aplicar"
+    assert transitions(repo, app["id"]) == [(None, "a_aplicar", None)]
+    assert repo.update_application(app["id"], location="")["location"] is None
+    with pytest.raises(VagasError, match="work_mode"):
+        repo.update_application(app["id"], work_mode="anywhere")
+
+
 def test_informed_salary_expectation_is_kept_apart_from_the_calculated_ask(repo):
     app = add(repo, status="a_aplicar")
     with repo.conn:
