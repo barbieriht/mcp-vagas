@@ -20,3 +20,7 @@ A decisão de quem recebe o documento fica numa regra fixa e numa confirmação 
 ## Termos de uso (#155)
 
 A extensão também marca o aceite de termos de uso e da política de privacidade, porque o Claude in Chrome também recusa essa marcação. A regra fica na mesma classificação no host, e a confirmação por empresa passa a mostrar o texto de cada termo. A aceitação continua sendo do usuário, dada naquela janela. Ficam de fora, por regra, marketing, parceiros, banco de talentos e declarações de fato: uma declaração marcada automaticamente pode ser falsa. Caixas que misturam termos e marketing também ficam de fora. O `autofill.log` guarda o texto exato aceito, como comprovante.
+
+## Anexo do currículo (#157)
+
+A ferramenta de upload do Claude in Chrome não alcança arquivos do disco. A extensão anexa ao campo de currículo o PDF personalizado da candidatura daquela página, lido do caminho registrado por `create_tailored_resume` (`resumes.pdf_path`, na pasta `resume_out`), sem cópia. O host escolhe a candidatura pela URL da página. Quando há mais de uma candidatura possível, quem escolhe é o usuário, na janela de confirmação. A aprovação permanente passou a guardar escopos (documentos, termos, currículo) e só cobre o que a janela mostrou. O arquivo vai em base64 numa mensagem de native messaging, limitada a 1 MB; acima de 700 KB, o anexo fica com o usuário.

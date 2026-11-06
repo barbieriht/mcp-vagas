@@ -13,7 +13,7 @@ import sys
 from typing import Any, BinaryIO
 
 from vagas import config
-from vagas.autofill import Approvals, Autofill, default_approvals_path, default_log_path, open_application_sites
+from vagas.autofill import Applications, Approvals, Autofill, default_approvals_path, default_log_path
 from vagas.db import default_db_path
 from vagas.sensitive import DpapiBackend, Vault, default_vault_path
 
@@ -62,9 +62,10 @@ def build_autofill() -> Autofill:
         value = config.resolve("autofill_domains", db_path)[0]
         return config.split_domains(value) if value else []
 
+    applications = Applications(db_path)
     return Autofill(Vault(default_vault_path(db_path), DpapiBackend()), Approvals(default_approvals_path(db_path)),
-                    log_path=default_log_path(db_path), open_sites=lambda: open_application_sites(db_path),
-                    extra_domains=extra_domains)
+                    log_path=default_log_path(db_path), open_sites=applications.sites, extra_domains=extra_domains,
+                    resumes=applications.with_resumes)
 
 
 def main() -> None:

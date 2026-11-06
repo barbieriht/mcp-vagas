@@ -1,5 +1,6 @@
-// Acha campos de documentos (CPF, RG...) vazios e visíveis e caixas de aceite desmarcadas, e pede os
-// valores ao service worker, que consulta o host do mcp-vagas (só termos de uso e privacidade são marcados). A decisão (site confiável, empresa, confirmação) fica no host;
+// Acha campos de documentos (CPF, RG...) vazios e visíveis, caixas de aceite desmarcadas e o campo de
+// arquivo do currículo, e pede os valores ao service worker, que consulta o host do mcp-vagas (só termos
+// de uso e privacidade são marcados; o currículo é o PDF personalizado da candidatura). A decisão (site confiável, empresa, confirmação) fica no host;
 // aqui só há um filtro barato para não chamar o host em toda página.
 (() => {
   if (window.__vagasCofre) return;
@@ -7,6 +8,7 @@
 
   const MAYBE_DOCUMENT = /cpf|\brg\b|identidade|registro geral|cnh|habilita|motorista|\bpis\b|pasep|\bnis\b|\bnit\b|ctps|carteira de trabalho|eleitor|passaporte|passport|m[aã]e\b|mother|emissor|expedidor|licen[cs]e/i;
   const MAYBE_CONSENT = /termo|condi[cç][oõ]es|privacidade|privacy|lgpd|terms|dados/i;
+  const MAYBE_RESUME = /curr[ií]culo|curriculum|\bcv\b|resum[eé]/i;
   const TEXT_TYPES = new Set(["", "text", "tel", "number", "search"]);
   const seen = new WeakSet();
   const byId = new Map();
@@ -56,6 +58,24 @@
     return !box.checked && !box.disabled && (visible(box) || [...(box.labels || [])].some(visible));
   }
 
+  // Campos de arquivo quase sempre ficam escondidos atrás de um botão: vale o rótulo ou o contêiner visível.
+  function shownNear(input) {
+    if (visible(input) || [...(input.labels || [])].some(visible)) return true;
+    for (let node = input.parentElement, depth = 0; node && depth < 3; node = node.parentElement, depth++) {
+      if (visible(node)) return true;
+    }
+    return false;
+  }
+
+  function attachFile(input, { name, type, data }) {
+    const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([bytes], name, { type }));
+    input.files = transfer.files;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
   // Setter do protótipo + eventos: frameworks como React só enxergam o valor assim.
   function setValue(input, value) {
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
@@ -85,6 +105,16 @@
       byId.set(id, box);
       fields.push({ id, kind: "checkbox", text });
     }
+    for (const input of document.querySelectorAll("input[type=file]")) {
+      if (seen.has(input) || input.disabled || input.files?.length) continue;
+      const text = labelOf(input);
+      const attrs = attrsOf(input);
+      if (!MAYBE_RESUME.test(`${text} ${attrs}`) || !shownNear(input)) continue;
+      seen.add(input);
+      const id = String(nextId++);
+      byId.set(id, input);
+      fields.push({ id, kind: "file", text, attrs, accept: input.getAttribute("accept") || "" });
+    }
     if (!fields.length) return;
     let response;
     try {
@@ -95,7 +125,9 @@
     for (const [id, value] of Object.entries(response?.values || {})) {
       const el = byId.get(id);
       if (!el) continue;
-      if (value === true) {
+      if (value && typeof value === "object") {
+        if (!el.files?.length) attachFile(el, value);
+      } else if (value === true) {
         // Clique, não .checked: o framework da página só registra o aceite pelo evento.
         if (el.getAttribute("role") === "checkbox" ? el.getAttribute("aria-checked") !== "true" : !el.checked) el.click();
       } else if (!el.value) {

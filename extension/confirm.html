@@ -11,6 +11,8 @@
     p { margin: 0 0 10px; }
     ul { margin: 0 0 10px; padding-left: 20px; font-size: 14px; }
     li { margin-bottom: 4px; overflow-wrap: anywhere; }
+    #resumes label { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 6px; font-size: 14px; overflow-wrap: anywhere; }
+    button:disabled { opacity: .45; cursor: default; }
     .muted { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
     .buttons { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
     button { font: inherit; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; text-align: left; }
@@ -21,6 +23,7 @@
   <h1>Vagas: confirmação</h1>
   <p id="question">Carregando…</p>
   <ul id="terms"></ul>
+  <div id="resumes"></div>
   <p class="muted" id="where"></p>
   <p class="muted" id="title"></p>
   <p class="muted" id="note"></p>

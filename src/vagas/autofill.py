@@ -10,13 +10,18 @@ A extensão (pasta `extension/`) acha os campos na página e pergunta ao host de
   só para a vaga;
 - caixas de aceite de termos de uso e política de privacidade (nunca marketing, parceiros ou
   declarações de fato) são marcadas com a mesma regra; a confirmação mostra o texto de cada termo;
-- cada preenchimento vai para `autofill.log`, sem os valores (com o texto dos termos aceitos).
+- o campo de arquivo do currículo recebe o PDF personalizado da candidatura daquela página, lido de onde
+  create_tailored_resume o salvou (resumes.pdf_path); com mais de uma candidatura possível, a
+  confirmação pede para escolher;
+- cada preenchimento vai para `autofill.log`, sem os valores (com o texto dos termos aceitos e o
+  currículo enviado).
 
 Aprovações pelo terminal:
     python -m vagas.autofill list | revoke <chave> | revoke --all
 """
 
 import argparse
+import base64
 import json
 import os
 import re
@@ -29,7 +34,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 from vagas.db import default_db_path
-from vagas.normalize import normalize_text
+from vagas.normalize import canonical_url, normalize_text
 from vagas.repo import VagasError
 from vagas.sensitive import ALLOWED_FIELDS, OPEN_STATUSES, Vault, site
 
@@ -75,6 +80,10 @@ _NOT_CONSENT = re.compile(
     r"\b(marketing|newsletter|novidades|ofertas|promoc\w*|comunicac\w*|e\s?mails?|sms|whatsapp|parceir\w*|"
     r"terceir\w*|outr[ao]s\s+(processos|vagas|oportunidades)|banco\s+de\s+talentos|publicidade|receber|receive|"
     r"partners?|third\s+part\w*)\b")
+_UPLOAD = re.compile(r"\bcurriculo\b|\bcurriculum\b|\bcv\b|\bresume\b")
+_NOT_RESUME = re.compile(r"\b(carta|cover|foto|photo|imagem|picture|portfolio|portifolio|documento|document|"
+                        r"certificado|certificate|diploma|comprovante|historico|transcript)\b")
+MAX_FILE_BYTES = 700_000  # mensagens do host para a extensão têm até 1 MB, e o PDF vai em base64
 _DECLARATION_OF_READING = re.compile(r"\bdeclaro\s+(que\s+)?(li|ter\s+lido|estar\s+ciente|estou\s+ciente|"
                                      r"concordo|aceito)\b")
 
@@ -100,6 +109,19 @@ def classify_consent(text: str) -> str | None:
     if re.search(r"\bdeclaro\b", words) and not _DECLARATION_OF_READING.search(words):
         return None
     return "termos" if _CONSENT.search(words) else None
+
+
+def classify_upload(text: str) -> str | None:
+    """"curriculo" para o campo de arquivo do currículo; None para carta, foto, portfólio, documentos e afins."""
+    words = _words(text)
+    if not words or _NOT_RESUME.search(words):
+        return None
+    return "curriculo" if _UPLOAD.search(words) else None
+
+
+def _accepts_pdf(accept: str | None) -> bool:
+    kinds = {k.strip().lower() for k in (accept or "").split(",") if k.strip()}
+    return not kinds or bool(kinds & {".pdf", "application/pdf", "*/*", "application/*"})
 
 
 def classify_field(field: dict[str, Any]) -> str | None:
@@ -197,14 +219,20 @@ class Approvals:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(data, indent=1, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8")
 
-    def covers(self, key: str, terms: bool = False) -> bool:
-        """A aprovação vale para os documentos; para os termos, só se a confirmação os mencionou."""
-        approval = self._load().get(key)
-        return approval is not None and (not terms or bool(approval.get("termos")))
+    @staticmethod
+    def _scopes(entry: dict[str, Any]) -> set[str]:
+        scopes = set(entry.get("escopos") or ["documentos"])
+        return scopes | {"termos"} if entry.get("termos") else scopes  # formato antigo: só documentos (+ termos)
 
-    def add(self, key: str, label: str, terms: bool = False) -> None:
+    def covers(self, key: str, scopes: set[str] | frozenset[str] = frozenset()) -> bool:
+        """A aprovação vale para o que a confirmação mencionou: documentos, termos e/ou currículo."""
+        entry = self._load().get(key)
+        return entry is not None and set(scopes) <= self._scopes(entry)
+
+    def add(self, key: str, label: str, scopes: set[str] | frozenset[str] = frozenset({"documentos"})) -> None:
         data = self._load()
-        data[key] = {"label": label, "approved_at": _now(), "termos": terms or bool(data.get(key, {}).get("termos"))}
+        merged = sorted(set(scopes) | (self._scopes(data[key]) if key in data else set()))
+        data[key] = {"label": label, "approved_at": _now(), "escopos": merged}
         self._save(data)
 
     def remove(self, key: str) -> bool:
@@ -228,58 +256,118 @@ def _now() -> str:
 
 class Autofill:
     def __init__(self, vault: Vault, approvals: Approvals, log_path: Path | str,
-                 open_sites: Callable[[], dict[str, str]], extra_domains: Callable[[], list[str]]):
+                 open_sites: Callable[[], dict[str, str]], extra_domains: Callable[[], list[str]],
+                 resumes: Callable[[], list[dict[str, Any]]] = lambda: [], max_file_bytes: int = MAX_FILE_BYTES):
         self.vault = vault
+        self.resumes = resumes
+        self.max_file_bytes = max_file_bytes
         self.approvals = approvals
         self.log_path = Path(log_path)
         self.open_sites = open_sites
         self.extra_domains = extra_domains
 
     def handle(self, request: dict[str, Any]) -> dict[str, Any]:
-        """{url, fields: [{id, kind?, text, attrs?, placeholder?, maxlength?}], confirm: None | "once" | "always"}.
+        """{url, fields: [{id, kind?, text, attrs?, placeholder?, maxlength?, accept?}], confirm: None | "once" |
+        "always", resume_application_id?}.
 
-        kind "checkbox": caixa de aceite (só termos de uso e privacidade são marcados); os demais campos
-        são de texto (documentos do cofre). Respostas: refused (reason), nothing, confirm (origin,
-        documents, terms; sem valores) ou filled (values por id do campo: texto ou true, label)."""
+        kind "checkbox": caixa de aceite (só termos de uso e privacidade são marcados); kind "file": campo
+        de arquivo (só o do currículo recebe o PDF personalizado); os demais são de texto (documentos do
+        cofre). Respostas: refused (reason), nothing, confirm (origin, documents, terms, resumes; sem
+        valores) ou filled (values por id do campo: texto, true ou {name, type, data}, label); warnings
+        quando algo foi pulado."""
         try:
-            origin = resolve_origin(request.get("url", ""), self.open_sites(), self.extra_domains())
+            sites, extras = self.open_sites(), self.extra_domains()
+            origin = resolve_origin(request.get("url", ""), sites, extras)
         except VagasError as exc:
             return {"status": "refused", "reason": str(exc)}
         fields = request.get("fields") or []
         stored = set(self.vault.list())
         wanted = [(str(f.get("id")), doc, f) for f in fields
-                  if f.get("kind") != "checkbox" and (doc := classify_field(f)) and doc in stored]
+                  if f.get("kind") not in ("checkbox", "file") and (doc := classify_field(f)) and doc in stored]
         terms = [(str(f.get("id")), " ".join(str(f.get("text") or "").split())) for f in fields
                  if f.get("kind") == "checkbox" and classify_consent(f.get("text") or "")]
-        if not wanted and not terms:
-            return {"status": "nothing"}
+        uploads = [str(f.get("id")) for f in fields if f.get("kind") == "file" and _accepts_pdf(f.get("accept"))
+                   and (classify_upload(f.get("text") or "") or (not f.get("text") and classify_upload(f.get("attrs") or "")))]
+        candidates = self._resume_candidates(request.get("url", ""), origin, sites, extras) if uploads else []
+        chosen_id = request.get("resume_application_id")
+        needs_choice = len(candidates) > 1 and chosen_id is None
+        if chosen_id is not None:
+            resume = next((c for c in candidates if c["application_id"] == chosen_id), None)
+        else:
+            resume = candidates[0] if len(candidates) == 1 else None
+        warnings = []
+        if resume and Path(resume["path"]).stat().st_size > self.max_file_bytes:
+            warnings.append(f"Currículo {Path(resume['path']).name} grande demais para a extensão "
+                            f"({Path(resume['path']).stat().st_size // 1000} KB); anexe à mão: {resume['path']}")
+            resume, needs_choice = None, False
+        if not wanted and not terms and not resume and not needs_choice:
+            return {"status": "nothing", **({"warnings": warnings} if warnings else {})}
         documents = list(dict.fromkeys(ALLOWED_FIELDS[doc] for _, doc, _ in wanted))
         term_texts = list(dict.fromkeys(text for _, text in terms))
+        scopes = ({"documentos"} if wanted else set()) | ({"termos"} if terms else set()) | (
+            {"curriculo"} if resume or needs_choice else set())
         confirm = request.get("confirm")
-        if origin.remember and self.approvals.covers(origin.key, terms=bool(terms)):
+        if origin.remember and self.approvals.covers(origin.key, scopes) and not needs_choice:
             mode = "aprovada"
-        elif confirm == "always" and origin.remember:
-            self.approvals.add(origin.key, origin.label, terms=bool(terms))
+        elif confirm == "always" and origin.remember and not needs_choice:
+            self.approvals.add(origin.key, origin.label, scopes)
             mode = "always"
-        elif confirm in ("once", "always"):
+        elif confirm in ("once", "always") and not needs_choice:
             mode = "once"
         else:
+            shown = candidates if needs_choice else [resume] if resume else []
             return {"status": "confirm", "documents": documents, "terms": term_texts,
+                    "resumes": [_resume_summary(c) for c in shown],
                     "origin": {"key": origin.key, "label": origin.label, "host": origin.host,
                                "remember": origin.remember}}
         raw = {doc: self.vault.get(doc) for doc in dict.fromkeys(doc for _, doc, _ in wanted)}
-        values: dict[str, str | bool] = {field_id: format_value(doc, raw[doc], field) for field_id, doc, field in wanted}
+        values: dict[str, Any] = {field_id: format_value(doc, raw[doc], field) for field_id, doc, field in wanted}
         values.update({field_id: True for field_id, _ in terms})
-        entry = {"at": _now(), "host": origin.host, "key": origin.key, "documents": documents, "mode": mode}
+        entry: dict[str, Any] = {"at": _now(), "host": origin.host, "key": origin.key, "documents": documents,
+                                 "mode": mode}
         if term_texts:
             entry["terms"] = term_texts
+        if resume:
+            path = Path(resume["path"])
+            values[uploads[0]] = {"name": path.name, "type": "application/pdf",
+                                  "data": base64.b64encode(path.read_bytes()).decode()}
+            entry["resume"] = {"application_id": resume["application_id"], "name": path.name}
         self._log(entry)
-        return {"status": "filled", "values": values, "label": origin.label}
+        return {"status": "filled", "values": values, "label": origin.label,
+                **({"warnings": warnings} if warnings else {})}
+
+    def _resume_candidates(self, url: str, origin: Origin, sites: dict[str, str],
+                           extras: list[str]) -> list[dict[str, Any]]:
+        """Candidaturas abertas com currículo cuja vaga é a da página; sem nenhuma, as da mesma empresa ou site
+        (nunca nos agregadores, onde o endereço não identifica a empresa)."""
+        page = canonical_url(url) or ""
+        parts = urlsplit(url)
+        gupy_job = re.search(r"/jobs/(\d+)", parts.path) if (parts.hostname or "").endswith("gupy.io") else None
+        exact, same = [], []
+        for app in self.resumes():
+            if not Path(app["path"]).is_file():
+                continue
+            canon = app.get("url_canonical") or ""
+            if canon and (canon == page or page.startswith(canon + "/")
+                          or (gupy_job and re.search(rf"\.gupy\.io/jobs/{gupy_job.group(1)}$", canon))):
+                exact.append(app)
+            elif origin.remember:
+                try:
+                    if resolve_origin(app.get("url") or "", sites, extras).key == origin.key:
+                        same.append(app)
+                except VagasError:
+                    pass
+        return exact or same
 
     def _log(self, entry: dict[str, Any]) -> None:
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         with self.log_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def _resume_summary(app: dict[str, Any]) -> dict[str, Any]:
+    return {"application_id": app["application_id"], "label": f"{app['role']} — {app['company']}",
+            "name": Path(app["path"]).name}
 
 
 def default_approvals_path(db_path: Path | str | None = None) -> Path:
@@ -290,23 +378,44 @@ def default_log_path(db_path: Path | str | None = None) -> Path:
     return Path(db_path or default_db_path()).parent / "autofill.log"
 
 
-def open_application_sites(db_path: Path | str) -> dict[str, str]:
-    """Site próprio de cada candidatura aberta -> empresa (só leitura; sem migrar o banco)."""
-    path = Path(db_path)
-    if not path.exists():
-        return {}
-    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
-    try:
-        rows = conn.execute(f"SELECT company, url FROM applications WHERE status IN ({','.join('?' * len(OPEN_STATUSES))})"
-                            " ORDER BY updated_at", OPEN_STATUSES).fetchall()
-    finally:
-        conn.close()
-    sites = {}
-    for company, url in rows:
-        host = (urlsplit(url or "").hostname or "").lower()
-        if host and not any(_matches(host, d) for d in TRUSTED_DOMAINS):
-            sites[site(host)] = company
-    return sites
+class Applications:
+    """Candidaturas abertas lidas do banco, só para leitura (sem migrar o banco)."""
+
+    def __init__(self, db_path: Path | str):
+        self.db_path = Path(db_path)
+
+    def _rows(self, sql: str) -> list[sqlite3.Row]:
+        if not self.db_path.exists():
+            return []
+        conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        try:
+            return conn.execute(sql, OPEN_STATUSES).fetchall()
+        finally:
+            conn.close()
+
+    def sites(self) -> dict[str, str]:
+        """Site próprio de cada candidatura aberta -> empresa."""
+        sites = {}
+        for row in self._rows(f"SELECT company, url FROM applications WHERE status IN ({_marks()}) ORDER BY updated_at"):
+            host = (urlsplit(row["url"] or "").hostname or "").lower()
+            if host and not any(_matches(host, d) for d in TRUSTED_DOMAINS):
+                sites[site(host)] = row["company"]
+        return sites
+
+    def with_resumes(self) -> list[dict[str, Any]]:
+        """Candidaturas abertas com o último currículo personalizado, no caminho onde foi salvo."""
+        rows = self._rows(f"""
+            SELECT a.id AS application_id, a.company, a.role, a.url, a.url_canonical, r.pdf_path AS path
+            FROM applications a
+            JOIN resumes r ON r.id = (SELECT MAX(id) FROM resumes WHERE application_id = a.id)
+            WHERE a.status IN ({_marks()})
+            ORDER BY a.updated_at DESC, a.id DESC""")
+        return [dict(row) for row in rows]
+
+
+def _marks() -> str:
+    return ",".join("?" * len(OPEN_STATUSES))
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -321,8 +430,8 @@ def main(argv: list[str] | None = None) -> None:
     approvals = Approvals(default_approvals_path())
     if args.command == "list":
         items = approvals.list()
-        print("\n".join(f"{a['key']}  ({a['label']}, desde {a['approved_at']}"
-                        f"{', com termos de uso' if a.get('termos') else ''})" for a in items) or "Nenhuma aprovação.")
+        print("\n".join(f"{a['key']}  ({a['label']}, desde {a['approved_at']}: "
+                        f"{', '.join(Approvals._scopes(a))})" for a in items) or "Nenhuma aprovação.")
     elif args.all:
         approvals.clear()
         print("Todas as aprovações foram removidas.")
