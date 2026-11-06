@@ -264,3 +264,12 @@ def test_batch_fills_forms_up_to_the_tab_limit_and_reviews_them_together():
     assert "**Em lote:**" in review and "pronta para envio" in review and "próxima vaga" in review
     assert "pronta para envio" in tabs and "revisão do lote" in tabs.lower()
     assert "não pare para revisar" in batch.lower() and "`max_open_tabs`" in batch
+
+
+def test_hybrid_or_remote_availability_is_yes_only_in_the_region_of_the_accepted_cities():
+    text = (SKILL_DIR / "candidatar.md").read_text(encoding="utf-8")
+    rule = text[text.index("**Disponibilidade para remoto, híbrido ou presencial:**"):text.index("**Anexo:**")]
+
+    assert "[criterios-triagem.md](criterios-triagem.md)" in rule and "Locais aceitos para híbrido e presencial" in rule
+    assert '"sim"' in rule and "região" in rule
+    assert "pergunte ao Thiago antes" in rule and "`pending`" in rule
