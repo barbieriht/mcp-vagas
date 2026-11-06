@@ -24,8 +24,8 @@ Se `needs_setup` trouxer chaves, o MCP ainda não sabe onde guardar aqueles arqu
 - `resume_out`: pasta dos PDFs de currículo. Sugira a primeira de `suggestions` (no WSL, costuma ser `Documents` do Windows, para anexar o PDF no navegador) e diga que ele pode escolher outra.
 - `export_dir`: pasta dos CSVs exportados. Sugira uma de `suggestions` ou aceite o `default`.
 - `master_resume`: arquivo YAML do currículo geral. Sugira o `default` (fica no WSL, fora do `/mnt/c`, que é lento).
-- `login_method`: como entrar nos sites de vagas, `linkedin` ou `google` (aceite "gmail" como google).
-- `login_email`: só aparece em `needs_setup` quando o login é `google`. Pergunte qual e-mail da conta Google usar (pode ser diferente do e-mail do `perfil.md`).
+- `login_email`: conta Google, a segunda opção de login quando o site não oferece o LinkedIn. Sugira o "E-mail / login Google" do `get_profile` e confirme com o Thiago.
+- `login_method` não é perguntado: o padrão é `linkedin` primeiro e Google em segunda opção. Só grave `google` se o Thiago pedir para inverter a ordem.
 
 Grave cada resposta com `set_config` (sem `value` para aceitar o `default`) e leia o `warnings` do retorno: se uma variável de ambiente sobrepõe o valor, avise o Thiago. Não escolha a pasta dos currículos sozinho. `max_open_tabs` (limite de abas de candidatura abertas) tem padrão e não é perguntado: só mude se o Thiago pedir. Depois de configurado, `get_config` não pergunta de novo; para mudar depois, o Thiago pede e você chama `set_config`.
 

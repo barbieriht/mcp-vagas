@@ -140,14 +140,15 @@ def build_server(
         Chame no PRIMEIRO USO (e sempre que uma tool reclamar de pasta não configurada), antes de gerar
         currículo ou exportar. Retorna {config_file, settings, needs_setup}. Em settings, cada chave
         (resume_out = pasta dos PDFs de currículo, export_dir = pasta dos CSVs, master_resume = arquivo
-        YAML do currículo geral, login_method = entrar nos sites de vagas por "linkedin" ou "google",
-        login_email = conta Google usada quando login_method é "google", max_open_tabs = limite de abas de
+        YAML do currículo geral, login_method = primeira opção para entrar nos sites de vagas, padrão
+        "linkedin", nunca perguntado; login_email = conta Google, a segunda opção quando o site não oferece
+        a primeira (com "google" como primeira, o LinkedIn vira a segunda), max_open_tabs = limite de abas de
         candidatura abertas esperando o usuário, padrão 12, nunca perguntado; salary_rule = regra da
         pretensão salarial, padrão "teto", perguntada só depois da primeira busca de vagas) traz {value, source
         (env/config/default/unset), description, kind, default, suggestions, choices, env}.
         needs_setup lista as chaves que o usuário nunca definiu: pergunte uma por vez (para pastas,
-        ofereça a sugestão mais adequada: suggestions, ou o default quando houver; para login_method,
-        as choices; login_email só aparece quando o login é por Google) e grave com set_config.
+        ofereça a sugestão mais adequada: suggestions, ou o default quando houver; para login_email, o
+        e-mail da conta Google, que pode estar no perfil como "E-mail / login Google") e grave com set_config.
         """
         try:
             return paths_config.describe(db_path)
@@ -159,7 +160,8 @@ def build_server(
         """Grava uma configuração no config.toml (para pastas, cria a pasta e confere que dá para escrever).
 
         key: resume_out, export_dir ou master_resume (value: caminho absoluto, aceita C:\\Users\\...);
-        login_method (value: "linkedin" ou "google"/"gmail"); login_email (value: e-mail da conta Google);
+        login_method (value: "linkedin" ou "google"/"gmail": a primeira opção de login; a outra é a segunda);
+        login_email (value: e-mail da conta Google);
         max_open_tabs (value: número de 1 a 30); autofill_domains (value: domínios extras, separados por
         vírgula, onde a extensão do Chrome preenche os documentos do cofre; só com o pedido do usuário);
         salary_rule (value: teto, meio_termo, percentil_25 ou
