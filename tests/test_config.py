@@ -360,6 +360,21 @@ async def test_autofill_domains_are_optional_and_tolerant(db_path, typed, stored
     assert bad.is_error and "domínio" in bad.content[0].text
 
 
+@pytest.mark.parametrize("typed, stored", [("gupy.io", "gupy.io"), ("https://Gupy.io, lever.co.", "gupy.io, lever.co")])
+async def test_autofill_platforms_accept_only_recruiting_platforms(db_path, typed, stored):
+    async with Client(build_server(db_path)) as client:
+        before = payload(await client.call_tool("get_config", {}))
+        saved = payload(await client.call_tool("set_config", {"key": "autofill_platforms", "value": typed}))
+        aggregator = await client.call_tool("set_config", {"key": "autofill_platforms", "value": "linkedin.com"})
+        unknown = await client.call_tool("set_config", {"key": "autofill_platforms", "value": "meuats.com"})
+
+    assert before["settings"]["autofill_platforms"]["source"] == "unset"
+    assert "autofill_platforms" not in before["needs_setup"]
+    assert saved["value"] == stored
+    assert aggregator.is_error and "gupy.io" in aggregator.content[0].text
+    assert unknown.is_error and "meuats.com" in unknown.content[0].text
+
+
 @pytest.mark.parametrize("typed, stored", [("sim", "sim"), ("Sim.", "sim"), ("ligado", "sim"), ("não", "nao"),
                                            ("desligado", "nao")])
 async def test_auto_submit_is_off_by_default_never_asked_and_tolerant(db_path, typed, stored):

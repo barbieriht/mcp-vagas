@@ -50,6 +50,8 @@ SUBDOMAIN_PLATFORMS = ("gupy.io", "myworkdayjobs.com", "inhire.app", "recrut.ai"
                        "recruitee.com", "teamtailor.com", "breezy.hr", "bamboohr.com", "icims.com", "taleo.net",
                        "pinpointhq.com", "personio.com", "factorialhr.com")
 TRUSTED_DOMAINS = (*AGGREGATORS, *PATH_PLATFORMS, *SUBDOMAIN_PLATFORMS)
+# Plataformas que o usuário pode aprovar por inteiro (autofill_platforms): uma aprovação vale para todas as empresas.
+PLATFORMS = (*PATH_PLATFORMS, *SUBDOMAIN_PLATFORMS)
 
 _JOB_PARAMS = ("currentJobId", "jk", "vjk", "jl", "jobListingId", "jobId", "id")
 
@@ -176,8 +178,11 @@ def _job_id(url_parts) -> str:
     return url_parts.path.rstrip("/") or "/"
 
 
-def resolve_origin(url: str, open_sites: dict[str, str], extra_domains: list[str]) -> Origin:
-    """Empresa (ou vaga) dona do formulário; VagasError se a página não for https num site de vagas confiável."""
+def resolve_origin(url: str, open_sites: dict[str, str], extra_domains: list[str],
+                   platforms: list[str] | tuple[str, ...] = ()) -> Origin:
+    """Empresa (ou vaga) dona do formulário; VagasError se a página não for https num site de vagas confiável.
+    Numa plataforma de `platforms` (autofill_platforms), a chave é a plataforma: a aprovação vale para todas
+    as empresas dela."""
     parts = urlsplit((url or "").strip())
     host = (parts.hostname or "").lower()
     if parts.scheme != "https" or not host:
@@ -186,12 +191,16 @@ def resolve_origin(url: str, open_sites: dict[str, str], extra_domains: list[str
         if _matches(host, domain):
             return Origin(f"{domain}/vaga/{_job_id(parts)}", name, host, remember=False)
     for domain in PATH_PLATFORMS:
+        if _matches(host, domain) and domain in platforms:
+            return _whole_platform(domain, host)
         if _matches(host, domain):
             segments = [s for s in parts.path.split("/") if s]
             company = parse_qs(parts.query).get("for", [""])[0] if segments[:1] == ["embed"] else ""
             company = company or (segments[0] if segments else host)
             return Origin(f"{domain}/{company.lower()}", company, host, remember=True)
     for domain in SUBDOMAIN_PLATFORMS:
+        if _matches(host, domain) and domain in platforms:
+            return _whole_platform(domain, host)
         if _matches(host, domain):
             return Origin(host, host.split(".")[0], host, remember=True)
     for domain in extra_domains:
@@ -202,6 +211,10 @@ def resolve_origin(url: str, open_sites: dict[str, str], extra_domains: list[str
         return Origin(own, open_sites[own], host, remember=True)
     raise VagasError(f"{host} não é um site de vagas confiável (agregadores, plataformas de recrutamento, "
                      "autofill_domains do config ou o site de uma candidatura aberta).")
+
+
+def _whole_platform(domain: str, host: str) -> Origin:
+    return Origin(domain, f"{domain} (todas as empresas)", host, remember=True)
 
 
 class Approvals:
@@ -257,7 +270,8 @@ def _now() -> str:
 class Autofill:
     def __init__(self, vault: Vault, approvals: Approvals, log_path: Path | str,
                  open_sites: Callable[[], dict[str, str]], extra_domains: Callable[[], list[str]],
-                 resumes: Callable[[], list[dict[str, Any]]] = lambda: [], max_file_bytes: int = MAX_FILE_BYTES):
+                 resumes: Callable[[], list[dict[str, Any]]] = lambda: [], max_file_bytes: int = MAX_FILE_BYTES,
+                 platforms: Callable[[], list[str]] = lambda: []):
         self.vault = vault
         self.resumes = resumes
         self.max_file_bytes = max_file_bytes
@@ -265,6 +279,7 @@ class Autofill:
         self.log_path = Path(log_path)
         self.open_sites = open_sites
         self.extra_domains = extra_domains
+        self.platforms = platforms
 
     def handle(self, request: dict[str, Any]) -> dict[str, Any]:
         """{url, fields: [{id, kind?, text, attrs?, placeholder?, maxlength?, accept?}], confirm: None | "once" |
@@ -277,7 +292,8 @@ class Autofill:
         quando algo foi pulado."""
         try:
             sites, extras = self.open_sites(), self.extra_domains()
-            origin = resolve_origin(request.get("url", ""), sites, extras)
+            origin = resolve_origin(request.get("url", ""), sites, extras, self.platforms())
+            company = resolve_origin(request.get("url", ""), sites, extras)  # o currículo é sempre da empresa
         except VagasError as exc:
             return {"status": "refused", "reason": str(exc)}
         fields = request.get("fields") or []
@@ -288,7 +304,7 @@ class Autofill:
                  if f.get("kind") == "checkbox" and classify_consent(f.get("text") or "")]
         uploads = [str(f.get("id")) for f in fields if f.get("kind") == "file" and _accepts_pdf(f.get("accept"))
                    and (classify_upload(f.get("text") or "") or (not f.get("text") and classify_upload(f.get("attrs") or "")))]
-        candidates = self._resume_candidates(request.get("url", ""), origin, sites, extras) if uploads else []
+        candidates = self._resume_candidates(request.get("url", ""), company, sites, extras) if uploads else []
         chosen_id = request.get("resume_application_id")
         needs_choice = len(candidates) > 1 and chosen_id is None
         if chosen_id is not None:

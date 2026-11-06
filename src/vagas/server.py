@@ -165,6 +165,8 @@ def build_server(
         das candidaturas que cumprem todas as condições da Skill; só a pedido do usuário, nunca por conta própria);
         max_open_tabs (value: número de 1 a 30); autofill_domains (value: domínios extras, separados por
         vírgula, onde a extensão do Chrome preenche os documentos do cofre; só com o pedido do usuário);
+        autofill_platforms (value: plataformas de recrutamento, como gupy.io, separadas por vírgula, em que um
+        "Permitir sempre" da extensão vale para todas as empresas da plataforma; só com o pedido do usuário);
         salary_rule (value: teto, meio_termo, percentil_25 ou
         ponto_baixo). Ao gravar salary_rule, as vagas a_aplicar e pendente_usuario já avaliadas são
         reavaliadas com a regra nova: o retorno traz "reevaluated" ({reevaluated, changed, errors}),
