@@ -283,3 +283,23 @@ def test_login_prefers_linkedin_then_the_google_account():
     assert access.index("LinkedIn") < access.index("Google") and "`login_email`" in access
     assert "Sempre que" in access and "nenhum dos dois" in access
     assert "segunda opção" in setup and "`login_email`" in setup
+
+
+def test_intermediate_buttons_are_clicked_and_the_final_one_follows_auto_submit():
+    text = (SKILL_DIR / "candidatar.md").read_text(encoding="utf-8")
+    review = text[text.index("5. **Revisão antes do envio.**"):text.index("6. **Registro final.**")]
+    form = text[text.index("3. **Formulário.**"):text.index("4. **Bloqueios.**")]
+
+    assert "Salvar e continuar" in form and "sem perguntar" in form
+    assert "`auto_submit`" in review and '"sim"' in review
+    for condition in ("`pending`", "extensão", "pretensão", "carta de apresentação"):
+        assert condition in review
+    assert "enviada automaticamente" in review
+
+
+def test_cover_letter_is_left_blank_when_optional_and_written_for_review_when_required():
+    text = (SKILL_DIR / "candidatar.md").read_text(encoding="utf-8")
+    letter = text[text.index("**Carta de apresentação:**"):text.index("4. **Bloqueios.**")]
+
+    assert "opcional" in letter and "em branco" in letter
+    assert "obrigatória" in letter and "revisão" in letter

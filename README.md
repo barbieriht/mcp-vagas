@@ -116,6 +116,7 @@ export_dir = "/mnt/c/Users/<usuário>/Documents/Vagas"        # CSVs exportados
 master_resume = "/home/<usuário-wsl>/.local/share/vagas/curriculo.yaml"   # currículo geral (YAML editável)
 login_method = "linkedin"                                    # primeira opção de login (padrão); a outra é a segunda
 login_email = "<usuário>@gmail.com"                          # conta Google (segunda opção, quando o site não tem LinkedIn)
+auto_submit = "nao"                                          # "sim": envia sozinho as candidaturas que cumprem todas as condições
 max_open_tabs = 12                                           # abas de candidatura deixadas abertas esperando você (1 a 30)
 ```
 
@@ -136,6 +137,7 @@ As demais opções continuam por variável de ambiente:
 | `VAGAS_RESUME_OUT` | sobrepõe `resume_out` do `config.toml` | nenhum (configurada no primeiro uso) |
 | `VAGAS_SALARY_POLICY` | política salarial lida por `evaluate_salary` | `politica-salarial.md` ao lado do banco (o instalador cria um symlink para o da Skill) |
 | `VAGAS_SENSITIVE_FILE` | cofre de dados sensíveis (CPF, RG...), cifrado pela DPAPI do Windows | `cofre.json` ao lado do banco |
+| `VAGAS_AUTO_SUBMIT` | sobrepõe `auto_submit` do `config.toml` (`sim` envia sozinho as candidaturas sem pendências, com os campos da extensão preenchidos, a pretensão da avaliação e sem texto livre escrito pelo Claude) | `nao` |
 | `VAGAS_AUTOFILL_DOMAINS` | sobrepõe `autofill_domains` do `config.toml` (domínios extras da extensão do Chrome) | nenhum |
 | `VAGAS_SKILL_DIR` | pasta `skill/candidaturas` do repositório, onde `add_profile_field` grava os campos novos do perfil | a pasta para onde aponta o symlink da política salarial (criado pelo instalador) |
 | `VAGAS_TRIAGE_CRITERIA` | critérios fixos de triagem lidos por `triage_job` | `criterios-triagem.md` ao lado do banco (o instalador cria um symlink para o da Skill) |

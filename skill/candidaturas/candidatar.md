@@ -26,6 +26,7 @@ Sugira uma vez, sem insistir, que o Thiago reduza os pedidos de permissão do na
      Se `login_method` for `google`, a ordem se inverte. Só use cadastro com e-mail e senha quando o site não oferecer nenhum dos dois; aí a senha é etapa do Thiago (passo 4). Se o LinkedIn ou o Google pedirem senha, código ou verificação, a sessão não está aberta: peça ao Thiago para entrar e siga quando ele avisar (em lote, isso afeta todas as vagas e é motivo para pausar).
    - **Vaga encerrada:** se a página mostrar "Not currently accepting applications" (ou equivalente), não preencha nada: informe ao Thiago e, se a vaga já estiver registrada, chame `update_application` com status `descartada` e `discard_reason` "vaga encerrada".
    - **Dados:** preencha com os dados do perfil e do currículo geral.
+   - **Etapas do formulário:** botões que só levam à próxima etapa ("Próximo", "Continuar", "Salvar e continuar", "Avançar") você clica sem perguntar, depois de preencher a etapa. Só o botão que envia a candidatura ("Enviar", "Finalizar candidatura", "Submit application") segue o passo 5.
    - **Disponibilidade para remoto, híbrido ou presencial:** vale para perguntas como "Você tem disponibilidade para trabalhar no modelo híbrido em Campinas?" ou "Aceita trabalhar remoto com encontros presenciais?". Compare a cidade onde a pergunta (ou, se ela não disser, a vaga) exige comparecer com os "Locais aceitos para híbrido e presencial" do [criterios-triagem.md](criterios-triagem.md).
      - Responda "sim" quando a cidade for um desses locais ou da região de um deles: mesma região metropolitana ou cidade vizinha de onde se vai e volta no mesmo dia (por exemplo, Guarulhos ou Santo André para São Paulo; Hortolândia ou Valinhos para Campinas).
      - Remoto sem exigência de ir a uma cidade: "sim".
@@ -33,20 +34,28 @@ Sugira uma vez, sem insistir, que o Thiago reduza os pedidos de permissão do na
    - **Anexo:** quem anexa o currículo é a extensão do Chrome do Thiago: ela envia ao campo de currículo o PDF personalizado do passo 2, lido de onde `create_tailored_resume` o salvou. Por isso o currículo precisa existir e estar ligado à candidatura (`application_id`) antes de abrir o formulário. Não anexe você mesmo e não escolha um currículo antigo salvo no site (no LinkedIn Easy Apply, não selecione o currículo salvo no perfil). Se o campo continuar vazio quando você terminar o resto (extensão não carregada, confirmação recusada ou upload fora do padrão), não pare nem espere: deixe a aba aberta e siga o passo 4 com `pendente_usuario`. No `pending`, diga qual arquivo anexar usando o `windows_path` do currículo (de `create_tailored_resume` ou `get_resume`), no formato: "Anexar <nome do PDF> (currículo ID <n>, em <windows_path>); <o que mais falta>; revisar e enviar". Depois siga para a próxima vaga (veja "Abas abertas").
    - **Pretensão salarial:** use o `value_to_inform` da avaliação salarial (a coluna `salary_ask` da candidatura). Se não estiver à mão, ele está em `salary_evaluation`, no `get_history`. Ao registrar o envio, grave em `salary_expectation` o valor exatamente como foi informado no formulário.
    - **Consentimentos:** as caixas de termos de uso, condições de uso, política de privacidade e LGPD também ficam com a extensão do Chrome do Thiago, que as marca com a mesma confirmação dos documentos. Não as marque e não peça para marcar; se continuarem desmarcadas quando você terminar o resto, liste no `pending` ("termos de uso desmarcados: confirmar na janela da extensão ou marcar"). A extensão nunca marca marketing, comunicações, parceiros, banco de talentos nem declarações de fato ("Declaro que..."): essas você responde pelo perfil, e o que não estiver lá é bloqueio (passo 4). Se o navegador recusar o envio, trate como etapa do Thiago: aba aberta, `pendente_usuario` e o item no `pending` ("enviar").
+   - **Carta de apresentação:** se for opcional, deixe em branco. Se for obrigatória, escreva uma seguindo "Respostas em texto" (abaixo), preencha e deixe a vaga para a revisão do Thiago: carta e respostas abertas escritas por você nunca são enviadas sem ele ler.
 4. **Bloqueios.** Documentos de identidade vazios não bloqueiam o preenchimento: preencha todo o resto, deixe a aba aberta e registre no `pending` o que ficou vazio; em lote, a vaga conta como pronta para envio ("pronta para envio: CPF e RG vazios"). Se o formulário exigir criar conta com senha, um documento ou dado sensível que não está no cofre, ou uma resposta que não está no perfil nem no currículo:
    - registre cada campo novo no perfil (seção "Campos novos do perfil" abaixo);
    - preencha todo o resto e deixe a aba aberta;
    - chame `update_application` com status `pendente_usuario`, `pending` listando cada item que falta e o `resume_id`;
    - numa vaga só, avise o Thiago e encerre a vaga; em lote, deixe o aviso para o resumo e siga para a próxima vaga.
-5. **Revisão antes do envio.** Nunca clique no botão final de envio sem a confirmação do Thiago.
+5. **Revisão antes do envio.** Chame `get_config` e leia `auto_submit` (padrão "nao"; só o Thiago liga).
+   - **Envio automático:** com `auto_submit` "sim", clique em enviar sem perguntar somente se tudo isto valer:
+     - nada para o `pending`: campos obrigatórios preenchidos e nenhum bloqueio;
+     - os campos da extensão preenchidos na página: documentos, termos de uso e o currículo personalizado da vaga (não um currículo antigo salvo no site);
+     - a pretensão informada é o `value_to_inform` da avaliação salarial;
+     - todas as respostas vieram do perfil ou do currículo geral, sem carta de apresentação nem resposta aberta escrita por você.
+
+     Depois do envio, siga o passo 6 com a nota "enviada automaticamente" e feche a aba. Se alguma condição falhar, ou com `auto_submit` "nao", siga o fluxo abaixo.
    - **Em lote:** não pare para esta revisão. Com o formulário completo, deixe a aba aberta no botão de envio, chame `update_application` com status `pendente_usuario`, o `resume_id` e `pending` começando por "pronta para envio" (com o que ele precisa conferir: currículo, pretensão, respostas abertas) e siga para a próxima vaga. A revisão acontece junto, na revisão do lote (veja "Abas abertas").
    - **Numa vaga só:** pare antes do botão final de envio.
 
-   Em qualquer caso, a revisão mostra ao Thiago:
+   Fora do envio automático, a revisão mostra ao Thiago:
    - a vaga;
    - o currículo anexado;
    - a pretensão informada;
-   - as respostas abertas;
+   - as respostas abertas e a carta de apresentação, se houver;
    - os documentos que ficaram vazios, um por linha: "CPF vazio na vaga X da empresa Y (domínio Z): confirme na janela da extensão ou digite".
 
    Clique em enviar somente depois que ele confirmar.

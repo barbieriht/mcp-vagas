@@ -360,6 +360,21 @@ async def test_autofill_domains_are_optional_and_tolerant(db_path, typed, stored
     assert bad.is_error and "domínio" in bad.content[0].text
 
 
+@pytest.mark.parametrize("typed, stored", [("sim", "sim"), ("Sim.", "sim"), ("ligado", "sim"), ("não", "nao"),
+                                           ("desligado", "nao")])
+async def test_auto_submit_is_off_by_default_never_asked_and_tolerant(db_path, typed, stored):
+    async with Client(build_server(db_path)) as client:
+        before = payload(await client.call_tool("get_config", {}))
+        saved = payload(await client.call_tool("set_config", {"key": "auto_submit", "value": typed}))
+        tools = {t.name: t for t in (await client.list_tools()).tools}
+
+    setting = before["settings"]["auto_submit"]
+    assert (setting["value"], setting["source"]) == ("nao", "default")
+    assert "auto_submit" not in before["needs_setup"]
+    assert saved["value"] == stored
+    assert "auto_submit" in tools["set_config"].description and "pedido" in tools["set_config"].description
+
+
 def test_the_old_standing_authorization_is_gone(db_path):
     assert "sensitive_autofill" not in SETTINGS
 
