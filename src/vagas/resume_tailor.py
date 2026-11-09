@@ -25,6 +25,25 @@ _AVAILABILITY = re.compile(
     r"\b(open\s+to|seeking|looking\s+for|available\s+for|interested\s+in)\b[^.]{0,80}"
     r"\b(opportunit\w*|roles?|positions?|jobs?)\b"
     r"|\b(remote|hybrid|on-?site)\s+or\b|\bwilling\s+to\s+relocate\b", re.IGNORECASE)
+# Recrutadores de tecnologia: tópico abre com o que a pessoa fez (verbo de ação), não com a função; clichês são
+# lidos como texto genérico.
+_GENERIC_OPENER = re.compile(r"^(responsible\s+for|worked\s+on|helped(\s+with|\s+to)?|duties\s+included|"
+                             r"tasked\s+with|in\s+charge\s+of)\b", re.IGNORECASE)
+_BUZZWORDS = re.compile(r"\b(passionate|results?-(driven|oriented)|detail-oriented|self-starter|go-getter|"
+                        r"team\s+player|hard-?working|highly\s+motivated|synerg\w*|rockstar|ninja|thought\s+leader)\b",
+                        re.IGNORECASE)
+
+
+def style_problems(where: str, text: str, bullet: bool) -> list[str]:
+    problems = []
+    if bullet and (found := _GENERIC_OPENER.match(text)):
+        problems.append(f"{where}: abre com {found.group(0)!r}; comece pelo verbo do que foi feito, como no "
+                        "currículo geral (ex.: \"Built...\", \"Coordinated...\"), com a ferramenta e o resultado")
+    if found := _BUZZWORDS.search(text):
+        problems.append(f"{where}: {found.group(0)!r} é clichê que recrutadores ignoram; descreva o que foi feito")
+    return problems
+
+
 _SKILL_LIST = re.compile(r"\b(areas\s+of\s+expertise|core\s+skills|key\s+skills|skills)\s*:", re.IGNORECASE)
 
 
@@ -98,6 +117,7 @@ def resolve(master: dict[str, Any], selection: TailoredSelection) -> dict[str, A
         text = getattr(selection, field)
         if text is not None:
             errors += _check(field, text, corpus_numbers, corpus_terms, "no currículo geral")
+            errors += style_problems(field, text, bullet=False)
     if selection.headline is not None:
         basics["headline"] = selection.headline
     summary = selection.summary if selection.summary is not None else master.get("summary")
@@ -192,6 +212,7 @@ def _resolve_paragraphs(item, item_pick: ItemPick, corpus_terms, errors) -> list
         for n, bullet in enumerate(paragraph_pick.bullets, start=1):
             errors += _check(f"{source['id']} (bullet {n})", bullet, allowed_numbers, corpus_terms,
                              "no parágrafo de origem")
+            errors += style_problems(f"{source['id']} (bullet {n})", bullet, bullet=True)
         resolved.append({"id": source["id"], "bullets": paragraph_pick.bullets})
     return resolved
 

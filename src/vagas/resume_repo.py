@@ -21,7 +21,7 @@ from vagas.resume_extract import extract_pages, review_draft, windows_path, wsl_
 from vagas.resume_diff import diff_master
 from vagas.resume_suggest import suggest_selection
 from vagas.resume_model import MasterResume, describe_errors
-from vagas.resume_render import render_resume
+from vagas.resume_render import MAX_PAGES, render_resume
 from vagas.resume_tailor import TailoredSelection, resolve, summary_problems
 from vagas.resume_validate import match_terms, source_note_problems, strings, term_set
 
@@ -366,7 +366,7 @@ class ResumeStore:
                 f"O currículo geral aprovado tem campos que {SOURCE_NOTES_HELP}. Corrija o rascunho "
                 f"({self.draft_path}) com save_master_draft, mostre ao usuário e peça a aprovação (approve_master); "
                 "depois gere o currículo de novo:\n" + "\n".join(f"- {p}" for p in problems))
-        rendered = render_resume(resolved, out_dir, label=label)
+        rendered = render_resume(resolved, out_dir, label=label, max_pages=MAX_PAGES)
         with self.conn:
             cursor = self.conn.execute(
                 """
@@ -388,7 +388,10 @@ class ResumeStore:
             terms = self.score_job_match(app["description"], company=app["company"], title=app["role"],
                                          location=app.get("location"))["matched"]
         master = self.get_master_resume()["resume"]
-        result = suggest_selection(master, terms, label=f"{app['company']} - {app['role']}")
+        from vagas.job_posting import classify_role
+
+        result = suggest_selection(master, terms, label=f"{app['company']} - {app['role']}",
+                                   role_key=classify_role(app["role"])[0])
         resolve(master, TailoredSelection.model_validate(result["selection"]))  # a sugestão sempre passa
         return result
 

@@ -17,6 +17,14 @@ from vagas.resume_tailor import CONTINUATION, DEFAULT_ORDER
 _PARAGRAPH_SECTIONS = ("experience", "volunteering", "projects")
 _OPTIONAL_SECTIONS = ("volunteering", "projects", "publications", "certifications")
 CERT_LIMIT = 6
+# O que recrutadores procuram por família de cargo: sistemas em produção nas engenharias, análise e experimentos
+# em ciência e análise de dados. Esses termos só ajudam a escolher parágrafos; não entram nas skills.
+_PRODUCTION = ("production", "deploy", "deployed", "deployment", "AWS", "Lambda", "Terraform", "Docker", "Kubernetes",
+               "FastAPI", "API", "APIs", "CI/CD", "MLOps", "monitoring", "serverless", "microservices")
+_ANALYSIS = ("analysis", "statistical", "experiment", "experiments", "A/B", "forecasting", "hypothesis",
+             "regression", "insights")
+ROLE_FOCUS = {"ml_engineer": _PRODUCTION, "ai_engineer": _PRODUCTION, "data_engineer": _PRODUCTION,
+              "data_scientist": _ANALYSIS, "data_analyst": _ANALYSIS}
 
 
 def _count(text: str, terms: list[str]) -> int:
@@ -27,8 +35,12 @@ def _item_text(item: dict[str, Any]) -> str:
     return " ".join(str(v) for k, v in item.items() if isinstance(v, str) and k != "id")
 
 
-def suggest_selection(master: dict[str, Any], terms: list[str], label: str | None) -> dict[str, Any]:
+def suggest_selection(master: dict[str, Any], terms: list[str], label: str | None,
+                      role_key: str | None = None) -> dict[str, Any]:
     terms = list(dict.fromkeys(t for t in terms if t and t.strip()))
+    focus = [t for t in ROLE_FOCUS.get(role_key or "", ()) if t.lower() not in {x.lower() for x in terms}]
+    evidence = " ".join(p["text"] for s in _PARAGRAPH_SECTIONS for item in master.get(s) or []
+                        for p in item.get("paragraphs") or [])
     scores: dict[str, dict[str, int]] = {"paragraphs": {}, "items": {}, "skills": {}}
     sections: list[dict[str, Any]] = []
 
@@ -40,9 +52,10 @@ def suggest_selection(master: dict[str, Any], terms: list[str], label: str | Non
             sections.append({"section": section, "items": None})
             continue
         if section in _PARAGRAPH_SECTIONS:
-            picked = _paragraph_items(section, available, terms, scores)
+            picked = _paragraph_items(section, available, terms + focus if section == "experience" else terms,
+                                      scores)
         elif section == "skills":
-            picked = _skills(available, terms, scores)
+            picked = _skills(available, terms, scores, evidence)
         elif section == "certifications":
             picked = _certifications(available, terms, scores)
         else:
@@ -90,14 +103,16 @@ def _paragraph_items(section, available, terms, scores) -> list[dict[str, Any]]:
     return picked
 
 
-def _skills(groups, terms, scores) -> list[dict[str, Any]]:
+def _skills(groups, terms, scores, evidence: str) -> list[dict[str, Any]]:
+    """Grupos com termos da vaga; em cada um, os da vaga primeiro e depois só os que aparecem em alguma
+    experiência, voluntariado ou projeto (skill sem comprovação vira lista de palavras-chave)."""
     wanted = {t.lower() for t in terms}
     ranked = []
     for position, group in enumerate(groups):
         hits = [t for t in group["terms"] if t.lower() in wanted or _count(t, terms)]
         scores["skills"][group["id"]] = len(hits)
         if hits:
-            rest = [t for t in group["terms"] if t not in hits]
+            rest = [t for t in group["terms"] if t not in hits and _count(evidence, [t])]
             ranked.append((-len(hits), position, {"id": group["id"], "terms": hits + rest}))
     return [pick for _, _, pick in sorted(ranked, key=lambda r: (r[0], r[1]))]
 
