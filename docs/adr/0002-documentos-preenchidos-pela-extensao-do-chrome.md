@@ -19,7 +19,7 @@ A decisão de quem recebe o documento fica numa regra fixa e numa confirmação 
 
 ## Termos de uso (#155)
 
-A extensão também marca o aceite de termos de uso e da política de privacidade, porque o Claude in Chrome também recusa essa marcação. A regra fica na mesma classificação no host, e a confirmação por empresa passa a mostrar o texto de cada termo. A aceitação continua sendo do usuário, dada naquela janela. Ficam de fora, por regra, marketing, parceiros, banco de talentos e declarações de fato: uma declaração marcada automaticamente pode ser falsa. Caixas que misturam termos e marketing também ficam de fora. O `autofill.log` guarda o texto exato aceito, como comprovante.
+A extensão também marca o aceite de termos de uso e da política de privacidade, porque o Claude in Chrome também recusa essa marcação. A regra fica na mesma classificação no host, e a confirmação por empresa passa a mostrar o texto de cada termo. A aceitação continua sendo do usuário, dada naquela janela. Ficam de fora, por regra, marketing, parceiros e declarações de fato: uma declaração marcada automaticamente pode ser falsa. O banco de talentos, que no começo também ficava de fora, passou a ser marcado quando o perfil responde "sim" em "Incluir em bancos de talentos": é uma preferência do usuário, não uma declaração, e tem escopo próprio na aprovação, então uma empresa aprovada só para termos pergunta de novo. O termo de consentimento entra junto dos termos de uso. Caixas que misturam termos e marketing também ficam de fora. O `autofill.log` guarda o texto exato aceito, como comprovante.
 
 ## Anexo do currículo (#157)
 

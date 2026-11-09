@@ -78,6 +78,7 @@ class _Profile:
 
 
 VAULT = "no cofre (extensão do Chrome)"
+TALENT_POOL = "Incluir em bancos de talentos"
 
 
 class ProfileFiles:
@@ -124,6 +125,18 @@ class ProfileFiles:
             elif line.startswith((" ", "\t")) and line.strip().startswith("- ") and current is not None:
                 current["notes"].append(line.strip()[2:].strip())
         return {"sections": sections, "to_fill": to_fill, "vault_missing": vault_missing}
+
+    def talent_pool(self) -> bool | None:
+        """Resposta de "Incluir em bancos de talentos" no perfil.md: True (sim), False (não) ou None (sem resposta)."""
+        path = self.dir / "perfil.md"
+        if not path.exists():
+            return None
+        perfil = _Profile(path)
+        index = perfil.find(TALENT_POOL)
+        if index is None:
+            return None
+        answer = _key(_ITEM.match(perfil.lines[index])["value"]).split(" ")[0]
+        return {"sim": True, "s": True, "yes": True, "nao": False, "n": False, "no": False}.get(answer)
 
     def mark_vault(self, label: str, stored: bool) -> None:
         """No perfil.md, o campo sensível fica "no cofre" ou volta a "informar manualmente" (nunca o valor)."""

@@ -15,6 +15,8 @@ from typing import Any, BinaryIO
 from vagas import config
 from vagas.autofill import Applications, Approvals, Autofill, default_approvals_path, default_log_path
 from vagas.db import default_db_path
+from vagas.profile_fields import ProfileFiles, default_skill_dir
+from vagas.repo import VagasError
 from vagas.sensitive import DpapiBackend, Vault, default_vault_path
 
 log = logging.getLogger("vagas.autofill_host")
@@ -66,10 +68,17 @@ def build_autofill() -> Autofill:
         value = config.resolve("autofill_platforms", db_path)[0]
         return config.split_domains(value) if value else []
 
+    def talent_pool() -> bool | None:
+        try:
+            return ProfileFiles(default_skill_dir(db_path)).talent_pool()
+        except VagasError:
+            return None
+
     applications = Applications(db_path)
     return Autofill(Vault(default_vault_path(db_path), DpapiBackend()), Approvals(default_approvals_path(db_path)),
                     log_path=default_log_path(db_path), open_sites=applications.sites, extra_domains=extra_domains,
-                    resumes=applications.with_resumes, platforms=platforms)
+                    resumes=applications.with_resumes, platforms=platforms,
+                    talent_pool=talent_pool)
 
 
 def main() -> None:
