@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from mcp import Client
 
@@ -96,6 +98,26 @@ def test_missing_other_section_is_created(skill):
     ProfileFiles(skill).add_profile_field("Hobby", value="xadrez")
 
     assert read(skill, "perfil.md").endswith("- Nome: X\n\n## Outros campos de formulário\n- Hobby: xadrez\n")
+
+
+@pytest.mark.parametrize("answer, expected", [
+    ("sim", True), ("Sim.", True), ("SIM, pode incluir", True), ("yes", True), ("não", False), ("Nao.", False),
+    ("<PREENCHER>", None), ("<...>", None), ("talvez", None), (None, None),
+])
+def test_talent_pool_answer_is_read_tolerantly(skill, answer, expected):
+    if answer is not None:
+        text = read(skill, "perfil.md").replace("- Parentes na empresa: não",
+                                                f"- Parentes na empresa: não\n- Incluir em bancos de talentos: {answer}")
+        (skill / "perfil.md").write_text(text, encoding="utf-8")
+
+    assert ProfileFiles(skill).talent_pool() is expected
+
+
+def test_example_profile_documents_the_talent_pool_answer():
+    example = (Path(__file__).parent.parent / "skill/candidaturas/perfil.example.md").read_text(encoding="utf-8")
+
+    assert "- Incluir em bancos de talentos: <...>" in example
+    assert "Valores aceitos: sim ou não" in example
 
 
 def test_missing_files_are_a_clear_error(tmp_path):

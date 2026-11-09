@@ -244,6 +244,8 @@ TERMS = "Li e concordo com os Termos de Uso e a Política de Privacidade"
     "Declaro que li e aceito o Aviso de Privacidade", "Estou ciente do tratamento dos meus dados conforme a LGPD",
     "Autorizo o tratamento dos meus dados pessoais para este processo seletivo", "I agree to the Terms of Service",
     "I have read the Privacy Policy", "Aceito a Política de Proteção de Dados", "Termos de uso *",
+    "Li e aceito o Termo de Consentimento", "Termo de consentimento para tratamento de dados pessoais *",
+    "Concordo com os termos de consentimento", "I have read and agree to the consent form",
 ])
 def test_terms_and_privacy_consents_are_recognized(text):
     assert classify_consent(text) == "termos"
@@ -251,8 +253,8 @@ def test_terms_and_privacy_consents_are_recognized(text):
 
 @pytest.mark.parametrize("text", [
     "Aceito receber novidades e ofertas por e-mail", "Quero receber comunicações por WhatsApp",
-    "Autorizo compartilhar meus dados com empresas parceiras", "Aceito participar de outros processos seletivos",
-    "Manter meu currículo no banco de talentos", "Declaro que não possuo parentes na empresa",
+    "Autorizo compartilhar meus dados com empresas parceiras", "Banco de talentos de empresas parceiras",
+    "Quero receber vagas do banco de talentos por e-mail", "Declaro que não possuo parentes na empresa",
     "Declaro que as informações são verdadeiras", "Li e aceito os termos de uso e quero receber a newsletter",
     "Tenho disponibilidade para viagens", "Possuo CNH", "Sou pessoa com deficiência", "",
     "Aceito que meus dados sejam compartilhados com terceiros conforme a Política de Privacidade",
@@ -260,6 +262,46 @@ def test_terms_and_privacy_consents_are_recognized(text):
 ])
 def test_other_checkboxes_are_never_accepted(text):
     assert classify_consent(text) is None
+
+
+@pytest.mark.parametrize("text", [
+    "Aceito participar de outros processos seletivos", "Manter meu currículo no banco de talentos",
+    "Desejo fazer parte do Banco de Talentos da empresa", "Join our talent pool",
+    "Autorizo que meu currículo seja considerado para futuras oportunidades",
+    "Li e aceito os termos de uso e autorizo incluir meu currículo no banco de talentos",
+])
+def test_talent_pool_boxes_are_told_apart(text):
+    assert classify_consent(text) == "banco_talentos"
+
+
+TALENT = "Desejo fazer parte do banco de talentos"
+
+
+def test_talent_pool_box_is_checked_only_when_the_profile_says_yes(vault, tmp_path):
+    def build(answer):
+        return Autofill(vault, Approvals(tmp_path / f"aprovacoes-{answer}.json"), log_path=tmp_path / "autofill.log",
+                        open_sites=lambda: {}, extra_domains=lambda: [], talent_pool=lambda: answer)
+    fields = [checkbox(), checkbox(TALENT, id="b")]
+
+    asked = build(True).handle(request(fields=fields))
+    filled = build(True).handle(request(fields=fields, confirm="once"))
+    refused = build(False).handle(request(fields=fields, confirm="once"))
+    unanswered = build(None).handle(request(fields=[checkbox(TALENT, id="b")]))
+
+    assert asked["status"] == "confirm" and TALENT in asked["terms"]
+    assert filled["values"] == {"t": True, "b": True}
+    assert refused["values"] == {"t": True}
+    assert unanswered["status"] == "nothing"
+
+
+def test_approval_for_terms_asks_again_for_the_talent_pool(vault, tmp_path):
+    autofill = Autofill(vault, Approvals(tmp_path / "aprovacoes.json"), log_path=tmp_path / "autofill.log",
+                        open_sites=lambda: {}, extra_domains=lambda: [], talent_pool=lambda: True)
+    autofill.handle(request(fields=[checkbox()], confirm="always"))
+
+    later = autofill.handle(request(fields=[checkbox(), checkbox(TALENT, id="b")]))
+
+    assert later["status"] == "confirm" and later["terms"] == [TERMS, TALENT]
 
 
 def checkbox(text=TERMS, id="t"):

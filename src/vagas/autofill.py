@@ -77,10 +77,16 @@ _CONSENT = re.compile(
     r"\btermos?\b.{0,30}\b(uso|servicos?|condicoes)\b|\bcondicoes\s+(gerais\s+)?(de\s+)?uso\b"
     r"|\b(politica|aviso|declaracao)\s+de\s+privacidade\b|\blgpd\b|\bprotecao\s+de\s+dados\b"
     r"|\btratamento\s+(dos\s+|de\s+)?(meus\s+)?dados\b|\bterms\s+(of\s+)?(use|service)\b"
-    r"|\bterms\s+and\s+conditions\b|\bprivacy\s+(policy|notice|statement)\b")
+    r"|\bterms\s+and\s+conditions\b|\bprivacy\s+(policy|notice|statement)\b"
+    r"|\btermos?\s+de\s+consentimento\b|\bconsentimento\s+(livre|expresso|para\s+(o\s+)?tratamento)\b"
+    r"|\bconsent\s+form\b")
+# Banco de talentos: marcado só quando o perfil diz "sim" em "Incluir em bancos de talentos".
+_TALENT_POOL = re.compile(
+    r"\bbanco\s+de\s+talentos\b|\btalent\s+(pool|community|network)\b"
+    r"|\boutr[ao]s\s+(processos|vagas|oportunidades)\b|\bfutur[ao]s\s+(processos|vagas|oportunidades)\b")
 _NOT_CONSENT = re.compile(
     r"\b(marketing|newsletter|novidades|ofertas|promoc\w*|comunicac\w*|e\s?mails?|sms|whatsapp|parceir\w*|"
-    r"terceir\w*|outr[ao]s\s+(processos|vagas|oportunidades)|banco\s+de\s+talentos|publicidade|receber|receive|"
+    r"terceir\w*|publicidade|receber|receive|"
     r"partners?|third\s+part\w*)\b")
 _UPLOAD = re.compile(r"\bcurriculo\b|\bcurriculum\b|\bcv\b|\bresume\b")
 _NOT_RESUME = re.compile(r"\b(carta|cover|foto|photo|imagem|picture|portfolio|portifolio|documento|document|"
@@ -104,12 +110,15 @@ def classify(text: str) -> str | None:
 
 
 def classify_consent(text: str) -> str | None:
-    """"termos" para o aceite de termos de uso / privacidade; None para marketing, parceiros e declarações de fato."""
+    """"termos" para o aceite de termos de uso, privacidade e consentimento; "banco_talentos" para a inclusão em
+    banco de talentos (mesmo junto de termos); None para marketing, parceiros e declarações de fato."""
     words = _words(text)
     if not words or _NOT_CONSENT.search(words):
         return None
     if re.search(r"\bdeclaro\b", words) and not _DECLARATION_OF_READING.search(words):
         return None
+    if _TALENT_POOL.search(words):
+        return "banco_talentos"
     return "termos" if _CONSENT.search(words) else None
 
 
@@ -271,7 +280,8 @@ class Autofill:
     def __init__(self, vault: Vault, approvals: Approvals, log_path: Path | str,
                  open_sites: Callable[[], dict[str, str]], extra_domains: Callable[[], list[str]],
                  resumes: Callable[[], list[dict[str, Any]]] = lambda: [], max_file_bytes: int = MAX_FILE_BYTES,
-                 platforms: Callable[[], list[str]] = lambda: []):
+                 platforms: Callable[[], list[str]] = lambda: [],
+                 talent_pool: Callable[[], bool | None] = lambda: None):
         self.vault = vault
         self.resumes = resumes
         self.max_file_bytes = max_file_bytes
@@ -280,6 +290,7 @@ class Autofill:
         self.open_sites = open_sites
         self.extra_domains = extra_domains
         self.platforms = platforms
+        self.talent_pool = talent_pool
 
     def handle(self, request: dict[str, Any]) -> dict[str, Any]:
         """{url, fields: [{id, kind?, text, attrs?, placeholder?, maxlength?, accept?}], confirm: None | "once" |
@@ -300,8 +311,10 @@ class Autofill:
         stored = set(self.vault.list())
         wanted = [(str(f.get("id")), doc, f) for f in fields
                   if f.get("kind") not in ("checkbox", "file") and (doc := classify_field(f)) and doc in stored]
-        terms = [(str(f.get("id")), " ".join(str(f.get("text") or "").split())) for f in fields
-                 if f.get("kind") == "checkbox" and classify_consent(f.get("text") or "")]
+        accepted = {"termos", "banco_talentos"} if self.talent_pool() is True else {"termos"}
+        consents = [(str(f.get("id")), " ".join(str(f.get("text") or "").split()), kind) for f in fields
+                    if f.get("kind") == "checkbox" and (kind := classify_consent(f.get("text") or "")) in accepted]
+        terms = [(field_id, text) for field_id, text, _ in consents]
         uploads = [str(f.get("id")) for f in fields if f.get("kind") == "file" and _accepts_pdf(f.get("accept"))
                    and (classify_upload(f.get("text") or "") or (not f.get("text") and classify_upload(f.get("attrs") or "")))]
         candidates = self._resume_candidates(request.get("url", ""), company, sites, extras) if uploads else []
@@ -320,7 +333,7 @@ class Autofill:
             return {"status": "nothing", **({"warnings": warnings} if warnings else {})}
         documents = list(dict.fromkeys(ALLOWED_FIELDS[doc] for _, doc, _ in wanted))
         term_texts = list(dict.fromkeys(text for _, text in terms))
-        scopes = ({"documentos"} if wanted else set()) | ({"termos"} if terms else set()) | (
+        scopes = ({"documentos"} if wanted else set()) | {kind for _, _, kind in consents} | (
             {"curriculo"} if resume or needs_choice else set())
         confirm = request.get("confirm")
         if origin.remember and self.approvals.covers(origin.key, scopes) and not needs_choice:
