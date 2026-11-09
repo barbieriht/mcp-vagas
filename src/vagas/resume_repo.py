@@ -23,7 +23,7 @@ from vagas.resume_suggest import suggest_selection
 from vagas.resume_model import MasterResume, describe_errors
 from vagas.resume_render import render_resume
 from vagas.resume_tailor import TailoredSelection, resolve
-from vagas.resume_validate import match_terms, strings, term_set
+from vagas.resume_validate import match_terms, source_note_problems, strings, term_set
 
 
 def default_draft_path(db_path: Path | str | None = None) -> Path:
@@ -176,6 +176,16 @@ def _source_text(content: list[str] | dict[str, str]) -> str:
     return "\n".join(content.values() if isinstance(content, dict) else content)
 
 
+SOURCE_NOTES_HELP = ("são anotações sobre as fontes (o que o PDF ou o LinkedIn dizem), não texto de currículo, e "
+                     "sairiam impressas no PDF. Deixe no campo só o texto do currículo (ex.: \"Upper-intermediate "
+                     "(B2)\") e leve a diferença entre as fontes para a conversa com o usuário")
+
+
+def _reject_source_notes(data: dict[str, Any]) -> None:
+    if problems := source_note_problems(data):
+        raise VagasError(f"Estes campos {SOURCE_NOTES_HELP}:\n" + "\n".join(f"- {p}" for p in problems))
+
+
 def _validate(data: Any) -> MasterResume:
     if isinstance(data, MasterResume):
         return data
@@ -193,6 +203,7 @@ class ResumeStore:
 
     def save_master_draft(self, resume: Any, overwrite: bool = False) -> dict[str, Any]:
         data = _validate(resume).as_data()
+        _reject_source_notes(data)
         if self.draft_path.exists() and not overwrite and self._has_unapproved_edits():
             raise VagasError(
                 f"O rascunho {self.draft_path} tem alterações que não foram aprovadas nem escritas por "
@@ -274,6 +285,7 @@ class ResumeStore:
 
     def approve_master(self) -> dict[str, Any]:
         data = _validate(self._read_draft()).as_data()
+        _reject_source_notes(data)
         content_hash = _content_hash(data)
         existing = self.conn.execute(
             "SELECT id FROM master_resumes WHERE content_hash = ?", (content_hash,)
@@ -346,6 +358,11 @@ class ResumeStore:
             label = f"{app['company']} - {app['role']}"
         master = self.get_master_resume()
         resolved = resolve(master["resume"], selection)
+        if problems := source_note_problems(resolved):  # vieram do currículo geral aprovado antes desta regra
+            raise VagasError(
+                f"O currículo geral aprovado tem campos que {SOURCE_NOTES_HELP}. Corrija o rascunho "
+                f"({self.draft_path}) com save_master_draft, mostre ao usuário e peça a aprovação (approve_master); "
+                "depois gere o currículo de novo:\n" + "\n".join(f"- {p}" for p in problems))
         rendered = render_resume(resolved, out_dir, label=label)
         with self.conn:
             cursor = self.conn.execute(

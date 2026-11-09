@@ -115,7 +115,9 @@ class CertificationGroup(_Model):
 class Language(_Model):
     name: Text
     level: Text
-    note: Text | None = None
+    note: Text | None = Field(None, description=(
+        'Complemento impresso ao lado do nível, como a certificação (ex.: "Certification (CEPE Idiomas)"). '
+        'Nunca de onde veio a informação ou como as fontes divergem ("PDF lists...", "LinkedIn: ...")'))
 
 
 class MasterResume(_Model):
