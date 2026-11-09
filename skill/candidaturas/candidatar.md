@@ -12,9 +12,10 @@ Sugira uma vez, sem insistir, que o Thiago reduza os pedidos de permissão do na
 
 1. **Triagem.** Faça a triagem do [SKILL.md](SKILL.md). Siga adiante só com a vaga em `a_aplicar` ou com uma `pendente_usuario` sendo retomada.
 2. **Currículo personalizado.** Chame `suggest_tailored_selection` com o `application_id`: ela devolve uma seleção inicial, já ordenada pelos termos da vaga. Chame `get_master_resume` para ler os textos e refine a proposta:
-   - corte ou reordene itens e parágrafos (a pontuação em `scores` mostra o que cita mais termos da vaga);
-   - reescreva parágrafos longos como bullets objetivos, em inglês;
-   - descreva cada responsabilidade com o mesmo verbo e o mesmo escopo do currículo geral.
+   - corte ou reordene seções e itens, e corte parágrafos (a pontuação em `scores` mostra o que cita mais termos da vaga). Os parágrafos de um item ficam na ordem do currículo geral;
+   - reescreva como bullets objetivos, em inglês e sem "I", os parágrafos longos e os que começam retomando outro ("Beyond...", "In this role...", "Additionally...");
+   - descreva cada responsabilidade com o mesmo verbo e o mesmo escopo do currículo geral;
+   - escreva sempre o `summary` da vaga: 2 ou 3 frases, até 500 caracteres, com o perfil que a vaga pede e o que o currículo geral comprova. Não diga onde ou como quer trabalhar (remoto, cidade, "open to opportunities"): disponibilidade é resposta de formulário, pelo perfil e pelos critérios de triagem, e pode contradizer a vaga. Não liste skills no resumo.
 
    Chame `create_tailored_resume` com o `application_id` (o PDF recebe o nome da empresa e do cargo da vaga, para não confundir vagas da mesma empresa). Se a validação rejeitar algo, ajuste a seleção ou o texto ao que o currículo geral diz e gere de novo. Guarde o caminho do PDF e o id do currículo.
 3. **Formulário.**

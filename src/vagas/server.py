@@ -565,10 +565,12 @@ def build_server(
         """Propõe a seleção inicial do currículo personalizado de uma candidatura, pelos termos da vaga.
 
         Chame ANTES de montar a seleção à mão: parta desta proposta, refine (corte, reordene, reescreva
-        parágrafos em bullets que destaquem o que a vaga pede) e gere com create_tailored_resume.
+        parágrafos em bullets que destaquem o que a vaga pede), escreva o summary da vaga (a
+        proposta não traz um) e gere com create_tailored_resume.
         Usa os termos presentes no currículo ("matched" de match_terms da candidatura; sem eles,
         calcula pela descrição). Experiências na ordem do currículo, cada uma com os parágrafos que
-        citam os termos primeiro (ao menos um parágrafo por experiência); voluntariado, projetos,
+        citam os termos, na ordem do currículo geral (ao menos um parágrafo por experiência, e o
+        primeiro quando o escolhido retoma outro); voluntariado, projetos,
         publicações e certificações só com o que cita algum termo; skills com grupos e termos da vaga
         primeiro; formação e idiomas inteiros. A seleção já passa na validação de create_tailored_resume.
         Retorna {selection, scores: {paragraphs, items, skills}, terms, note}.
@@ -580,9 +582,17 @@ def build_server(
     def create_tailored_resume(selection: TailoredSelection, application_id: int | None = None) -> dict[str, Any]:
         """Gera um currículo personalizado para uma vaga a partir do currículo geral aprovado.
 
-        Escolha seções, itens e parágrafos (IDs de get_master_resume) e a ordem em que aparecem.
-        Parágrafos longos podem ser reescritos como bullets objetivos, em inglês, destacando o que
-        a vaga pede. Empresa, cargo, datas, local, formação, certificações e idiomas vêm sempre do
+        Escolha seções, itens e parágrafos (IDs de get_master_resume) e a ordem de seções e itens;
+        os parágrafos de um item ficam sempre na ordem do currículo geral. Parágrafos longos podem
+        ser reescritos como bullets objetivos, em inglês, destacando o que a vaga pede; um parágrafo
+        que retoma o anterior ("Beyond...", "Additionally...") só entra junto de um anterior do mesmo
+        item ou reescrito como bullets.
+
+        summary: escreva sempre um resumo para a vaga, em inglês e terceira pessoa implícita (sem
+        "I"), com até 500 caracteres. O MCP recusa resumo maior (inclusive o do currículo geral, se
+        o summary for omitido), frases de disponibilidade ou de vaga desejada ("open to ...
+        opportunities", "remote or ..."), que ficam nos formulários, e listas de skills ("Areas of
+        expertise: ..."), que já têm seção. Empresa, cargo, datas, local, formação, certificações e idiomas vêm sempre do
         currículo geral e não podem ser enviados.
 
         Antes de gerar, o MCP rejeita qualquer coisa que não esteja no currículo geral: ID

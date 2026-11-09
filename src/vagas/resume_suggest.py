@@ -12,7 +12,7 @@ bullets) e gera com create_tailored_resume.
 import re
 from typing import Any
 
-from vagas.resume_tailor import DEFAULT_ORDER
+from vagas.resume_tailor import CONTINUATION, DEFAULT_ORDER
 
 _PARAGRAPH_SECTIONS = ("experience", "volunteering", "projects")
 _OPTIONAL_SECTIONS = ("volunteering", "projects", "publications", "certifications")
@@ -77,9 +77,12 @@ def _paragraph_items(section, available, terms, scores) -> list[dict[str, Any]]:
         scores["items"][item["id"]] = total
         if section != "experience" and total == 0:
             continue
-        chosen = [pid for neg, _, pid in sorted(ranked) if neg < 0]
+        chosen = [pid for neg, _, pid in ranked if neg < 0]  # na ordem do currículo geral
         if not chosen and paragraphs:
             chosen = [paragraphs[0]["id"]]  # toda experiência aparece, com ao menos o primeiro parágrafo
+        first = next((p for p in paragraphs if p["id"] == chosen[0]), None) if chosen else None
+        if first is not None and CONTINUATION.match(first["text"]) and paragraphs[0]["id"] not in chosen:
+            chosen.insert(0, paragraphs[0]["id"])  # o parágrafo que ele retoma
         pick: dict[str, Any] = {"id": item["id"]}
         if paragraphs:
             pick["paragraphs"] = [{"id": pid} for pid in chosen]
