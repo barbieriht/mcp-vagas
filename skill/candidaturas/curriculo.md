@@ -58,6 +58,7 @@ O fluxo termina num destes estados:
    - Parágrafos equivalentes entre PDF e LinkedIn viram um só, com todos os termos técnicos que aparecem em qualquer das versões.
    - Credencial com o mesmo `credential_id` repetida na mesma fonte vira um item só, com a data de emissão mais antiga.
    - Qualificadores, previsões e variantes vão para os campos próprios descritos no passo 5.
+   - `note` de idioma é só a certificação, quando houver; não repita o nível ("Native – Fluent / native").
    - Todo campo do rascunho é texto do currículo e sai impresso nos PDFs, inclusive `note` e `notes`. Nunca escreva neles de onde veio a informação nem como as fontes divergem ("PDF lists a certification", "LinkedIn: Professional working proficiency"): resolva pela tabela acima e leve a diferença para a revisão do passo 8. O `save_master_draft` e o `approve_master` recusam anotações assim.
 7. **Rascunho.** Chame `save_master_draft`. Se ele recusar por haver edições do Thiago ainda não aprovadas, pergunte se pode sobrescrever.
 8. **Revisão.** Mostre ao Thiago:

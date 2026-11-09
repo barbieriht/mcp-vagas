@@ -1,6 +1,7 @@
 """Currículo personalizado: seleção sobre o currículo geral e resolução com verificação anti-invenção."""
 
 import copy
+import re
 from typing import Any, Literal
 
 from pydantic import Field
@@ -16,6 +17,34 @@ DEFAULT_ORDER: tuple[str, ...] = (
     "education", "experience", "volunteering", "projects", "publications", "skills", "certifications", "languages",
 )
 _WITH_PARAGRAPHS = {"experience", "volunteering", "projects"}
+SUMMARY_MAX = 500  # cerca de 4 linhas no PDF
+# Parágrafo que retoma o anterior ("Beyond data engineering, ...", "Additionally, ..."): sozinho fica sem sentido.
+CONTINUATION = re.compile(r"^(beyond|additionally|also|in addition|furthermore|moreover|besides|likewise|similarly|"
+                          r"as a result|i also|we also|finally|later|then)\b", re.IGNORECASE)
+_AVAILABILITY = re.compile(
+    r"\b(open\s+to|seeking|looking\s+for|available\s+for|interested\s+in)\b[^.]{0,80}"
+    r"\b(opportunit\w*|roles?|positions?|jobs?)\b"
+    r"|\b(remote|hybrid|on-?site)\s+or\b|\bwilling\s+to\s+relocate\b", re.IGNORECASE)
+_SKILL_LIST = re.compile(r"\b(areas\s+of\s+expertise|core\s+skills|key\s+skills|skills)\s*:", re.IGNORECASE)
+
+
+def summary_problems(summary: str | None, from_master: bool) -> list[str]:
+    """Resumo do PDF: curto, escrito para a vaga, sem disponibilidade (vem do perfil e dos formulários) nem lista de
+    skills (a seção de skills já existe)."""
+    if not summary:
+        return []
+    problems = []
+    if len(summary) > SUMMARY_MAX:
+        problems.append(
+            f"summary: {len(summary)} caracteres; o máximo é {SUMMARY_MAX} (3 a 4 linhas)"
+            + ("; o resumo do currículo geral é longo demais para o PDF: escreva em 'summary' um resumo para esta "
+               "vaga, com o que o currículo geral diz" if from_master else ""))
+    if found := _AVAILABILITY.search(summary):
+        problems.append(f"summary: {found.group(0)!r} fala de disponibilidade ou do tipo de vaga desejado; isso "
+                        "fica nos formulários (perfil e critérios de triagem), não no currículo")
+    if found := _SKILL_LIST.search(summary):
+        problems.append(f"summary: {found.group(0)!r} lista skills, que já têm a seção própria")
+    return problems
 
 
 class ParagraphPick(_Model):
@@ -143,13 +172,20 @@ def _resolve_section(master, pick: SectionPick, corpus_numbers, corpus_terms, er
 
 def _resolve_paragraphs(item, item_pick: ItemPick, corpus_terms, errors) -> list[dict[str, Any]]:
     by_id = {p["id"]: p for p in item["paragraphs"]}
+    position = {p["id"]: n for n, p in enumerate(item["paragraphs"])}
+    # Os parágrafos ficam na ordem do currículo geral: um texto que retoma o anterior não pode vir antes dele.
+    picks = sorted(item_pick.paragraphs, key=lambda p: position.get(p.id, len(position)))
     resolved = []
-    for paragraph_pick in item_pick.paragraphs:
+    for paragraph_pick in picks:
         source = by_id.get(paragraph_pick.id)
         if source is None:
             errors.append(f"{paragraph_pick.id}: não é parágrafo de {item['id']}")
             continue
         if paragraph_pick.bullets is None:
+            if (start := CONTINUATION.match(source["text"])) and not any(
+                    position.get(p.id, len(position)) < position[source["id"]] for p in picks):
+                errors.append(f"{source['id']}: começa com {start.group(0)!r} e retoma um parágrafo que não entrou; "
+                              "inclua um parágrafo anterior do mesmo item ou reescreva este como bullets")
             resolved.append(source)
             continue
         allowed_numbers = number_set([source["text"]])

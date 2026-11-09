@@ -22,7 +22,7 @@ from vagas.resume_diff import diff_master
 from vagas.resume_suggest import suggest_selection
 from vagas.resume_model import MasterResume, describe_errors
 from vagas.resume_render import render_resume
-from vagas.resume_tailor import TailoredSelection, resolve
+from vagas.resume_tailor import TailoredSelection, resolve, summary_problems
 from vagas.resume_validate import match_terms, source_note_problems, strings, term_set
 
 
@@ -358,6 +358,9 @@ class ResumeStore:
             label = f"{app['company']} - {app['role']}"
         master = self.get_master_resume()
         resolved = resolve(master["resume"], selection)
+        if problems := summary_problems(resolved.get("summary"), from_master=selection.summary is None):
+            raise VagasError("Resumo rejeitado; escreva em 'summary' um resumo para esta vaga:\n"
+                             + "\n".join(f"- {p}" for p in problems))
         if problems := source_note_problems(resolved):  # vieram do currículo geral aprovado antes desta regra
             raise VagasError(
                 f"O currículo geral aprovado tem campos que {SOURCE_NOTES_HELP}. Corrija o rascunho "
