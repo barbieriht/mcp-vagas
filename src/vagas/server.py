@@ -570,9 +570,10 @@ def build_server(
         Usa os termos presentes no currículo ("matched" de match_terms da candidatura; sem eles,
         calcula pela descrição). Experiências na ordem do currículo, cada uma com os parágrafos que
         citam os termos, na ordem do currículo geral (ao menos um parágrafo por experiência, e o
-        primeiro quando o escolhido retoma outro); voluntariado, projetos,
+        primeiro quando o escolhido retoma outro; o cargo da vaga também puxa parágrafos de produção
+        e deploy nas engenharias e de análise e experimentos em ciência e análise de dados); voluntariado, projetos,
         publicações e certificações só com o que cita algum termo; skills com grupos e termos da vaga
-        primeiro; formação e idiomas inteiros. A seleção já passa na validação de create_tailored_resume.
+        primeiro, e dos demais termos só os que aparecem em alguma experiência; formação e idiomas inteiros. A seleção já passa na validação de create_tailored_resume.
         Retorna {selection, scores: {paragraphs, items, skills}, terms, note}.
         """
         with resumes() as s:
@@ -592,7 +593,13 @@ def build_server(
         "I"), com até 500 caracteres. O MCP recusa resumo maior (inclusive o do currículo geral, se
         o summary for omitido), frases de disponibilidade ou de vaga desejada ("open to ...
         opportunities", "remote or ..."), que ficam nos formulários, e listas de skills ("Areas of
-        expertise: ..."), que já têm seção. Empresa, cargo, datas, local, formação, certificações e idiomas vêm sempre do
+        expertise: ..."), que já têm seção.
+
+        Bullets e textos reescritos: verbo de ação + o que + com quê + resultado do currículo geral;
+        o MCP recusa bullet aberto com "Responsible for", "Worked on", "Helped with" e clichês
+        ("passionate", "results-driven"). headline: comece pelo cargo da vaga, como o currículo
+        geral o comprova. O PDF tem no máximo 2 páginas: acima disso é recusado, sem gravar o
+        arquivo; corte o que menos se liga à vaga. Empresa, cargo, datas, local, formação, certificações e idiomas vêm sempre do
         currículo geral e não podem ser enviados.
 
         Antes de gerar, o MCP rejeita qualquer coisa que não esteja no currículo geral: ID

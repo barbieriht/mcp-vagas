@@ -23,8 +23,10 @@ def default_output_dir(db_path: Path | str | None = None) -> Path | None:
     return resolve("resume_out", db_path)[0]
 
 
-def render_resume(resume: dict[str, Any], out_dir: Path | str | None, label: str | None = None) -> dict[str, Any]:
-    """Gera o PDF em out_dir sem sobrescrever arquivos; retorna {path, pages, warnings}."""
+def render_resume(resume: dict[str, Any], out_dir: Path | str | None, label: str | None = None,
+                  max_pages: int | None = None) -> dict[str, Any]:
+    """Gera o PDF em out_dir sem sobrescrever arquivos; retorna {path, pages, warnings}. Com max_pages, um PDF
+    maior é recusado antes de ser gravado."""
     if out_dir is None:
         raise VagasError(
             "Pasta de saída dos currículos não configurada. Chame get_config, pergunte ao usuário a pasta "
@@ -38,6 +40,10 @@ def render_resume(resume: dict[str, Any], out_dir: Path | str | None, label: str
         ignore_system_fonts=True,
     )
     pages = len(pypdf.PdfReader(io.BytesIO(pdf)).pages)
+    if max_pages is not None and pages > max_pages:
+        raise VagasError(f"O currículo ficou com {pages} páginas; o máximo é {max_pages}. Corte parágrafos, "
+                         "itens, certificações ou termos de skills menos ligados à vaga (ou reescreva parágrafos "
+                         "longos como bullets curtos) e gere de novo.")
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
