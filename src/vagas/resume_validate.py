@@ -127,3 +127,46 @@ def strings(value) -> Iterator[str]:
             yield from strings(item)
     elif isinstance(value, (str, int)) and not isinstance(value, bool):
         yield str(value)
+
+
+# Anotações sobre as fontes ("PDF lists a certification", "LinkedIn: ...", "segundo o PDF"): são conversa com o
+# usuário, não texto de currículo, e sairiam impressas no PDF.
+_SOURCE = r"(pdf|linkedin)"
+_SOURCE_NOTE = re.compile(
+    rf"\b{_SOURCE}\s+(lists?|listed|says|shows|mentions|states|indicates|confirms|lista|diz|mostra|menciona|cita|"
+    r"indica|traz|confirma)\b"
+    rf"|\b(according\s+to|per|segundo|conforme|de\s+acordo\s+com)\s+(the\s+|o\s+|a\s+)?{_SOURCE}\b"
+    rf"|\b{_SOURCE}\s*:"
+    rf"|\b(only|not|missing)\s+(in|on|from)\s+(the\s+)?{_SOURCE}\b"
+    rf"|\b(consta|aparece|so|apenas)\s+(no|na)\s+{_SOURCE}\b"
+    r"|\b(fontes?|sources?)\s*:")
+_URL = re.compile(r"\S+://\S+")
+# Campos que não saem no PDF (ou são endereços e identificadores).
+_NOT_PRINTED = {"id", "links", "link", "headline_variants", "name_original", "credential_id", "description"}
+
+
+def source_notes(text: str) -> list[str]:
+    """Trechos do texto que comentam as fontes do currículo em vez de descrever a pessoa."""
+    from vagas.normalize import normalize_text
+
+    plain = normalize_text(_URL.sub(" ", text))
+    return [match.group(0) for match in _SOURCE_NOTE.finditer(plain)]
+
+
+def printed_strings(value, path: str = "") -> Iterator[tuple[str, str]]:
+    """(caminho, texto) dos campos impressos; itens de lista são nomeados pelo id, nome ou rótulo."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key not in _NOT_PRINTED:
+                yield from printed_strings(item, f"{path}/{key}" if path else key)
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            name = next((item[k] for k in ("id", "name", "label") if isinstance(item, dict) and item.get(k)), index)
+            yield from printed_strings(item, f"{path}/{name}")
+    elif isinstance(value, str):
+        yield path, value
+
+
+def source_note_problems(value) -> list[str]:
+    return [f"{path}: {text!r} (\"{found[0]}\")" for path, text in printed_strings(value)
+            if (found := source_notes(text))]

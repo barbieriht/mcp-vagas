@@ -7,7 +7,7 @@ from pydantic import Field
 
 from vagas.repo import VagasError
 from vagas.resume_model import Id, Text, _Model
-from vagas.resume_validate import number_set, strings, term_set, unknown_numbers, unknown_terms
+from vagas.resume_validate import number_set, source_notes, strings, term_set, unknown_numbers, unknown_terms
 
 Section = Literal[
     "education", "experience", "volunteering", "projects", "publications", "skills", "certifications", "languages",
@@ -175,4 +175,7 @@ def _subset(where, kind, available, requested, key, errors) -> list[str]:
 def _check(where, text, allowed_numbers, corpus_terms, number_scope) -> list[str]:
     problems = [f"{where}: número {n!r} não aparece {number_scope}" for n in unknown_numbers(text, allowed_numbers)]
     problems += [f"{where}: termo {t!r} não aparece no currículo geral" for t in unknown_terms(text, corpus_terms)]
+    if found := source_notes(text):
+        problems.append(f"{where}: {text!r} tem anotação sobre as fontes (\"{found[0]}\"); o que o PDF ou o "
+                        "LinkedIn dizem é conversa com o usuário, não texto de currículo")
     return problems
