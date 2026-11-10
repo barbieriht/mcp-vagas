@@ -427,3 +427,235 @@ def plan_criteria(values: Any, db_path: Path | str | None) -> tuple[Pending | No
     except VagasError as exc:
         return None, {"criteria": str(exc)}
     return Pending(path, new_text), {}
+
+
+# --- política salarial -------------------------------------------------------------------------
+
+POLICY_TITLE = "Política salarial"
+_MODE_LABELS = {"minimo": "Mínimo", "faixa": "Faixa"}
+_BAND_LINE = re.compile(r"^(?P<label>.+?)\s*\((?P<tags>[^)]*)\)$")
+
+
+def _policy_paths(db_path: Path | str | None) -> tuple[Path, Path]:
+    from vagas.salary_policy import default_policy_path
+
+    path = default_policy_path(db_path)
+    example = path.resolve().parent / "politica-salarial.example.md"
+    if not example.exists():
+        try:
+            example = default_skill_dir(db_path) / "politica-salarial.example.md"
+        except VagasError:
+            pass
+    return path, example
+
+
+def _band_items(text: str) -> list[tuple[md_fields.Item, dict[str, Any]]]:
+    """Linhas de faixa ("- Nome (BRL, CLT): mínimo 8.000, máximo 12.000") como linhas da tabela."""
+    from vagas.models import CURRENCIES
+    from vagas.salary_policy import _ALIAS, _MAX, _MIN
+
+    rows = []
+    for item in md_fields.parse(text):
+        key = _BAND_LINE.match(item.label)
+        if item.parent or not key:
+            continue
+        tags = [t.strip().upper() for t in key["tags"].split(",")]
+        currency = next((t for t in tags if t in CURRENCIES), None)
+        if currency is None:
+            continue
+        alias, lo, hi = _ALIAS.search(item.value), _MIN.search(item.value), _MAX.search(item.value)
+        rows.append((item, {"name": key["label"].strip(), "currency": currency, "clt": "CLT" in tags,
+                            "min": _number_text(lo["n"]) if lo and not alias else "",
+                            "max": _number_text(hi["n"]) if hi and not alias else "",
+                            "alias": alias["target"].strip() if alias else ""}))
+    return rows
+
+
+def _number_text(raw: str) -> str:
+    """"8.000" -> "8000"; "10.500,50" -> "10500.5"; texto inválido volta como está."""
+    from vagas.salary_policy import parse_number
+
+    cleaned = re.sub(r"^\s*R?\$\s*", "", raw or "").strip()
+    try:
+        number = parse_number(cleaned)
+    except VagasError:
+        return raw.strip()
+    return str(int(number)) if number == int(number) else f"{number:g}"
+
+
+def _applies(name: str) -> str:
+    """Para que vagas a faixa vale, lido do nome como o evaluate_salary lê."""
+    norm = normalize_text(name)
+    modes = [label for word, label in (("remoto", "remotas"), ("hibrido", "híbridas"), ("presencial", "presenciais"))
+             if word in norm] or ["remotas", "híbridas", "presenciais"]
+    city = re.search(r"\bem\s+(.+?)(?:\s+e\s+regi[aã]o)?$", name.strip(), flags=re.IGNORECASE)
+    where = f"em {city.group(1)}" if city else "em qualquer local"
+    joined = modes[0] if len(modes) == 1 else f"{', '.join(modes[:-1])} e {modes[-1]}"
+    return f"Vale para vagas {joined} {where}."
+
+
+def load_policy(db_path: Path | str | None) -> dict[str, Any]:
+    from vagas.models import CURRENCIES, SALARY_MODES
+
+    try:
+        path, example = _policy_paths(db_path)
+        text, from_example = _source(path, example)
+    except VagasError as exc:
+        return _error_section("policy", POLICY_TITLE, str(exc))
+    fields: list[dict[str, Any]] = []
+    for item in md_fields.parse(text):
+        if item.parent:
+            continue
+        norm = _norm(item.label)
+        if norm == "modo":
+            fields.append({"id": item.id, "title": "Modo", "kind": "choice", "value": _norm(item.value).split(" ")[0],
+                           "choices": [{"value": m, "label": _MODE_LABELS.get(m, m)} for m in SALARY_MODES],
+                           "hint": "", "notes": [], "parent": None, "status": None,
+                           "help": "Mínimo: aplica se a mediana de mercado for maior ou igual ao mínimo da faixa "
+                                   "(o máximo só limita a pretensão). Faixa: aplica só se a mediana estiver dentro "
+                                   "da faixa; acima do máximo, a vaga é descartada."})
+        elif norm == "multiplicador pj":
+            fields.append({"id": item.id, "title": "Multiplicador PJ", "kind": "text",
+                           "value": "" if item.value.startswith("<") else item.value.strip(), "hint": "1.4",
+                           "notes": [], "parent": None, "status": None,
+                           "help": "Converte as faixas marcadas como CLT para vagas PJ (ex.: 1.4 = 40% a mais)."})
+    rows = []
+    for _, row in _band_items(text):
+        row["applies"] = _applies(row["name"])
+        row["hint_min"], row["hint_max"] = row["min"], row["max"]
+        if from_example:
+            row["min"] = row["max"] = ""  # salário é pessoal: o exemplo só sugere as faixas
+        rows.append(row)
+    fields.append({"id": "Faixas", "title": "Faixas", "kind": "bands", "value": rows, "currencies": list(CURRENCIES),
+                   "hint": "", "notes": [], "parent": None, "status": None,
+                   "help": "Valores mensais. A faixa vale para as modalidades citadas no nome (remoto, híbrido, "
+                           "presencial; nenhuma = todas) e para as cidades depois de \"em\" (nenhuma = qualquer local). "
+                           "Moedas nunca são convertidas entre si."})
+    pending = ["Faixas"] if from_example or not rows else []
+    return {"key": "policy", "title": POLICY_TITLE, "file": str(path), "new": from_example,
+            "groups": [{"name": "", "fields": fields}], "pending": pending}
+
+
+def _band_line(row: dict[str, Any]) -> str:
+    tags = row["currency"] + (", CLT" if row["clt"] else "")
+    if row["alias"]:
+        return f"- {row['name']} ({tags}): usar a faixa do {row['alias']}"
+    value = f"mínimo {_number_text(row['min'])}"
+    if row["max"].strip():
+        value += f", máximo {_number_text(row['max'])}"
+    return f"- {row['name']} ({tags}): {value}"
+
+
+def _check_bands(rows: Any, mode: str) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    from vagas.models import CURRENCIES
+    from vagas.salary_policy import parse_number
+
+    if not isinstance(rows, list):
+        return [], {"policy.Faixas": "Envie as faixas como uma lista."}
+    if not rows:
+        return [], {"policy.Faixas": "Cadastre pelo menos uma faixa."}
+    clean, errors = [], {}
+    names = [normalize_text(str(r.get("name", "")).strip()) if isinstance(r, dict) else "" for r in rows]
+    for index, row in enumerate(rows):
+        where = f"policy.Faixas.{index}"
+        if not isinstance(row, dict):
+            errors[where] = "Faixa inválida."
+            continue
+        text = {k: str(row.get(k, "") or "").strip() for k in ("name", "currency", "min", "max", "alias")}
+        if any("\n" in v or "\r" in v for v in text.values()):
+            errors[where] = "Use uma linha só em cada campo."
+            continue
+        if not text["name"]:
+            errors[f"{where}.name"] = "Dê um nome à faixa (ex.: Remoto nacional)."
+        elif re.search(r"[():]", text["name"]):
+            errors[f"{where}.name"] = "O nome não pode ter parênteses nem dois-pontos."
+        if text["currency"].upper() not in CURRENCIES:
+            errors[f"{where}.currency"] = f"Escolha a moeda: {', '.join(CURRENCIES)}."
+        numbers = {}
+        for key in ("min", "max"):
+            if text[key] and not text["alias"]:
+                try:
+                    numbers[key] = parse_number(re.sub(r"^\s*R?\$\s*", "", text[key]))
+                    if numbers[key] <= 0:
+                        raise VagasError("")
+                except VagasError:
+                    errors[f"{where}.{key}"] = "Informe um valor mensal, como 8000 ou 8.000."
+        if text["alias"]:
+            target = normalize_text(text["alias"])
+            if not any(n and n != names[index] and (n.startswith(target) or target.startswith(n)) for n in names):
+                errors[f"{where}.alias"] = "Escolha outra faixa desta lista."
+        elif not text["min"]:
+            errors[f"{where}.min"] = "Informe o mínimo (ou use a faixa de outra)."
+        if "min" in numbers and "max" in numbers and numbers["max"] < numbers["min"]:
+            errors[f"{where}.max"] = "O máximo não pode ser menor que o mínimo."
+        if mode == "faixa" and not text["alias"] and not text["max"]:
+            errors[f"{where}.max"] = "No modo faixa, toda faixa precisa de máximo."
+        clean.append({**text, "currency": text["currency"].upper(), "clt": bool(row.get("clt"))})
+    return clean, errors
+
+
+def plan_policy(values: Any, db_path: Path | str | None) -> tuple[Pending | None, dict[str, str]]:
+    from vagas.salary_policy import parse_number, parse_policy
+
+    if not isinstance(values, dict):
+        return None, {"policy": "A seção policy deve ser um objeto {campo: valor}."}
+    try:
+        path, example = _policy_paths(db_path)
+        text, from_example = _source(path, example)
+    except VagasError as exc:
+        return None, {"policy": str(exc)}
+    items = {_norm(i.label): i for i in md_fields.parse(text) if not i.parent}
+    errors: dict[str, str] = {}
+    updates: dict[str, str] = {}
+    for field_id, raw in values.items():
+        if field_id == "Faixas":
+            continue
+        norm = _norm(str(field_id))
+        if norm not in ("modo", "multiplicador pj") or norm not in items:
+            errors[f"policy.{field_id}"] = "Campo desconhecido na política salarial."
+        elif not isinstance(raw, str):
+            errors[f"policy.{field_id}"] = "Informe o valor como texto."
+        elif norm == "modo" and _norm(raw) not in _MODE_LABELS:
+            errors[f"policy.{field_id}"] = "Escolha minimo ou faixa."
+        elif norm == "multiplicador pj":
+            try:
+                if parse_number(raw) <= 0:
+                    raise VagasError("")
+                updates[items[norm].id] = raw.strip()
+            except VagasError:
+                errors[f"policy.{field_id}"] = "Informe um número maior que zero, como 1.4."
+        else:
+            updates[items[norm].id] = _norm(raw)
+    mode = _norm(values.get("Modo", "")) if isinstance(values.get("Modo"), str) else ""
+    mode = mode or (_norm(items["modo"].value).split(" ")[0] if "modo" in items else "minimo")
+    current_rows = [row for _, row in _band_items(text)]
+    if from_example and "Faixas" not in values:
+        return None, {**errors, "policy.Faixas": "Preencha os valores das faixas."}
+    rows, band_errors = _check_bands(values.get("Faixas", current_rows), mode)
+    errors.update(band_errors)
+    if errors:
+        return None, errors
+    new_text = md_fields.apply(text, updates)
+    if "Faixas" in values or from_example:
+        new_text = _replace_bands(new_text, [_band_line(row) for row in rows])
+    try:
+        parse_policy(new_text, source=path.name)
+    except VagasError as exc:
+        return None, {"policy": str(exc)}
+    if new_text == text and not from_example:
+        return None, {}
+    return Pending(path, new_text), {}
+
+
+def _replace_bands(text: str, band_lines: list[str]) -> str:
+    """Troca as linhas de faixa pelas novas, no lugar da primeira (ou depois do multiplicador)."""
+    old = [item.line for item, _ in _band_items(text)]
+    lines = text.splitlines(keepends=True)
+    if old:
+        anchor = old[0]
+    else:
+        last = [i.line for i in md_fields.parse(text) if not i.parent]
+        anchor = (max(last) + 1) if last else len(lines)
+    kept = [line for number, line in enumerate(lines) if number not in old]
+    position = anchor - sum(1 for number in old if number < anchor)
+    return "".join(kept[:position] + [line + "\n" for line in band_lines] + kept[position:])
