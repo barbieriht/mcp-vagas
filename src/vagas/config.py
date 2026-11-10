@@ -41,7 +41,7 @@ _SALARY_RULE_ALIASES = {
 @dataclass(frozen=True)
 class Setting:
     env: str
-    kind: str  # "dir", "file", "choice", "text" ou "int"
+    kind: str  # "dir", "file", "pdf" (arquivo existente), "choice", "text" ou "int"
     label: str
     default_name: str | None = None  # relativo à pasta do banco; None = sem padrão (precisa ser configurado)
     suggested_folder: str | None = None  # nome da pasta sugerida dentro de Documents
@@ -57,6 +57,10 @@ SETTINGS: dict[str, Setting] = {
     "export_dir": Setting("VAGAS_EXPORT_DIR", "dir", "Pasta dos CSVs exportados", "exports", "Vagas"),
     "master_resume": Setting("VAGAS_MASTER_RESUME", "file", "Arquivo YAML editável do currículo geral",
                              "curriculo.yaml", None),
+    "resume_pdf": Setting("VAGAS_RESUME_PDF", "pdf", "PDF do seu currículo, usado para montar e atualizar o currículo "
+                          "geral", ask_at_setup=False),
+    "linkedin_url": Setting("VAGAS_LINKEDIN_URL", "text", "Endereço do seu perfil do LinkedIn, usado para montar e "
+                            "atualizar o currículo geral", ask_at_setup=False),
     "login_method": Setting("VAGAS_LOGIN_METHOD", "choice", "Primeira opção para entrar nos sites de vagas (a outra é "
                             "a segunda): conta do LinkedIn ou conta Google", choices=LOGIN_METHODS,
                             default_literal="linkedin", ask_at_setup=False),
@@ -131,7 +135,7 @@ def _as_int(key: str, raw: str) -> int:
 
 
 def _as_value(key: str, raw: str) -> Path | str | int:
-    if SETTINGS[key].kind in PATH_KINDS:
+    if SETTINGS[key].kind in (*PATH_KINDS, "pdf"):
         return Path(raw)
     if SETTINGS[key].kind == "int":
         return _as_int(key, raw)
@@ -227,6 +231,9 @@ def _clean_choice(key: str, value: str) -> str | None:
         return ", ".join(domains) if domains and set(domains) <= set(PLATFORMS) else None
     if key == "login_email":
         return text.lower() if re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", text) else None
+    if key == "linkedin_url":
+        profile = re.match(r"^(?:https?://)?(?:[a-z]{2,3}\.|www\.)?linkedin\.com/in/([^/?#\s]+)", text, re.IGNORECASE)
+        return f"https://www.linkedin.com/in/{profile.group(1)}" if profile else None
     aliases = SETTINGS[key].aliases
     if aliases is not None:
         norm = " ".join(re.sub(r"[-_/.,]", " ", normalize_text(text)).split())
@@ -242,6 +249,9 @@ def _validated_text(key: str, value: str | None) -> str:
     cleaned = _clean_choice(key, value)
     if cleaned is None and key == "login_email":
         raise VagasError(f"{value!r} não parece um e-mail; informe a conta Google completa, como nome@gmail.com.")
+    if cleaned is None and key == "linkedin_url":
+        raise VagasError(f"{value!r} não é o endereço de um perfil do LinkedIn; informe algo como "
+                         "https://www.linkedin.com/in/seu-nome.")
     if cleaned is None and key == "autofill_domains":
         raise VagasError(f"{value!r} não é uma lista de domínios; informe algo como \"meuats.com, carreiras.empresa.com.br\".")
     if cleaned is None and key == "autofill_platforms":
@@ -274,6 +284,18 @@ def _validated(key: str, value: str | None, db_path: Path | str | None) -> Path:
     return path
 
 
+def _validated_pdf(key: str, value: str) -> Path:
+    path = normalize_path(value)
+    if not path.is_absolute():
+        raise VagasError(f"Informe o caminho completo do PDF para {key} (recebido {value!r}); no Windows, algo como "
+                         "C:\\Users\\<usuário>\\Downloads\\Curriculo.pdf.")
+    if path.suffix.lower() != ".pdf":
+        raise VagasError(f"{key} deve ser um arquivo .pdf (recebido {value!r}).")
+    if not path.is_file():
+        raise VagasError(f"O arquivo {path} não existe. Confira o caminho do PDF.")
+    return path
+
+
 def clean(key: str, value: str | None, db_path: Path | str | None = None) -> str | None:
     """Valida um valor sem gravar nada; devolve a forma guardada no config.toml, ou None se vazio.
 
@@ -284,6 +306,8 @@ def clean(key: str, value: str | None, db_path: Path | str | None = None) -> str
         return None
     if SETTINGS[key].kind in PATH_KINDS:
         return str(_validated(key, value, db_path))
+    if SETTINGS[key].kind == "pdf":
+        return str(_validated_pdf(key, value))
     if SETTINGS[key].kind == "int":
         return str(_as_int(key, str(value)))
     return _validated_text(key, value)
@@ -328,7 +352,8 @@ def write(updates: dict[str, str | None], db_path: Path | str | None = None) -> 
              "# (1 a 30). salary_rule = teto, meio_termo, percentil_25 ou ponto_baixo (regra da pretensão salarial).",
              "# auto_submit = \"sim\" envia sozinho as candidaturas que cumprem todas as condições (padrão \"nao\").",
              "# autofill_domains = domínios extras onde a extensão do Chrome preenche CPF, RG... (separados por vírgula).",
-             "# autofill_platforms = plataformas (ex.: gupy.io) em que um \"Permitir sempre\" vale para todas as empresas."]
+             "# autofill_platforms = plataformas (ex.: gupy.io) em que um \"Permitir sempre\" vale para todas as empresas.",
+             "# resume_pdf e linkedin_url = PDF do currículo e perfil do LinkedIn usados para montar o currículo geral."]
     lines += [f"{name} = {current[name] if SETTINGS[name].kind == 'int' else _quote(current[name])}"
               for name in SETTINGS if name in current]
     tmp = target.with_name(target.name + ".tmp")
@@ -344,6 +369,10 @@ def set_value(key: str, value: str | None, db_path: Path | str | None = None) ->
     if SETTINGS[key].kind in PATH_KINDS:
         stored = str(_validated(key, value, db_path))
         prepare_folder(key, stored)
+    elif SETTINGS[key].kind == "pdf":
+        if value is None or not value.strip():
+            raise VagasError(f"Informe 'value' para {key}: {SETTINGS[key].label.lower()}.")
+        stored = str(_validated_pdf(key, value))
     elif SETTINGS[key].kind == "int":
         if value is None or not str(value).strip():
             raise VagasError(f"Informe 'value' para {key}: {SETTINGS[key].label.lower()}.")

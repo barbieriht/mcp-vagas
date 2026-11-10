@@ -28,6 +28,8 @@ _TITLES = {
     "auto_submit": "Envio automático", "autofill_domains": "Domínios extras da extensão do Chrome",
     "autofill_platforms": "Plataformas com permissão para todas as empresas",
     "salary_rule": "Regra da pretensão salarial",
+    "resume_pdf": "PDF do currículo (fonte do currículo geral)",
+    "linkedin_url": "Perfil do LinkedIn (fonte do currículo geral)",
 }
 _CHOICE_LABELS = {
     "linkedin": "LinkedIn", "google": "Google", "sim": "Ligado", "nao": "Desligado",

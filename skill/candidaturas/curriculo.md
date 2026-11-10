@@ -11,7 +11,8 @@ O fluxo termina num destes estados:
 ## Passos
 
 1. **Fontes e ponto de partida.**
-   - Peça de uma vez ao usuário o **caminho local** do PDF (pode ser do Windows) e a URL do perfil do LinkedIn, caso ele não tenha informado.
+   - Chame `get_config`: `resume_pdf` (caminho do PDF) e `linkedin_url` (perfil do LinkedIn) são as fontes configuradas. Use-as quando o usuário não informar outras.
+   - Peça de uma vez ao usuário só o que faltar: o **caminho local** do PDF (pode ser do Windows) e a URL do perfil do LinkedIn. Depois, grave-os com `set_config` (`resume_pdf`, `linkedin_url`) para a próxima atualização não precisar perguntar de novo.
    - Chame `get_master_resume`. Se já existe um currículo geral aprovado, isto é uma **atualização**: parta dele, mantenha os IDs existentes (os currículos personalizados já gerados apontam para eles) e acrescente ou corrija só o que mudou. Se não existe, é uma **criação**.
 2. **PDF.**
    - Com o caminho local, chame `extract_resume_text`.
