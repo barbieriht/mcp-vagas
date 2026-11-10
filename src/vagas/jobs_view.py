@@ -109,3 +109,58 @@ def job_detail(conn: sqlite3.Connection, application_id: int) -> dict[str, Any]:
               for e in history["events"]]
     resumes = [{**r, "windows_path": windows_path(r["pdf_path"])} for r in history["resumes"]]
     return {"application": app, "events": events, "resumes": resumes}
+
+
+# --- ações (pelas mesmas regras do update_application) -------------------------------------------------
+
+def _clean(value: Any) -> str | None:
+    return value.strip() if isinstance(value, str) else None
+
+
+def update_job(conn: sqlite3.Connection, application_id: int, changes: dict[str, Any]) -> dict[str, Any]:
+    """Muda a etapa, a pendência (vazia limpa) e/ou anota no histórico. Devolve a vaga atualizada."""
+    repo = Repo(conn)
+    current = repo.get(application_id)
+    status = _clean(changes.get("status")) or None
+    pending = _clean(changes.get("pending"))  # "" limpa; None não mexe
+    note = _clean(changes.get("note")) or None
+    reason = _clean(changes.get("discard_reason")) or None
+    if status is not None and status not in STATUSES:
+        raise VagasError(f"Etapa desconhecida: {status!r}.")
+    if status == current["status"]:
+        status = None
+    if pending is not None and pending == (current["pending"] or ""):
+        pending = None
+    if status is None and note is None and pending is None:
+        raise VagasError("Nada a mudar: escolha outra etapa, mude a pendência ou escreva uma anotação.")
+    final_pending = current["pending"] if pending is None else pending
+    if (status or current["status"]) == "pendente_usuario" and not final_pending:
+        raise VagasError("Descreva o que falta (a pendência) para marcar como pendente com você.")
+    if status == "descartada" and reason is None:
+        raise VagasError("Informe o motivo do descarte.")
+    return _light(repo.update_application(application_id, status=status, note=note, pending=pending,
+                                          discard_reason=reason if status == "descartada" else None))
+
+
+def discard_jobs(conn: sqlite3.Connection, ids: list[int], reason: str) -> list[dict[str, Any]]:
+    """Descarta várias vagas com o mesmo motivo; confere todas antes e não descarta nenhuma se uma falhar."""
+    repo = Repo(conn)
+    reason = (reason or "").strip()
+    if not reason:
+        raise VagasError("Informe o motivo do descarte.")
+    if not ids or not all(isinstance(i, int) for i in ids):
+        raise VagasError("Escolha ao menos uma vaga.")
+    apps = [repo.get(i) for i in dict.fromkeys(ids)]
+    already = [f"{a['role']} — {a['company']}" for a in apps if a["status"] == "descartada"]
+    if already:
+        raise VagasError(f"Já descartada(s): {', '.join(already)}. Tire da seleção e tente de novo.")
+    return [_light(repo.update_application(a["id"], status="descartada", discard_reason=reason)) for a in apps]
+
+
+def reopen_job(conn: sqlite3.Connection, application_id: int, reason: str) -> dict[str, Any]:
+    """Traz uma vaga descartada de volta para a lista de trabalho (a_aplicar), com o motivo no histórico."""
+    repo = Repo(conn)
+    if repo.get(application_id)["status"] != "descartada":
+        raise VagasError("Dá para reabrir só vagas descartadas.")
+    note = f"Reaberta: {reason.strip()}" if (reason or "").strip() else "Reaberta"
+    return _light(repo.update_application(application_id, status="a_aplicar", note=note))

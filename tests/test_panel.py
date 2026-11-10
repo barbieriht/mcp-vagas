@@ -688,7 +688,7 @@ def test_jobs_tab_lists_filters_and_opens_the_detail(db_path):
 
             page.get_by_role("button", name="A aplicar: 2").click()
             expect(page.locator(".tabela-vagas tbody tr")).to_have_count(2)  # a CSP bloqueia wait_for_function
-            assert page.locator(".tabela-vagas tbody tr").first.inner_text().startswith("ML Engineer")  # maior aderência
+            assert page.locator(".tabela-vagas tbody tr").first.inner_text().strip().startswith("ML Engineer")  # maior aderência
             page.get_by_role("button", name="Detalhes de Data Scientist — Acme").click()
             detail = page.locator(".detalhe")
             detail.wait_for()
@@ -700,3 +700,83 @@ def test_jobs_tab_lists_filters_and_opens_the_detail(db_path):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_job_actions_need_token_and_origin_and_follow_the_rules(running, db_path):
+    from vagas.db import connect
+    from vagas.repo import Repo
+
+    conn = connect(db_path)
+    repo = Repo(conn)
+    a = repo.add_application(company="Acme", role="Data Scientist", source="gupy", status="a_aplicar",
+                             url="https://example.com/vagas/1")["application"]
+    b = repo.add_application(company="Beta", role="ML Engineer", source="gupy", status="a_aplicar",
+                             url="https://example.com/vagas/2")["application"]
+    port = running.server_address[1]
+    origin = {**TOKEN, "Origin": f"http://127.0.0.1:{port}"}
+
+    no_token, _ = request(running, "POST", "/api/jobs/action", {"action": "discard", "ids": [a["id"]], "reason": "x"})
+    other_site, _ = request(running, "POST", "/api/jobs/action", {"action": "discard", "ids": [a["id"]], "reason": "x"},
+                            {**TOKEN, "Origin": "https://ataque.example.com"})
+    no_reason, no_reason_body = request(running, "POST", "/api/jobs/action",
+                                        {"action": "discard", "ids": [a["id"], b["id"]], "reason": ""}, origin)
+    ok, ok_body = request(running, "POST", "/api/jobs/action",
+                          {"action": "discard", "ids": [a["id"], b["id"]], "reason": "sem retorno"}, origin)
+
+    assert (no_token, other_site, no_reason, ok) == (403, 403, 400, 200)
+    assert "motivo" in json.loads(no_reason_body)["error"]
+    assert [i["status"] for i in json.loads(ok_body)["items"]] == ["descartada", "descartada"]
+    assert repo.get(a["id"])["discard_reason"] == "sem retorno"
+    conn.close()
+
+
+@pytest.mark.skipif(not _chromium(), reason="Playwright com Chromium não instalado")
+def test_jobs_are_updated_discarded_and_reopened_from_the_panel(db_path):
+    from playwright.sync_api import expect, sync_playwright
+
+    from vagas.db import connect
+    from vagas.repo import Repo
+
+    conn = connect(db_path)
+    repo = Repo(conn)
+    ids = {}
+    for n, (company, role, status) in enumerate([("Acme", "Data Scientist", "aplicada"),
+                                                 ("Beta", "ML Engineer", "a_aplicar"),
+                                                 ("Gama", "Data Analyst", "a_aplicar")], start=1):
+        ids[company] = repo.add_application(company=company, role=role, source="gupy", status=status,
+                                            url=f"https://example.com/vagas/{n}")["application"]["id"]
+    server = panel.make_server(db_path, token="t0k3n")
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            page.goto(server.url + "#vagas")
+            page.get_by_role("button", name="Detalhes de Data Scientist — Acme").click()
+            page.get_by_label("Etapa").select_option("tecnica")
+            page.get_by_label("Anotação no histórico").fill("Entrevista na sexta")
+            page.get_by_role("button", name="Salvar alterações").click()
+            page.get_by_text("Vaga atualizada.").wait_for()
+
+            page.get_by_label("Selecionar ML Engineer — Beta").check()
+            page.get_by_label("Selecionar Data Analyst — Gama").check()
+            page.get_by_role("button", name="Descartar selecionadas").click()
+            page.get_by_text("Informe o motivo do descarte.").wait_for()  # sem motivo: nada descartado
+            page.get_by_label("Motivo do descarte das vagas selecionadas").fill("sem retorno")
+            page.get_by_role("button", name="Descartar selecionadas").click()
+            page.get_by_text("2 vaga(s) descartada(s).").wait_for()
+
+            page.get_by_role("button", name="Detalhes de Data Analyst — Gama").click()
+            page.get_by_label("Motivo para reabrir").fill("ainda interessa")
+            page.get_by_role("button", name="Reabrir a vaga").click()
+            page.get_by_text("Vaga reaberta.").wait_for()
+            expect(page.get_by_role("button", name="A aplicar: 1")).to_be_visible()
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert repo.get(ids["Acme"])["status"] == "tecnica"
+    assert repo.get_history(ids["Acme"])["events"][-1]["note"] == "Entrevista na sexta"
+    assert repo.get(ids["Beta"])["status"] == "descartada" and repo.get(ids["Gama"])["status"] == "a_aplicar"
+    conn.close()
