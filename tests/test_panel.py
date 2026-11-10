@@ -449,3 +449,48 @@ def test_documents_are_stored_and_removed_without_showing_them(skill, db_path, f
 
     assert Vault(fake_vault, FakeBackend()).list() == []
     assert "- CPF: informar manualmente" in (skill / "perfil.md").read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(not _chromium(), reason="Playwright com Chromium não instalado")
+def test_master_resume_is_edited_by_section(db_path):
+    import yaml
+    from playwright.sync_api import sync_playwright
+
+    from resume_fixture import fictitious_resume
+    from vagas.db import connect
+    from vagas.resume_repo import ResumeStore, default_draft_path
+
+    conn = connect(db_path)
+    ResumeStore(conn, default_draft_path(db_path)).save_master_draft(fictitious_resume())
+    conn.close()
+    server = panel.make_server(db_path, token="t0k3n")
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            page.goto(server.url)
+            page.get_by_role("heading", name="Currículo geral").wait_for()
+            resume = page.locator("#secao-resume")
+            resume.get_by_text("Experiências", exact=True).click()
+            item = resume.locator("details.cv-item").filter(has_text="Quantitative Analyst").first
+            item.locator("summary").first.click()
+            item.get_by_label("Empresa *").fill("")
+            page.get_by_role("button", name="Salvar tudo").click()
+            page.get_by_text("Nada foi salvo").wait_for()
+            assert item.get_by_text("Campo obrigatório.").is_visible()
+
+            item.get_by_label("Empresa *").fill("Acme Analytics Ltd")
+            item.get_by_role("button", name="Adicionar parágrafo").click()
+            item.locator("details.cv-item").last.get_by_label("Texto *").fill("Automated monthly reports.")
+            page.get_by_role("button", name="Salvar tudo").click()
+            page.get_by_text("Tudo salvo").wait_for()
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    draft = yaml.safe_load(default_draft_path(db_path).read_text(encoding="utf-8"))
+    analyst = next(e for e in draft["experience"] if e["id"] == "exp-acme-analyst")
+    assert analyst["company"] == "Acme Analytics Ltd"
+    assert analyst["paragraphs"][-1] == {"id": "exp-acme-analyst-p2", "text": "Automated monthly reports."}

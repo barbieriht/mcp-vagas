@@ -8,7 +8,7 @@ com a mesma mensagem que o set_config daria. Os arquivos continuam sendo a fonte
 from pathlib import Path
 from typing import Any
 
-from vagas import config, md_fields, settings_files
+from vagas import config, md_fields, settings_files, settings_resume
 from vagas.repo import VagasError
 
 # Seções que editam arquivos em Markdown: chave -> (load, plan).
@@ -17,6 +17,7 @@ FILE_SECTIONS = {
     "criteria": (settings_files.load_criteria, settings_files.plan_criteria),
     "policy": (settings_files.load_policy, settings_files.plan_policy),
     "vault": (settings_files.load_vault, settings_files.plan_vault),
+    "resume": (settings_resume.load_resume, settings_resume.plan_resume),
 }
 
 
@@ -141,7 +142,11 @@ def save(data: Any, db_path: Path | str | None = None) -> dict[str, Any]:
     if cleaned:
         config.write(cleaned, db_path)
     for key, planned in pending_files:  # tudo validado antes: cada arquivo é gravado de uma vez
-        if key != "vault":
+        if key == "vault":
+            continue
+        if hasattr(planned, "run"):
+            planned.run()  # currículo geral: pelo save_master_draft
+        else:
             md_fields.write_atomic(planned.path, planned.text)
     result["saved"] = True
     result["warnings"] = [w for key in cleaned if cleaned[key] is not None and (w := config.env_warning(key, db_path))]
