@@ -149,10 +149,10 @@ def test_several_processes_creating_the_same_new_db_at_once_all_succeed(tmp_path
     import multiprocessing
 
     ctx = multiprocessing.get_context("spawn")
-    for round_ in range(3):
+    for round_ in range(10):  # a corrida é rara por rodada: várias rodadas a pegam
         path = tmp_path / f"novo-{round_}.db"
         start, results = ctx.Event(), ctx.Queue()
-        workers = [ctx.Process(target=_open_when_told, args=(path, start, results)) for _ in range(6)]
+        workers = [ctx.Process(target=_open_when_told, args=(path, start, results)) for _ in range(8)]
         for worker in workers:
             worker.start()
         start.set()
