@@ -52,11 +52,14 @@ function filterBar(data) {
   pending.checked = Boolean(f.only_pending);
   pending.addEventListener("change", () => setFilter("only_pending", pending.checked ? "1" : ""));
   const order = select("order", [{ value: "recentes", label: "Mais recentes" }, { value: "aderencia", label: "Maior aderência" }], "Padrão");
-  return el("div", { class: "filtros" },
+  const fromSearch = f.search_id ? el("p", { class: "nota aviso filtro-busca" },
+    el("span", { text: `Mostrando só as vagas da busca ${f.search_label || "#" + f.search_id}. ` }),
+    el("button", { type: "button", class: "remover", text: "Limpar este filtro", onclick: () => { delete f.search_label; setFilter("search_id", ""); } })) : null;
+  return el("div", { class: "filtros-area" }, fromSearch, el("div", { class: "filtros" },
     control("Busca", text), control("Status", select("status", data.statuses, "Todos")),
     control("Site", select("source", data.sources, "Todos")), control("Desde", since),
     control("Aderência mínima", score), control("Ordem", order),
-    el("label", { class: "filtro opcao" }, pending, el("span", { text: "Só com pendência" })));
+    el("label", { class: "filtro opcao" }, pending, el("span", { text: "Só com pendência" }))));
 }
 
 function counts(data) {
@@ -128,7 +131,7 @@ function pager(data) {
 
 async function loadJobs() {
   const box = document.getElementById("vagas");
-  const query = new URLSearchParams(Object.entries(jobs.filters).filter(([, v]) => v)).toString();
+  const query = new URLSearchParams(Object.entries(jobs.filters).filter(([k, v]) => v && k !== "search_label")).toString();
   try {
     const data = await jobsApi(`/api/jobs?${query}`);
     jobs.statuses = data.statuses;
@@ -215,18 +218,85 @@ async function openDetail(id) {
   }
 }
 
+// Buscas feitas: buscas registradas e buscas em lote. Só leitura; "Ver vagas" filtra a aba Vagas pela busca.
+function when(value) {
+  return value ? new Date(value).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "—";
+}
+
+function runCard(run) {
+  const progress = run.progress || {};
+  const summary = run.summary || {};
+  const parts = [];
+  if (progress.searches_total != null) parts.push(`buscas: ${progress.searches_done || 0} de ${progress.searches_total}`);
+  if (progress.jobs_total != null) parts.push(`triagens: ${progress.jobs_done || 0} de ${progress.jobs_total}`);
+  if (summary.jobs) parts.push(`vagas novas: ${summary.jobs.triaged}, já registradas: ${summary.jobs.already_registered}`);
+  const errors = (summary.errors || []).length + (run.error ? 1 : 0);
+  return el("li", { class: `busca-lote lote-${run.status}` },
+    el("span", { class: "etapa", text: run.status_label }),
+    el("span", { text: ` ${when(run.started_at)}${run.finished_at ? ` → ${when(run.finished_at)}` : ""}` }),
+    parts.length ? el("span", { class: "nota", text: ` · ${parts.join(" · ")}` }) : null,
+    run.status === "running" && progress.current ? el("span", { class: "nota", text: ` · agora: ${progress.current}` }) : null,
+    errors ? el("span", { class: "nota", text: ` · ${errors} erro(s)${run.error ? `: ${run.error}` : ""}` }) : null);
+}
+
+async function loadSearches() {
+  const box = document.getElementById("buscas");
+  const source = searchesState.source || "";
+  try {
+    const data = await jobsApi(`/api/searches${source ? `?source=${encodeURIComponent(source)}` : ""}`);
+    const site = el("select", {}, el("option", { value: "", text: "Todos" }), ...data.sources.map((s) => el("option", { value: s.value, text: s.label })));
+    site.value = source;
+    site.addEventListener("change", () => { searchesState.source = site.value; loadSearches(); });
+    const refresh = el("button", { type: "button", class: "remover", text: "Atualizar", onclick: loadSearches });
+    const runs = data.runs.length
+      ? el("ul", { class: "lotes" }, ...data.runs.map(runCard))
+      : el("p", { class: "nota", text: "Nenhuma busca em lote ainda. Peça ao Claude: \"busque vagas para mim\"." });
+    const head = el("tr", {}, ...["Quando", "Site", "Consulta", "Local", "Filtros", "Resultados", "Vagas registradas"].map((t) => el("th", { scope: "col", text: t })));
+    const rows = data.searches.map((s) => el("tr", {},
+      el("td", { "data-rotulo": "Quando", text: when(s.searched_at) }),
+      el("td", { "data-rotulo": "Site", text: s.source_label }),
+      el("td", { "data-rotulo": "Consulta", text: s.query }),
+      el("td", { "data-rotulo": "Local", text: s.location || "—" }),
+      el("td", { "data-rotulo": "Filtros", text: s.filters ? Object.entries(s.filters).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`).join("; ") : "—" }),
+      el("td", { "data-rotulo": "Resultados", text: String(s.results_count ?? "—") }),
+      el("td", { "data-rotulo": "Vagas registradas" }, s.jobs_count
+        ? el("button", { type: "button", class: "remover", text: `Ver ${s.jobs_count} vaga(s)`, "aria-label": `Ver as vagas da busca ${s.query}`, onclick: () => {
+          jobs.filters = { order: "", page: "1", search_id: String(s.id), search_label: `"${s.query}" (${s.source_label})` };
+          location.hash = "#vagas";
+          loadJobs();
+        } })
+        : el("span", { text: "0" }))));
+    const table = data.searches.length
+      ? el("table", { class: "tabela-vagas" }, el("thead", {}, head), el("tbody", {}, ...rows))
+      : el("p", { class: "nota", text: "Nenhuma busca registrada com esse filtro." });
+    box.replaceChildren(
+      el("div", { class: "faixa-topo" }, el("h2", { text: "Buscas em lote" }), refresh), runs,
+      el("div", { class: "faixa-topo" }, el("h2", { text: "Buscas registradas" }), el("label", { class: "filtro" }, el("span", { text: "Site" }), site)), table);
+    searchesState.loaded = true;
+  } catch (error) {
+    box.replaceChildren(el("p", { class: "erro", text: error.message }));
+  }
+}
+
+const searchesState = { source: "", loaded: false };
+
 function showView() {
-  const vagas = location.hash === "#vagas";
-  document.getElementById("vista-configuracao").hidden = vagas;
-  document.getElementById("vista-vagas").hidden = !vagas;
-  document.getElementById("intro-config").hidden = vagas;
-  document.getElementById("intro-vagas").hidden = !vagas;
-  document.getElementById("titulo-pagina").textContent = vagas ? "Vagas" : "Configuração";
-  document.getElementById("aba-vagas").toggleAttribute("aria-current", vagas);
-  document.getElementById("aba-configuracao").toggleAttribute("aria-current", !vagas);
-  if (vagas) document.getElementById("aba-vagas").setAttribute("aria-current", "page");
-  else document.getElementById("aba-configuracao").setAttribute("aria-current", "page");
-  if (vagas && !jobs.loaded) loadJobs();
+  const view = location.hash === "#vagas" ? "vagas" : location.hash === "#buscas" ? "buscas" : "configuracao";
+  const titles = { configuracao: "Configuração", vagas: "Vagas", buscas: "Buscas" };
+  document.getElementById("vista-configuracao").hidden = view !== "configuracao";
+  document.getElementById("vista-vagas").hidden = view !== "vagas";
+  document.getElementById("vista-buscas").hidden = view !== "buscas";
+  document.getElementById("intro-config").hidden = view !== "configuracao";
+  document.getElementById("intro-vagas").hidden = view !== "vagas";
+  document.getElementById("intro-buscas").hidden = view !== "buscas";
+  document.getElementById("titulo-pagina").textContent = titles[view];
+  for (const name of Object.keys(titles)) {
+    const tab = document.getElementById(`aba-${name}`);
+    if (name === view) tab.setAttribute("aria-current", "page");
+    else tab.removeAttribute("aria-current");
+  }
+  if (view === "vagas" && !jobs.loaded) loadJobs();
+  if (view === "buscas") loadSearches();
 }
 
 window.addEventListener("hashchange", showView);

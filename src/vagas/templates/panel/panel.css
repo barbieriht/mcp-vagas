@@ -223,3 +223,8 @@ button.mostrar { font: inherit; font-size: 14px; padding: 8px 12px; border-radiu
 .acoes-vaga > input { margin-bottom: 8px; }
 @media (max-width: 900px) { .acoes-grade { grid-template-columns: 1fr; } }
 .detalhe h2 a { color: var(--texto); }
+ul.lotes { list-style: none; padding: 0; margin: 8px 0 24px; display: flex; flex-direction: column; gap: 8px; }
+.busca-lote { padding: 10px 12px; border: 1px solid var(--borda); border-radius: 10px; background: var(--cartao); font-size: 14px; overflow-wrap: anywhere; }
+.lote-running .etapa { border-color: var(--destaque-forte); }
+.vagas h2 { font-size: 20px; margin: 8px 0; }
+.filtro-busca { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
