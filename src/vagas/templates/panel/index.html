@@ -4,19 +4,25 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<title>Configuração do mcp-vagas</title>
+<title>Painel do mcp-vagas</title>
 <link rel="stylesheet" href="/panel.css">
 <script src="/panel.js" defer></script>
+<script src="/jobs.js" defer></script>
 </head>
 <body>
 <header class="topo">
   <div class="topo-dentro">
     <p class="marca">mcp-vagas</p>
-    <h1>Configuração</h1>
-    <p class="intro">Preencha o que quiser e salve tudo de uma vez. Os valores ficam nos arquivos do seu computador, e você pode editá-los à mão quando quiser.</p>
+    <h1 id="titulo-pagina">Configuração</h1>
+    <p class="intro" id="intro-config">Preencha o que quiser e salve tudo de uma vez. Os valores ficam nos arquivos do seu computador, e você pode editá-los à mão quando quiser.</p>
+    <p class="intro" id="intro-vagas" hidden>As vagas que você buscou, triou e para as quais se candidatou, com o histórico de cada uma.</p>
+    <nav class="abas" aria-label="Partes do painel">
+      <a href="#configuracao" id="aba-configuracao" aria-current="page">Configuração</a>
+      <a href="#vagas" id="aba-vagas">Vagas</a>
+    </nav>
   </div>
 </header>
-<main class="conteudo">
+<main class="conteudo" id="vista-configuracao">
   <nav class="secoes" aria-label="Seções">
     <ol id="indice"></ol>
   </nav>
@@ -27,6 +33,9 @@
       <button type="submit" id="salvar">Salvar tudo</button>
     </div>
   </form>
+</main>
+<main class="vagas" id="vista-vagas" hidden>
+  <div id="vagas"><p class="carregando">Carregando…</p></div>
 </main>
 </body>
 </html>

@@ -33,7 +33,8 @@ from vagas.repo import VagasError
 log = logging.getLogger(__name__)
 MAX_BODY = 1024 * 1024
 STATE_NAME = "painel.json"
-STATIC = {"/panel.js": "text/javascript; charset=utf-8", "/panel.css": "text/css; charset=utf-8"}
+STATIC = {"/panel.js": "text/javascript; charset=utf-8", "/jobs.js": "text/javascript; charset=utf-8",
+          "/panel.css": "text/css; charset=utf-8"}
 _CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; "
         "form-action 'none'; frame-ancestors 'none'; base-uri 'none'")
 
@@ -125,6 +126,8 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._json(200, settings_form.load(self.server.db_path))
             except VagasError as exc:
                 return self._json(500, {"error": str(exc)})
+        if parts.path == "/api/jobs" or parts.path.startswith("/api/jobs/"):
+            return self._jobs(parts)
         return self._send(404, b"", "text/plain")
 
     def do_POST(self) -> None:
@@ -157,6 +160,25 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._json(200, settings_form.save(data, self.server.db_path))
             except VagasError as exc:
                 return self._json(500, {"error": str(exc)})
+
+    def _jobs(self, parts: Any) -> None:
+        """Vagas registradas: GET /api/jobs?filtros (lista) e GET /api/jobs/<id> (detalhe). Só leitura."""
+        from vagas import jobs_view
+        from vagas.db import connect
+
+        conn = connect(self.server.db_path)
+        try:
+            if parts.path == "/api/jobs":
+                filters = {k: v[-1] for k, v in parse_qs(parts.query).items()}
+                return self._json(200, jobs_view.list_jobs(conn, filters))
+            tail = parts.path.removeprefix("/api/jobs/")
+            if not tail.isdigit():
+                return self._json(404, {"error": "Vaga não encontrada."})
+            return self._json(200, jobs_view.job_detail(conn, int(tail)))
+        except VagasError as exc:
+            return self._json(400 if parts.path == "/api/jobs" else 404, {"error": str(exc)})
+        finally:
+            conn.close()
 
     def _approve(self, data: Any) -> None:
         """Aprova o rascunho do currículo geral que o usuário viu (mesma impressão digital)."""

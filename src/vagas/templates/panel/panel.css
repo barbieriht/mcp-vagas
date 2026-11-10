@@ -42,6 +42,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body {
   margin: 0;
   background: var(--fundo);
@@ -169,3 +170,44 @@ button.aprovar:disabled { opacity: 0.5; cursor: not-allowed; }
 .segredo { display: flex; gap: 8px; align-items: center; max-width: 560px; }
 .segredo input { flex: 1; min-width: 0; }
 button.mostrar { font: inherit; font-size: 14px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--borda); background: transparent; color: var(--texto); cursor: pointer; white-space: nowrap; }
+
+/* Abas e aba Vagas */
+.abas { display: flex; gap: 4px; margin-top: 16px; }
+.abas a { padding: 8px 14px; border-radius: 8px 8px 0 0; color: var(--texto); text-decoration: none; border: 1px solid transparent; border-bottom: none; }
+.abas a[aria-current="page"] { border-color: var(--borda); background: var(--fundo); font-weight: 600; color: var(--destaque); }
+.abas a:focus-visible { outline: 3px solid var(--foco); outline-offset: 2px; }
+.vagas { max-width: 1200px; margin: 0 auto; padding: 24px 16px; }
+.filtros { display: grid; grid-template-columns: 2fr repeat(5, minmax(0, 1fr)) auto; gap: 12px; align-items: end; }
+.filtro { display: flex; flex-direction: column; gap: 4px; font-size: 14px; font-weight: 600; }
+.filtro input, .filtro select { padding: 8px 10px; font: inherit; font-weight: 400; color: var(--texto); background: var(--cartao); border: 1px solid var(--borda); border-radius: 8px; min-width: 0; }
+.filtro.opcao { flex-direction: row; align-items: center; padding-bottom: 8px; }
+.contagens { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+.chip { font: inherit; font-size: 14px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--borda); background: var(--cartao); color: var(--texto); cursor: pointer; }
+.chip.ativo { border-color: var(--destaque); color: var(--destaque); font-weight: 600; }
+.tabela-vagas { width: 100%; border-collapse: collapse; background: var(--cartao); border: 1px solid var(--borda); border-radius: 12px; overflow: hidden; font-size: 15px; }
+.tabela-vagas th, .tabela-vagas td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--borda); vertical-align: top; overflow-wrap: break-word; }
+.tabela-vagas th, .tabela-vagas td button, .tabela-vagas td:nth-child(3), .tabela-vagas td:nth-child(5) { white-space: nowrap; }
+.tabela-vagas th { font-size: 13px; color: var(--texto-suave); }
+.tabela-vagas a { color: var(--texto); font-weight: 600; }
+.etapa { display: inline-block; padding: 0 8px; border-radius: 999px; font-size: 13px; font-weight: 600; background: var(--fundo); border: 1px solid var(--borda); white-space: nowrap; }
+.etapa-descartada, .etapa-recusada, .etapa-desistiu { color: var(--texto-suave); }
+.etapa-pendente_usuario { border-color: var(--destaque-forte); }
+.paginas { display: flex; gap: 12px; align-items: center; justify-content: flex-end; margin: 12px 0 24px; font-size: 14px; }
+.detalhe { margin-top: 8px; }
+.detalhe h2 { font-size: 20px; }
+.detalhe dl { display: grid; grid-template-columns: 180px 1fr; gap: 6px 16px; margin: 12px 0; }
+.linha-detalhe { display: contents; }
+.detalhe dt { font-weight: 600; color: var(--texto-suave); }
+.detalhe dd { margin: 0; overflow-wrap: anywhere; }
+.linha-do-tempo { padding-left: 20px; font-size: 14px; }
+.descricao { white-space: pre-wrap; font-size: 14px; }
+@media (max-width: 900px) {
+  .filtros { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .filtros .filtro:first-child { grid-column: 1 / -1; }
+  .tabela-vagas thead { display: none; }
+  .tabela-vagas, .tabela-vagas tbody, .tabela-vagas tr, .tabela-vagas td { display: block; width: 100%; }
+  .tabela-vagas tr { border-bottom: 1px solid var(--borda); padding: 8px 0; }
+  .tabela-vagas td { border: none; padding: 4px 12px; }
+  .tabela-vagas td[data-rotulo]::before { content: attr(data-rotulo) ": "; font-weight: 600; color: var(--texto-suave); }
+  .detalhe dl { grid-template-columns: 1fr; }
+}
