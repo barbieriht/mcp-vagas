@@ -329,3 +329,42 @@ def test_salary_bands_are_edited_as_a_table(skill, db_path, monkeypatch):
     assert "- Híbrido em Campinas (BRL, CLT): usar a faixa do Remoto nacional\n" in text
     assert "Internacional" not in text
     assert [b.label for b in parse_policy(text).bands] == ["Remoto nacional", "Híbrido em Campinas"]
+
+
+@pytest.mark.skipif(not _chromium(), reason="Playwright com Chromium não instalado")
+def test_languages_are_edited_as_rows(skill, db_path):
+    import shutil
+    from pathlib import Path
+
+    from playwright.sync_api import sync_playwright
+
+    shutil.copy(Path(__file__).resolve().parents[1] / "skill" / "candidaturas" / "perfil.example.md", skill / "perfil.md")
+    server = panel.make_server(db_path, token="t0k3n")
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            page.goto(server.url)
+            languages = page.get_by_role("group", name="Idiomas")
+            languages.wait_for()
+            rows = languages.locator(".idioma")
+            assert rows.count() == 3
+            assert rows.nth(0).get_by_label("Nível", exact=True).input_value() == "Nativo"
+            assert rows.nth(1).get_by_label("Nível: outro").input_value() == "intermediário-avançado (B2, certificado)"
+
+            rows.nth(2).get_by_role("button", name="Remover idioma").click()
+            languages.get_by_role("button", name="Adicionar idioma").click()
+            new = languages.locator(".idioma").nth(2)
+            new.get_by_label("Idioma", exact=True).fill("libras")
+            new.get_by_label("Nível", exact=True).select_option("__outra__")
+            new.get_by_label("Nível: outro").fill("básico (curso livre)")
+            page.get_by_role("button", name="Salvar tudo").click()
+            page.get_by_text("Tudo salvo").wait_for()
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert ("- Idiomas: português (nativo), inglês intermediário-avançado (B2, certificado), libras (básico (curso livre))\n"
+            in (skill / "perfil.md").read_text(encoding="utf-8"))

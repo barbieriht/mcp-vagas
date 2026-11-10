@@ -127,6 +127,7 @@ function renderFileField(section, field, isNew) {
   }
   if (field.kind === "choice_other") return renderChoiceOther(section, field, name, id, classes, help, notes);
   if (field.kind === "bands") return renderBands(section, field, name, help);
+  if (field.kind === "languages") return renderLanguages(section, field, name, help, notes);
   let control;
   if (field.kind === "choice") {
     control = el("select", { id });
@@ -179,6 +180,69 @@ function nextFieldOnEnter(event) {
     .filter((node) => !node.disabled && !node.hidden && node.offsetParent !== null);
   const next = fields[fields.indexOf(target) + 1];
   if (next) next.focus();
+}
+
+// Idiomas: uma linha por idioma, com o nível da lista ou "Outro…" (texto livre).
+function renderLanguages(section, field, name, help, notes) {
+  const list = el("div", { class: "idiomas" });
+  const box = el("fieldset", { class: "campo", "data-campo": name }, el("legend", { text: field.title }), help, list);
+  const rows = [];
+
+  function refresh() {
+    rows.forEach((row, index) => {
+      row.cells.language.dataset.campo = `${name}.${index}.language`;
+      row.cells.level.dataset.campo = `${name}.${index}.level`;
+    });
+  }
+
+  function addRow(data) {
+    const n = ++counter;
+    const language = el("input", { type: "text", id: `idioma-${n}`, value: data.language || "", autocomplete: "off", placeholder: "Ex.: inglês" });
+    const level = el("select", { id: `nivel-${n}` });
+    level.append(el("option", { value: "", text: "Escolha…" }));
+    for (const option of field.levels) level.append(el("option", { value: option, text: option }));
+    level.append(el("option", { value: OTHER, text: "Outro…" }));
+    const custom = el("input", { type: "text", "aria-label": "Nível: outro", placeholder: "Ex.: intermediário (B1, certificado)", autocomplete: "off" });
+    const known = field.levels.find((option) => plain(option) === plain(data.level || ""));
+    level.value = !data.level ? "" : known || OTHER;
+    custom.value = known ? "" : data.level || "";
+    const showCustom = () => { custom.hidden = level.value !== OTHER; };
+    level.addEventListener("change", () => { showCustom(); if (!custom.hidden) custom.focus(); });
+    showCustom();
+    const row = {
+      raw: data.raw || "",
+      original: known ? { level: known, text: data.level } : null,
+      read: () => {
+        const chosen = level.value === OTHER ? custom.value.trim() : level.value;
+        // nível da lista sem mudança: o texto lido do arquivo, para a linha original ser mantida
+        const levelText = row.original && chosen === row.original.level ? row.original.text : chosen;
+        return { language: language.value.trim(), level: levelText, raw: row.raw };
+      },
+      cells: {
+        language: el("div", { class: "celula" }, el("label", { for: language.id, text: "Idioma" }), language),
+        level: el("div", { class: "celula" }, el("label", { for: level.id, text: "Nível" }), level, custom),
+      },
+    };
+    const remove = el("button", { type: "button", class: "remover", text: "Remover", "aria-label": "Remover idioma", onclick: () => {
+      rows.splice(rows.indexOf(row), 1);
+      row.node.remove();
+      refresh();
+    } });
+    row.node = el("div", { class: "idioma" }, row.cells.language, row.cells.level, remove);
+    rows.push(row);
+    list.append(row.node);
+    refresh();
+    return { focus: () => language.focus() };
+  }
+
+  for (const data of field.value) addRow(data);
+  if (!field.value.length && field.hint_rows && field.hint_rows.length) {
+    box.append(el("p", { class: "nota", text: `Ex.: ${field.hint_rows.map((r) => `${r.language} (${r.level})`).join(", ")}` }));
+  }
+  box.append(el("button", { type: "button", class: "adicionar", text: "Adicionar idioma", onclick: () => addRow({}).focus() }), ...notes);
+  const read = () => rows.map((row) => row.read());
+  register(section.key, field.id, read(), read, box);
+  return box;
 }
 
 const plain = (text) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();

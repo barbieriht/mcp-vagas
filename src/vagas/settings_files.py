@@ -111,6 +111,53 @@ def _diversity_answers(parent: md_fields.Item, items: list[md_fields.Item]) -> t
     return answers, extra
 
 
+# Idiomas: uma linha por idioma, com o nível; no arquivo continua uma linha só, "idioma (nível), ...".
+LANGUAGE_LEVELS = ("Nativo", "Fluente", "Avançado", "Intermediário", "Básico", "A1", "A2", "B1", "B2", "C1", "C2")
+_LEVEL_WORDS = ("nativ", "fluent", "avancad", "intermedi", "basic", "inician", "elementar")
+
+
+def _split_top(text: str) -> list[str]:
+    """Separa por vírgula fora de parênteses: "a (x, y), b" -> ["a (x, y)", "b"]."""
+    parts, depth, current = [], 0, ""
+    for char in text:
+        depth += char == "("
+        depth -= char == ")" and depth > 0
+        if char == "," and depth == 0:
+            parts.append(current)
+            current = ""
+        else:
+            current += char
+    parts.append(current)
+    return [part.strip().rstrip(".") for part in parts if part.strip().rstrip(".")]
+
+
+def parse_languages(value: str) -> list[dict[str, str]]:
+    """"inglês intermediário-avançado (B2, certificado)" -> idioma "inglês", nível "intermediário-avançado
+    (B2, certificado)"; "português (nativo)" -> "português", "nativo". O texto original fica em "raw"."""
+    rows = []
+    for raw in _split_top(value):
+        before, _, inner = raw.partition("(")
+        inner = inner.rsplit(")", 1)[0].strip()
+        words = before.split()
+        cut = next((i for i, w in enumerate(words) if normalize_text(w).startswith(_LEVEL_WORDS)), len(words))
+        language, level_words = " ".join(words[:cut]), " ".join(words[cut:])
+        level = f"{level_words} ({inner})" if level_words and inner else level_words or inner
+        rows.append({"language": language or raw, "level": level, "raw": raw})
+    return rows
+
+
+def _languages_line(rows: list[dict[str, str]]) -> str:
+    out = []
+    for row in rows:
+        original = next((p for p in parse_languages(row.get("raw", "")) if p["raw"] == row.get("raw")), None)
+        if original and original["language"] == row["language"] and original["level"] == row["level"]:
+            out.append(row["raw"])  # linha não alterada: o texto original, como foi escrito
+        else:
+            level = row["level"]
+            out.append(f"{row['language']} ({level.lower() if level in LANGUAGE_LEVELS[:5] else level})")
+    return ", ".join(out)
+
+
 def _profile_paths(db_path: Path | str | None) -> tuple[Path, Path]:
     skill = default_skill_dir(db_path)
     return skill / "perfil.md", skill / "perfil.example.md"
@@ -136,6 +183,8 @@ def _locked_status(item: md_fields.Item) -> str | None:
 def _profile_kind(item: md_fields.Item, items: list[md_fields.Item]) -> str:
     if _locked_status(item):
         return "locked"
+    if _norm(item.label) == "idiomas" and item.parent is None:
+        return "languages"
     if not item.value.strip() and any(other.parent == item.label and other.section == item.section for other in items):
         return "group"
     if any(_norm(note).startswith("valores aceitos: sim ou nao") for note in item.notes) \
@@ -187,10 +236,15 @@ def load_profile(db_path: Path | str | None) -> dict[str, Any]:
             hint, value = value, ""  # o exemplo é dica, nunca valor de outra pessoa
         if kind == "yesno":
             value = _yes_no(value)
+        if kind == "languages":
+            rows = parse_languages(item.value) if not placeholder else []
+            value, hint = ([], "") if from_example else (rows, "")
+            hint_rows = rows if from_example else []
         field = {"id": item.id, "title": item.label, "kind": kind, "value": value, "hint": hint,
+                 **({"levels": list(LANGUAGE_LEVELS), "hint_rows": hint_rows} if kind == "languages" else {}),
                  "notes": [n for n in item.notes if not _norm(n).startswith("valores aceitos")],
                  "parent": item.parent, "status": _locked_status(item) if kind == "locked" else None}
-        if kind in ("text", "yesno") and not value:
+        if kind in ("text", "yesno", "languages") and not value:
             pending.append(item.id)
         if not groups or groups[-1]["name"] != (item.section or ""):
             groups.append({"name": item.section or "", "fields": []})
@@ -228,6 +282,29 @@ def _missing_from_example(items: list[md_fields.Item], example: Path) -> list[tu
         if kind in ("text", "yesno"):
             missing.append((item, kind))
     return missing
+
+
+def _check_languages(raw: Any, name: str) -> tuple[str, dict[str, str]]:
+    if not isinstance(raw, list):
+        return "", {name: "Envie os idiomas como uma lista."}
+    errors, rows = {}, []
+    for index, row in enumerate(raw):
+        where = f"{name}.{index}"
+        if not isinstance(row, dict):
+            errors[where] = "Linha inválida."
+            continue
+        language = str(row.get("language") or "").strip()
+        level = str(row.get("level") or "").strip()
+        if not language:
+            errors[f"{where}.language"] = "Informe o idioma."
+        elif re.search(r"[,()\n\r]", language):
+            errors[f"{where}.language"] = "O idioma não pode ter vírgula, parênteses nem quebra de linha."
+        if not level:
+            errors[f"{where}.level"] = "Escolha o nível."
+        elif re.search(r"[\n\r]", level) or level.count("(") != level.count(")"):
+            errors[f"{where}.level"] = "Use uma linha só, com os parênteses fechados."
+        rows.append({"language": language, "level": level, "raw": str(row.get("raw") or "")})
+    return ("" if errors else _languages_line(rows)), errors
 
 
 def plan_profile(values: Any, db_path: Path | str | None) -> tuple[Pending | None, dict[str, str]]:
@@ -270,6 +347,12 @@ def plan_profile(values: Any, db_path: Path | str | None) -> tuple[Pending | Non
             errors[name] = "Campo desconhecido no perfil."
             continue
         kind = _profile_kind(item, items)
+        if kind == "languages":
+            line, row_errors = _check_languages(raw, name)
+            errors.update(row_errors)
+            if not row_errors:
+                updates[item.id] = line or PENDING
+            continue
         if not isinstance(raw, str):
             errors[name] = "Informe o valor como texto."
         elif kind == "locked":
@@ -290,7 +373,7 @@ def plan_profile(values: Any, db_path: Path | str | None) -> tuple[Pending | Non
         return None, errors
     if from_example:  # perfil novo: o que não foi digitado fica pendente, nunca com o valor do exemplo
         for item in items:
-            if item.id not in updates and _profile_kind(item, items) in ("text", "yesno") \
+            if item.id not in updates and _profile_kind(item, items) in ("text", "yesno", "languages") \
                     and not item.value.strip().startswith("<"):
                 updates[item.id] = PENDING
     if not updates and not diversity_updates and not inserts:

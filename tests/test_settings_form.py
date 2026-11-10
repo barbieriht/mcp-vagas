@@ -477,3 +477,63 @@ def test_fields_of_the_example_missing_from_the_profile_show_up_and_are_added_on
     assert (skill / "perfil.md").read_text(encoding="utf-8") == (
         "## Contato e identificação\n- Nome: Maria Souza\n- GitHub: https://github.com/maria\n"
         "- Portfólio: https://behance.net/maria\n\n## Respostas padrão\n- Parentes na empresa: não\n")
+
+
+# --- idiomas em linhas ---------------------------------------------------------------------------
+
+LANGS = "- Idiomas: português (nativo), inglês intermediário-avançado (B2, certificado), espanhol básico (A2.3, certificado)\n"
+
+
+def languages_field(db_path):
+    return section_fields(load(db_path), "profile")["Respostas padrão/Idiomas"]
+
+
+def test_languages_become_rows_with_language_and_level(db_path, skill):
+    field = languages_field(db_path)  # do exemplo
+
+    assert field["kind"] == "languages"
+    assert {"Nativo", "Fluente", "Avançado", "Intermediário", "Básico", "B2", "C1"} <= set(field["levels"])
+    rows = [(r["language"], r["level"]) for r in field["hint_rows"]]
+    assert rows == [("português", "nativo"), ("inglês", "intermediário-avançado (B2, certificado)"),
+                    ("espanhol", "básico (A2.3, certificado)")]
+
+
+def test_untouched_languages_keep_their_original_text(db_path, skill):
+    text = (EXAMPLES / "perfil.example.md").read_text(encoding="utf-8")
+    (skill / "perfil.md").write_text(text, encoding="utf-8")
+    rows = languages_field(db_path)["value"]
+    rows.append({"language": "libras", "level": "Básico"})
+
+    result = save({"profile": {"Respostas padrão/Idiomas": rows}}, db_path)
+
+    assert result["saved"], result["errors"]
+    assert ("- Idiomas: português (nativo), inglês intermediário-avançado (B2, certificado), espanhol básico "
+            "(A2.3, certificado), libras (básico)\n") in (skill / "perfil.md").read_text(encoding="utf-8")
+
+
+def test_changed_language_is_written_as_name_and_level(db_path, skill):
+    text = (EXAMPLES / "perfil.example.md").read_text(encoding="utf-8")
+    (skill / "perfil.md").write_text(text, encoding="utf-8")
+    rows = languages_field(db_path)["value"]
+    rows[1]["level"] = "C1"
+    del rows[2]
+
+    save({"profile": {"Respostas padrão/Idiomas": rows}}, db_path)
+
+    assert "- Idiomas: português (nativo), inglês (C1)\n" in (skill / "perfil.md").read_text(encoding="utf-8")
+
+
+def test_each_incomplete_language_row_gets_its_own_error(db_path, skill):
+    result = save({"profile": {"Respostas padrão/Idiomas": [{"language": "", "level": "Nativo"},
+                                                             {"language": "inglês", "level": ""},
+                                                             {"language": "a, b", "level": "B2"}]}}, db_path)
+
+    assert set(result["errors"]) == {"profile.Respostas padrão/Idiomas.0.language",
+                                     "profile.Respostas padrão/Idiomas.1.level",
+                                     "profile.Respostas padrão/Idiomas.2.language"}
+
+
+def test_new_profile_does_not_inherit_the_example_languages(db_path, skill):
+    save({"profile": {"Contato e identificação/Nome": "Maria"}}, db_path)
+
+    assert "- Idiomas: <PREENCHER>" in (skill / "perfil.md").read_text(encoding="utf-8")
