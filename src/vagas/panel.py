@@ -141,7 +141,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._denied()
             return self._discard(size)
         route = urlsplit(self.path).path
-        if route not in ("/api/settings", "/api/resume/approve"):
+        if route not in ("/api/settings", "/api/resume/approve", "/api/jobs/action"):
             self.close_connection = True
             self._send(404, b"", "text/plain")
             return self._discard(size)
@@ -157,6 +157,8 @@ class _Handler(BaseHTTPRequestHandler):
             try:
                 if route == "/api/resume/approve":
                     return self._approve(data)
+                if route == "/api/jobs/action":
+                    return self._job_action(data)
                 return self._json(200, settings_form.save(data, self.server.db_path))
             except VagasError as exc:
                 return self._json(500, {"error": str(exc)})
@@ -177,6 +179,28 @@ class _Handler(BaseHTTPRequestHandler):
             return self._json(200, jobs_view.job_detail(conn, int(tail)))
         except VagasError as exc:
             return self._json(400 if parts.path == "/api/jobs" else 404, {"error": str(exc)})
+        finally:
+            conn.close()
+
+    def _job_action(self, data: Any) -> None:
+        """Ações sobre as vagas: {action: update|discard|reopen, id | ids, ...}, pelas regras do Repo."""
+        from vagas import jobs_view
+        from vagas.db import connect
+
+        if not isinstance(data, dict):
+            return self._json(400, {"error": "Ação inválida."})
+        action = data.get("action")
+        conn = connect(self.server.db_path)
+        try:
+            if action == "update" and isinstance(data.get("id"), int):
+                return self._json(200, {"items": [jobs_view.update_job(conn, data["id"], data)]})
+            if action == "discard" and isinstance(data.get("ids"), list):
+                return self._json(200, {"items": jobs_view.discard_jobs(conn, data["ids"], str(data.get("reason") or ""))})
+            if action == "reopen" and isinstance(data.get("id"), int):
+                return self._json(200, {"items": [jobs_view.reopen_job(conn, data["id"], str(data.get("reason") or ""))]})
+            return self._json(400, {"error": "Ação desconhecida."})
+        except VagasError as exc:
+            return self._json(400, {"error": str(exc)})
         finally:
             conn.close()
 

@@ -120,7 +120,7 @@ Peça em linguagem natural ou use os comandos:
 | contar uma novidade | *"passei para a entrevista técnica da Acme"* |
 | levar tudo para uma planilha | `/export-applications` |
 
-Para ver todas as vagas de uma vez, com filtros (status, site, data, aderência), contagens e o histórico de cada uma, abra o painel na aba **Vagas**.
+Para ver todas as vagas de uma vez, com filtros (status, site, data, aderência), contagens e o histórico de cada uma, abra o painel na aba **Vagas**. Lá também dá para mudar a etapa, anotar, descartar várias vagas de uma vez e reabrir uma descartada por engano.
 
 O Claude nunca envia uma candidatura sem a sua confirmação; o envio automático é opcional e vem desligado (painel → Pastas e opções → Envio automático). Ele também nunca se candidata duas vezes à mesma vaga, mesmo vinda de outro site.
 

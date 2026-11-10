@@ -98,3 +98,50 @@ def test_only_http_links_become_links(url, expected):
     from vagas.jobs_view import _safe_url
 
     assert _safe_url(url) == expected
+
+
+# --- ações -----------------------------------------------------------------------------------------
+
+from vagas.jobs_view import discard_jobs, reopen_job, update_job  # noqa: E402
+
+
+def test_changing_the_stage_with_a_note_records_an_event(repo, jobs):
+    app = update_job(repo.conn, jobs["Delta"], {"status": "tecnica", "note": "Recrutadora: Ana", "pending": ""})
+
+    assert app["status"] == "tecnica" and app["pending"] is None
+    last = repo.get_history(jobs["Delta"])["events"][-1]
+    assert (last["from_status"], last["to_status"], last["note"]) == ("aplicada", "tecnica", "Recrutadora: Ana")
+
+
+def test_pending_status_needs_a_description(repo, jobs):
+    with pytest.raises(VagasError, match="Descreva o que falta"):
+        update_job(repo.conn, jobs["Acme"], {"status": "pendente_usuario"})
+
+
+def test_only_the_note_is_fine_and_nothing_at_all_is_not(repo, jobs):
+    update_job(repo.conn, jobs["Acme"], {"note": "Indicação do João"})
+
+    with pytest.raises(VagasError, match="Nada a mudar"):
+        update_job(repo.conn, jobs["Acme"], {"status": "", "note": " "})
+
+
+def test_discarding_several_jobs_is_all_or_nothing(repo, jobs):
+    with pytest.raises(VagasError, match="Épsilon"):  # já descartada
+        discard_jobs(repo.conn, [jobs["Acme"], jobs["Épsilon"]], "não quero")
+    assert repo.get(jobs["Acme"])["status"] == "a_aplicar"
+
+    with pytest.raises(VagasError, match="motivo"):
+        discard_jobs(repo.conn, [jobs["Acme"]], " ")
+
+    done = discard_jobs(repo.conn, [jobs["Acme"], jobs["Beta"]], "empresa sem retorno")
+    assert [a["status"] for a in done] == ["descartada", "descartada"]
+    assert repo.get(jobs["Beta"])["discard_reason"] == "empresa sem retorno"
+
+
+def test_reopening_brings_a_discarded_job_back_to_the_work_list(repo, jobs):
+    app = reopen_job(repo.conn, jobs["Épsilon"], "descartada por engano")
+
+    assert app["status"] == "a_aplicar" and app["discard_reason"] is None
+    assert repo.get_history(jobs["Épsilon"])["events"][-1]["note"] == "Reaberta: descartada por engano"
+    with pytest.raises(VagasError, match="só vagas descartadas"):
+        reopen_job(repo.conn, jobs["Acme"], "x")
