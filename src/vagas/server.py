@@ -6,6 +6,7 @@ import sqlite3
 import subprocess
 import sys
 from collections.abc import Callable, Iterator
+from datetime import date
 from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Annotated, Any
@@ -17,6 +18,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from vagas import config as paths_config
 from vagas import system
 from vagas.db import connect, default_db_path
+from vagas.experience import years_to_declare
 from vagas.models import (
     Contract, Currency, InitialStatus, LinkedInSection, ResumeSourceKind, RoleKey, SalaryMode, Seniority,
     Source, Status, WorkMode,
@@ -468,13 +470,27 @@ def build_server(
         deixe o campo vazio, o value nunca é o dado) ou "cofre_vazio" (marcado como no cofre, mas não
         cadastrado: o usuário cadastra com python -m vagas.sensitive set <vault_field>).
         notes: orientações do campo (ex.: como escolher em escala fixa).
+        experience: {years_to_inform, years_computed, years_exact, years_declared, periods}. Quando o
+        formulário pedir anos de experiência, informe years_to_inform: o valor que o usuário declarou no
+        perfil ou, sem ele, os anos do currículo geral aprovado (somados sem sobreposição, arredondados).
+        Não calcule você mesmo. periods: empresa, cargo, início e fim de cada experiência do currículo.
         """
         try:
             fields = (vault or Vault(default_vault_path(db_path), default_backend())).list()
             profile = ProfileFiles(default_skill_dir(db_path)).get_profile(vault_fields=fields)
-            return profile
         except VagasError as exc:
             raise ToolError(str(exc)) from exc
+        try:
+            with resumes() as r:
+                master = r.get_master_resume()["resume"]
+        except (VagasError, ToolError):
+            master = None
+        profile["experience"] = {
+            **years_to_declare(profile, master, date.today()),
+            "periods": [{k: item.get(k) for k in ("company", "title", "start", "end")}
+                        for item in (master or {}).get("experience", [])],
+        }
+        return profile
 
     @server.tool()
     def add_profile_field(label: str, section: str | None = None, value: str | None = None,

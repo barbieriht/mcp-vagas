@@ -47,3 +47,35 @@ def experience_years(resume: dict[str, Any], today: date) -> float | None:
         current = (start, end)
     months += current[1] - current[0] + 1
     return round(months / 12, 1)
+
+
+DECLARED_LABEL = "Anos de experiência a declarar"
+_OLD_SUBITEM = "se o campo pedir anos de experiencia"
+
+
+def _declared(profile: dict[str, Any]) -> int | None:
+    """Valor que o usuário quer informar nos formulários: o campo "Anos de experiência a declarar" ou,
+    no formato antigo, o subitem "Se o campo pedir anos de experiência: N". "calculado" ou vazio: nenhum."""
+    for section in profile.get("sections") or []:
+        for field in section.get("fields") or []:
+            texts = []
+            if normalize_text(field.get("label", "")) == normalize_text(DECLARED_LABEL):
+                texts.append(str(field.get("value") or ""))
+            for note in field.get("notes") or []:
+                label, _, value = str(note).partition(":")
+                if normalize_text(label).strip() == _OLD_SUBITEM:
+                    texts.append(value)
+            for text in texts:
+                if match := re.search(r"\d+(?:[.,]\d+)?", text):
+                    return int(float(match.group().replace(",", ".")) + 0.5)
+    return None
+
+
+def years_to_declare(profile: dict[str, Any], resume: dict[str, Any] | None, today: date) -> dict[str, Any]:
+    """Anos de experiência para formulários: os do currículo geral (somados sem sobreposição) arredondados
+    para o ano mais próximo, a menos que o usuário tenha declarado outro valor no perfil."""
+    exact = experience_years(resume, today) if resume else None
+    computed = int(exact + 0.5) if exact is not None else None
+    declared = _declared(profile)
+    return {"years_exact": exact, "years_computed": computed, "years_declared": declared,
+            "years_to_inform": declared if declared is not None else computed}

@@ -591,3 +591,43 @@ def test_unsaved_resume_edits_block_the_approval(db_path):
     finally:
         server.shutdown()
         server.server_close()
+
+
+@pytest.mark.skipif(not _chromium(), reason="Playwright com Chromium não instalado")
+def test_profile_shows_resume_experiences_and_computed_years(skill, db_path):
+    import shutil
+    from pathlib import Path
+
+    from playwright.sync_api import sync_playwright
+
+    from resume_fixture import fictitious_resume
+    from vagas.db import connect
+    from vagas.resume_repo import ResumeStore, default_draft_path
+
+    shutil.copy(Path(__file__).resolve().parents[1] / "skill" / "candidaturas" / "perfil.example.md", skill / "perfil.md")
+    conn = connect(db_path)
+    store = ResumeStore(conn, default_draft_path(db_path))
+    store.save_master_draft(fictitious_resume())
+    store.approve_master()
+    conn.close()
+    server = panel.make_server(db_path, token="t0k3n")
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            page.goto(server.url)
+            page.get_by_text("Experiências do currículo geral", exact=True).wait_for()
+            assert page.get_by_text("Quantitative Analyst — Acme Analytics").is_visible()
+            assert page.get_by_text("Total:").is_visible()
+            years = page.get_by_label("Anos de experiência a declarar")
+            assert "calculados pelo currículo geral" in years.get_attribute("placeholder")
+            years.fill("8")
+            page.get_by_role("button", name="Salvar tudo").click()
+            page.get_by_text("Tudo salvo").wait_for()
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert "- Anos de experiência a declarar: 8\n" in (skill / "perfil.md").read_text(encoding="utf-8")

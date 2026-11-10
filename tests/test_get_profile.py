@@ -107,3 +107,27 @@ def test_example_profile_asks_for_the_birth_date():
 
     example = Path(__file__).resolve().parents[1] / "skill" / "candidaturas" / "perfil.example.md"
     assert "- Data de nascimento:" in example.read_text(encoding="utf-8")
+
+
+async def test_get_profile_gives_the_years_of_experience_to_inform(skill, db_path, monkeypatch):
+    from resume_fixture import fictitious_resume
+    from vagas.db import connect
+    from vagas.resume_repo import ResumeStore, default_draft_path
+
+    text = PERFIL.replace("- Anos de experiência: <PREENCHER: quantos anos declarar>",
+                          "- Anos de experiência a declarar: calculado")
+    (skill / "perfil.md").write_text(text, encoding="utf-8")
+    monkeypatch.setenv("VAGAS_SKILL_DIR", str(skill))
+    conn = connect(db_path)
+    store = ResumeStore(conn, default_draft_path(db_path))
+    store.save_master_draft(fictitious_resume())
+    store.approve_master()
+    conn.close()
+
+    async with Client(build_server(db_path, vault=Vault(skill / "cofre.json", FakeBackend()))) as client:
+        result = await client.call_tool("get_profile", {})
+
+    experience = result.structured_content["experience"]
+    assert experience["years_declared"] is None and experience["years_computed"] is not None
+    assert experience["years_to_inform"] == experience["years_computed"]
+    assert experience["periods"][0]["company"] and "start" in experience["periods"][0]

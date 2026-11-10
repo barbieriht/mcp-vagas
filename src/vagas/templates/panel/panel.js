@@ -114,7 +114,7 @@ function renderFileField(section, field, isNew) {
       el("p", { class: "rotulo", text: field.title }), el("p", { class: "nota", text: field.status }));
   }
   const id = `campo-${++counter}`;
-  const pending = !field.value;
+  const pending = !field.value && field.kind !== "years";  // anos em branco = calculado
   if (field.kind === "multi") {
     const boxes = field.choices.map((choice) => {
       const box = el("input", { type: "checkbox", value: choice.value, id: `${id}-${choice.value}` });
@@ -130,6 +130,13 @@ function renderFileField(section, field, isNew) {
   if (field.kind === "choice_other") return renderChoiceOther(section, field, name, id, classes, help, notes);
   if (field.kind === "bands") return renderBands(section, field, name, help);
   if (field.kind === "languages") return renderLanguages(section, field, name, help, notes);
+  if (field.kind === "periods") {
+    const years = field.years_computed === null ? null
+      : `Total: ${field.years_computed} ${field.years_computed === 1 ? "ano" : "anos"} (${String(field.years_exact).replace(".", ",")} somados, sem contar períodos sobrepostos).`;
+    const list = el("ul", { class: "mudancas" }, ...field.value.map((p) => el("li", { text: `${p.title} — ${p.company} (${p.start || "?"} – ${p.end || "atual"})` })));
+    return el("div", { class: classes }, el("p", { class: "rotulo", text: field.title }), field.value.length ? list : null,
+      years ? el("p", { class: "nota", text: years }) : null, ...notes);
+  }
   if (field.kind === "secret") return renderSecret(section, field, name, id);
   let control;
   if (field.kind === "choice") {
