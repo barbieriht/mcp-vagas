@@ -129,6 +129,7 @@ function renderFileField(section, field, isNew) {
   }
   if (field.kind === "choice_other") return renderChoiceOther(section, field, name, id, classes, help, notes);
   if (field.kind === "bands") return renderBands(section, field, name, help);
+  if (field.kind === "secret") return renderSecret(section, field, name, id);
   let control;
   if (field.kind === "choice") {
     control = el("select", { id });
@@ -181,6 +182,25 @@ function nextFieldOnEnter(event) {
     .filter((node) => !node.disabled && !node.hidden && node.offsetParent !== null);
   const next = fields[fields.indexOf(target) + 1];
   if (next) next.focus();
+}
+
+// Documento do cofre: campo de senha que nunca mostra o valor guardado; em branco, não muda nada.
+function renderSecret(section, field, name, id) {
+  const input = el("input", { type: "password", id, autocomplete: "new-password", spellcheck: "false",
+    placeholder: field.stored ? "Guardado. Digite só para trocar" : "Não guardado", disabled: Boolean(section.unavailable) });
+  let removing = false;
+  const remove = field.stored ? el("button", { type: "button", class: "remover", text: "Remover do cofre", onclick: () => {
+    removing = !removing;
+    remove.textContent = removing ? "Desfazer remoção" : "Remover do cofre";
+    input.disabled = removing;
+    box.classList.toggle("a-remover", removing);
+  } }) : null;
+  const badge = field.stored ? el("span", { class: "selo ok", text: "Guardado no cofre" }) : null;
+  const box = el("div", { class: "campo", "data-campo": name },
+    el("div", { class: "cabeca" }, el("label", { for: id, text: field.title }), badge), input, remove);
+  controls.push({ section: "vault", key: field.id, before: "", node: input,
+    read: () => (removing ? { remove: true } : input.value.trim()) });
+  return box;
 }
 
 const plain = (text) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
@@ -293,6 +313,8 @@ function render(data) {
     } else if (key === "config") {
       for (const field of section.fields) box.append(renderConfigField(field, (section.needs_setup || []).includes(field.key)));
     } else {
+      if (section.help) box.append(el("p", { class: "ajuda", text: section.help }));
+      if (section.unavailable) box.append(el("p", { class: "nota aviso", text: section.unavailable }));
       if (section.new) box.append(el("p", { class: "nota aviso", text: "Este arquivo ainda não existe: ele é criado quando você salvar. Os textos em cinza são só exemplos." }));
       for (const group of section.groups) {
         if (group.name) box.append(el("h3", { class: "grupo-titulo", text: group.name }));
@@ -307,6 +329,11 @@ function changes() {
   const form = {};
   for (const control of controls) {
     const value = control.read();
+    if (control.section === "vault") {  // {set: {doc: valor}, remove: [doc]}
+      if (value && value.remove) ((form.vault ||= {}).remove ||= []).push(control.key);
+      else if (value) ((form.vault ||= {}).set ||= {})[control.key] = value;
+      continue;
+    }
     if (JSON.stringify(value) === control.before) continue;
     (form[control.section] ||= {})[control.key] = value;
   }

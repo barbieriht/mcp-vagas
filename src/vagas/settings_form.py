@@ -16,6 +16,7 @@ FILE_SECTIONS = {
     "profile": (settings_files.load_profile, settings_files.plan_profile),
     "criteria": (settings_files.load_criteria, settings_files.plan_criteria),
     "policy": (settings_files.load_policy, settings_files.plan_policy),
+    "vault": (settings_files.load_vault, settings_files.plan_vault),
 }
 
 
@@ -128,11 +129,20 @@ def save(data: Any, db_path: Path | str | None = None) -> dict[str, Any]:
     if result["errors"]:
         return result
 
+    # O cofre primeiro: se o chaveiro ou a DPAPI recusar, nada mais é gravado.
+    for key, planned in pending_files:
+        if key == "vault":
+            try:
+                planned.run()
+            except VagasError as exc:
+                result["errors"]["vault"] = str(exc)
+                return result
     rule_before = config.resolve("salary_rule", db_path)[0]
     if cleaned:
         config.write(cleaned, db_path)
-    for _, planned in pending_files:  # tudo validado antes: cada arquivo é gravado de uma vez
-        md_fields.write_atomic(planned.path, planned.text)
+    for key, planned in pending_files:  # tudo validado antes: cada arquivo é gravado de uma vez
+        if key != "vault":
+            md_fields.write_atomic(planned.path, planned.text)
     result["saved"] = True
     result["warnings"] = [w for key in cleaned if cleaned[key] is not None and (w := config.env_warning(key, db_path))]
     policy_changed = any(key == "policy" for key, _ in pending_files)

@@ -150,7 +150,7 @@ uv pip install --reinstall-package vagas --python ~/.local/share/vagas/venv/bin/
 
 ### Configuração
 
-**Painel no navegador.** Para configurar sem editar arquivos, rode `~/.local/share/vagas/venv/bin/python -m vagas.panel` (no Windows sem WSL, com o Python da cópia estável em `%LOCALAPPDATA%\vagas\venv`). O comando abre uma página local com as pastas e as opções abaixo, o perfil para formulários (`perfil.md`), os critérios de triagem (`criterios-triagem.md`) e a política salarial (`politica-salarial.md`, com uma tabela de faixas), valida tudo antes de gravar e salva de uma vez. Só os valores mudam: cabeçalhos, explicações e campos que você acrescentou à mão ficam como estão, e um arquivo que ainda não existe nasce do exemplo, com os valores do exemplo só como dica. A página só aceita conexões do seu computador e exige o link com o token que o comando mostra. Rodar o comando de novo reaproveita o painel aberto, e ele fecha sozinho depois de uma hora sem uso. O cofre de documentos está a caminho ([#177](https://github.com/barbieriht/mcp-vagas/issues/177)).
+**Painel no navegador.** Para configurar sem editar arquivos, rode `~/.local/share/vagas/venv/bin/python -m vagas.panel` (no Windows sem WSL, com o Python da cópia estável em `%LOCALAPPDATA%\vagas\venv`). O comando abre uma página local com as pastas e as opções abaixo, o perfil para formulários (`perfil.md`), os critérios de triagem (`criterios-triagem.md`) a política salarial (`politica-salarial.md`, com uma tabela de faixas) e os documentos do cofre (CPF, RG...: os valores nunca voltam à tela), valida tudo antes de gravar e salva de uma vez. Só os valores mudam: cabeçalhos, explicações e campos que você acrescentou à mão ficam como estão, e um arquivo que ainda não existe nasce do exemplo, com os valores do exemplo só como dica. A página só aceita conexões do seu computador e exige o link com o token que o comando mostra. Rodar o comando de novo reaproveita o painel aberto, e ele fecha sozinho depois de uma hora sem uso.
 
 **Pastas e arquivos de cada tarefa: `config.toml`.** É o lugar único para dizer onde ficam as coisas. Fica ao lado do banco (`~/.local/share/vagas/config.toml`) ou no caminho de `VAGAS_CONFIG`:
 
@@ -503,7 +503,7 @@ CPF, RG e outros documentos da lista fechada podem ficar num cofre local, para a
 | Linux | no chaveiro do sistema (GNOME Keyring, KWallet), pelo `secret-tool` (pacote `libsecret-tools`); o arquivo só guarda um identificador ([ADR 0004](docs/adr/0004-extensao-e-cofre-no-linux-e-no-macos.md)) |
 | macOS | ainda sem cofre: documentos você digita |
 
-O cadastro é feito só por você, no terminal (no Windows sem WSL, troque o caminho do Python como em [Windows sem WSL](#windows-sem-wsl)). O valor é digitado sem aparecer na tela e não passa pela conversa:
+O cadastro é feito só por você, pela seção "Documentos do cofre" do painel ou no terminal (no Windows sem WSL, troque o caminho do Python como em [Windows sem WSL](#windows-sem-wsl)). O valor é digitado sem aparecer na tela e não passa pela conversa:
 
 ```bash
 ~/.local/share/vagas/venv/bin/python -m vagas.sensitive set cpf     # pede o valor duas vezes
