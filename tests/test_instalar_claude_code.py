@@ -1,7 +1,7 @@
 import importlib.util
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -134,3 +134,42 @@ def test_host_uses_the_same_db_as_the_claude_code_registration(tmp_path):
 
     script = (tmp_path / "data" / "vagas-host.sh").read_text(encoding="utf-8")
     assert "VAGAS_DB=/outro/vagas.db" in script and "VAGAS_RESUME_OUT" not in script
+
+
+# --- atalho do painel ------------------------------------------------------------------------------
+
+def test_linux_shortcut_is_a_desktop_entry_that_runs_the_panel(tmp_path):
+    path = inst.panel_shortcut_path(tmp_path, macos=False)
+    text = inst.panel_shortcut(PurePosixPath("/home/u/.local/share/vagas/venv/bin/python"),
+                               {"VAGAS_DB": "/home/u/dados com espaço/vagas.db"}, macos=False)
+
+    assert path == tmp_path / ".local/share/applications/mcp-vagas-painel.desktop"
+    lines = text.splitlines()
+    assert lines[0] == "[Desktop Entry]" and "Type=Application" in lines and "Name=Painel do mcp-vagas" in lines
+    exec_line = next(line for line in lines if line.startswith("Exec="))
+    assert exec_line == ('Exec=env "VAGAS_DB=/home/u/dados com espaço/vagas.db" '
+                         '"/home/u/.local/share/vagas/venv/bin/python" -m vagas.panel')
+    assert "Terminal=false" in lines
+
+
+def test_macos_shortcut_is_a_command_file_on_the_desktop(tmp_path):
+    path = inst.panel_shortcut_path(tmp_path, macos=True)
+    text = inst.panel_shortcut(PurePosixPath("/Users/u/.local/share/vagas/venv/bin/python"), {"VAGAS_DB": "/Users/u/x.db"},
+                               macos=True)
+
+    assert path == tmp_path / "Desktop" / "Painel do mcp-vagas.command"
+    assert text.startswith("#!/bin/sh\n")
+    assert "exec env VAGAS_DB=/Users/u/x.db /Users/u/.local/share/vagas/venv/bin/python -m vagas.panel" in text
+
+
+def test_installing_the_shortcut_makes_it_executable(tmp_path):
+    path = inst.install_panel_shortcut(Path("/py"), {"VAGAS_DB": "/x.db"}, tmp_path, macos=True)
+
+    assert path.exists() and os.access(path, os.X_OK)
+
+
+def test_panel_env_uses_the_registered_database(tmp_path):
+    env = inst.panel_env(tmp_path / "dados", {"VAGAS_DB": "/outro/vagas.db", "VAGAS_RESUME_OUT": "/pdfs"})
+
+    assert env == {"VAGAS_DB": "/outro/vagas.db", "VAGAS_RESUME_OUT": "/pdfs"}
+    assert inst.panel_env(tmp_path / "dados", {}) == {"VAGAS_DB": str(tmp_path / "dados" / "vagas.db")}

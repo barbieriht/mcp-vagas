@@ -9,6 +9,7 @@ Este arquivo guarda só o que não está no currículo ou respostas padrão de f
 - E-mail / login Google: fulano@example.com
 - LinkedIn: https://linkedin.com/in/fulano
 - GitHub: https://github.com/fulano
+- Portfólio: <link do portfólio (Behance, site pessoal, itch.io...), ou "não tenho">
 - Endereço: Rua Exemplo, 100, CEP 00000-000, Cidade - UF
 - Naturalidade: Cidade - UF
 - Data de nascimento: <PREENCHER: DD/MM/AAAA>
@@ -16,8 +17,8 @@ Este arquivo guarda só o que não está no currículo ou respostas padrão de f
 ## Respostas padrão
 - Idiomas: português (nativo), inglês intermediário-avançado (B2, certificado), espanhol básico (A2.3, certificado)
   - Em formulários com escala fixa, escolher a opção mais próxima de B2 / A2 sem arredondar para cima.
-- Experiência: <períodos reais, conforme o currículo geral>
-  - Se o campo pedir anos de experiência: <PREENCHER: quantos anos você quer declarar>
+- Anos de experiência a declarar: calculado
+  - "calculado" usa os anos somados das experiências do currículo geral, arredondados para o ano mais próximo. Escreva um número para declarar outro valor.
 - Experiência CLT: nenhuma (apenas PJ e estágio)
 - Área de atuação/estudo: escolher a opção ligada a inteligência artificial, se houver
 - Diversidade (respostas usadas nos formulários; "Prefiro não responder" também é válido):

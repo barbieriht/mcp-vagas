@@ -34,6 +34,14 @@ from vagas.salary_policy import default_policy_path
 
 _ITEM = re.compile(r"^\s{0,1}[-*]\s+(?P<key>[^:]+?)\s*:\s*(?P<value>.*?)\s*$")
 _MODE_LABELS = {"hibrido": "híbrida", "presencial": "presencial"}
+# Termos que marcam vaga exclusiva para PcD: conhecimento da ferramenta, não configuração do usuário.
+# A linha "Termos de vaga exclusiva PcD" dos critérios, se existir, só acrescenta termos a estes.
+DEFAULT_PCD_TERMS: tuple[str, ...] = (
+    "exclusiva para pcd", "exclusiva pcd", "exclusivo para pcd", "exclusiva para pcds", "exclusiva a pcd",
+    "exclusiva para pessoas com deficiencia", "exclusivo para pessoas com deficiencia",
+    "vaga afirmativa para pcd", "vaga destinada a pcd", "vaga destinada a pessoas com deficiencia",
+    "somente para pcd", "apenas para pcd",
+)
 _KEYS = {
     "cargos alvo": "target_roles",
     "cargos condicionados a aderencia": "conditional_roles",
@@ -374,7 +382,7 @@ class Triage:
         if company and normalize_company(company) in criteria.ignored_companies:
             return f"Empresa {company} está na lista de empresas ignoradas."
         text = normalize_text(f"{posting['title']} {posting['description'] or ''}")
-        term = next((t for t in criteria.pcd_terms if _contains(text, t)), None)
+        term = next((t for t in (*DEFAULT_PCD_TERMS, *criteria.pcd_terms) if _contains(text, t)), None)
         if term and "pcd" not in criteria.affirmative_ok:
             return f"Vaga exclusiva para PcD (termo {term!r} na vaga)."
         found = affirmative.detect(f"{posting['title']}. {posting['description'] or ''}")

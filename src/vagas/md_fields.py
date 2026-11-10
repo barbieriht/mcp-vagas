@@ -1,0 +1,125 @@
+"""Campos "- Rótulo: valor" dos arquivos pessoais em Markdown (perfil, critérios, política salarial).
+
+Lê os itens por seção ("## Nome"), com subitens indentados, e para em "## Valores aceitos" (a
+documentação do arquivo). `apply` troca só o valor das linhas pedidas e devolve o resto do texto
+intacto: cabeçalho, explicações, tabelas, comentários e a grafia dos rótulos. Não depende de MCP.
+"""
+
+import os
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from vagas.normalize import normalize_text
+
+_ITEM = re.compile(r"^(?P<prefix>(?P<indent>[ \t]*)[-*][ \t]+)(?P<label>[^:\n]+?)[ \t]*:(?P<space>[ \t]*)(?P<value>.*?)[ \t]*$")
+_BULLET = re.compile(r"^(?P<indent>[ \t]+)[-*][ \t]+(?P<text>.*?)[ \t]*$")
+NOTE_LABELS = {"valores aceitos"}  # subitens que documentam o campo, não são campos
+
+
+@dataclass
+class Item:
+    line: int
+    label: str
+    value: str
+    section: str | None
+    parent: str | None
+    notes: list[str] = field(default_factory=list)
+
+    @property
+    def id(self) -> str:
+        return "/".join(part for part in (self.section, self.parent, self.label) if part)
+
+
+def _key(field_id: str) -> str:
+    return "/".join(" ".join(normalize_text(part).split()) for part in field_id.split("/"))
+
+
+def parse(text: str) -> list[Item]:
+    items: list[Item] = []
+    section: str | None = None
+    parent: Item | None = None
+    for number, line in enumerate(text.splitlines()):
+        if line.startswith("## "):
+            section = line[3:].strip()
+            if normalize_text(section).startswith("valores aceitos"):
+                break
+            parent = None
+            continue
+        match = _ITEM.match(line)
+        nested = bool(match and match["indent"]) or bool(not match and _BULLET.match(line))
+        if match and not nested:
+            parent = Item(number, match["label"].strip(), match["value"], section, None)
+            items.append(parent)
+        elif match and parent is not None and normalize_text(match["label"]) not in NOTE_LABELS:
+            items.append(Item(number, match["label"].strip(), match["value"], section, parent.label))
+        elif nested and parent is not None:
+            bullet = _BULLET.match(line)
+            parent.notes.append(bullet["text"] if bullet else line.strip())
+    return items
+
+
+def apply(text: str, values: dict[str, str]) -> str:
+    """Troca os valores pedidos ({id: valor}). KeyError para id desconhecido; ValueError para valor com
+    quebra de linha (viraria outra linha do arquivo)."""
+    by_key = {_key(item.id): item for item in parse(text)}
+    lines = text.splitlines(keepends=True)
+    for field_id, value in values.items():
+        item = by_key.get(_key(field_id))
+        if item is None:
+            raise KeyError(field_id)
+        if "\n" in value or "\r" in value:
+            raise ValueError(f"{field_id}: o valor não pode ter quebra de linha.")
+        original = lines[item.line]
+        ending = original[len(original.rstrip("\r\n")):]
+        match = _ITEM.match(original.rstrip("\r\n"))
+        separator = " " if value else ""
+        lines[item.line] = f"{match['prefix']}{match['label']}:{separator}{value.strip()}{ending}"
+    return "".join(lines)
+
+
+def replace_children(text: str, parent_id: str, new_lines: list[str]) -> str:
+    """Troca o bloco indentado logo abaixo de um campo (subitens e observações) por new_lines.
+    KeyError se o campo não existir."""
+    item = next((i for i in parse(text) if _key(i.id) == _key(parent_id) and i.parent is None), None)
+    if item is None:
+        raise KeyError(parent_id)
+    lines = text.splitlines(keepends=True)
+    ending = lines[item.line][len(lines[item.line].rstrip("\r\n")):] or "\n"
+    end = item.line + 1
+    while end < len(lines) and lines[end].strip() and lines[end][:1] in (" ", "\t"):
+        end += 1
+    lines[item.line + 1:end] = [line + ending for line in new_lines]
+    return "".join(lines)
+
+
+def insert_item(text: str, section: str | None, line: str) -> str:
+    """Acrescenta a linha no fim da seção "## <section>" (depois do último item e dos subitens dele);
+    sem a seção, cria a seção no fim do arquivo (antes de "## Valores aceitos", se houver)."""
+    lines = text.splitlines(keepends=True)
+    if lines and not lines[-1].endswith(("\n", "\r")):
+        lines[-1] += "\n"
+    headers = [i for i, current in enumerate(lines) if current.startswith("## ")]
+    start = next((i for i in headers if section and _key(lines[i][3:].strip()) == _key(section)), None)
+    if start is None:
+        end = next((i for i in headers if normalize_text(lines[i][3:]).startswith("valores aceitos")), len(lines))
+        block = ["\n", f"## {section}\n", line + "\n"] if section else [line + "\n"]
+        while end > 0 and not lines[end - 1].strip():
+            end -= 1
+        gap = ["\n"] if end < len(lines) and lines[end].strip() else []  # as linhas em branco de antes ficam
+        return "".join(lines[:end] + block + gap + lines[end:])
+    end = next((i for i in headers if i > start), len(lines))
+    last = max((i for i in range(start, end) if lines[i].strip()), default=start)
+    lines.insert(last + 1, line + "\n")
+    return "".join(lines)
+
+
+def write_atomic(path: Path | str, text: str) -> None:
+    """Grava sem deixar o arquivo pela metade. Um symlink (o instalador liga os arquivos da Skill ao
+    lado do banco) continua symlink: grava no arquivo para onde ele aponta."""
+    target = Path(path).resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(target.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8", newline="") as f:
+        f.write(text)
+    os.replace(tmp, target)

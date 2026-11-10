@@ -19,7 +19,9 @@ Sempre que citar uma vaga ao usuário (resumo, tabela, lista de trabalho, pendê
 ## Primeiro uso
 
 Antes de qualquer fluxo, e sempre que uma tool reclamar de pasta não configurada, chame `get_config`.
-Se `needs_setup` trouxer chaves, o MCP ainda não sabe onde guardar aqueles arquivos. Pergunte ao usuário, uma chave por vez:
+Se `needs_setup` trouxer chaves, o MCP ainda não sabe onde guardar aqueles arquivos. Chame `settings_link` e mande o link do painel ao usuário: numa página do navegador ele escolhe as pastas e preenche perfil, critérios, política salarial, cofre e currículo geral, sem editar arquivos. Quando ele disser que salvou, chame `get_config` de novo. Faça o mesmo quando `get_profile` ou um arquivo da Skill trouxer `<PREENCHER>` em vários campos, e sempre que ele quiser mudar essas configurações ou ver as vagas numa página. Um campo só, que surgiu num formulário, continua pelo chat com `add_profile_field` (veja `candidatar.md`).
+
+Se ele preferir responder no chat, ou se o painel não abrir, pergunte uma chave por vez:
 
 - `resume_out`: pasta dos PDFs de currículo. Sugira a primeira de `suggestions` (no WSL ou no Windows, costuma ser `Documents` do Windows, para anexar o PDF no navegador) e diga que ele pode escolher outra.
 - `export_dir`: pasta dos CSVs exportados. Sugira uma de `suggestions` ou aceite o `default`.

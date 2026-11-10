@@ -105,10 +105,10 @@ def test_real_dpapi_roundtrip():
     assert backend.unprotect(protected) == secret
 
 
-def test_readme_lists_every_allowed_field():
+def test_reference_lists_every_allowed_field():
     from pathlib import Path
 
-    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
+    readme = (Path(__file__).resolve().parents[1] / "docs" / "referencia.md").read_text(encoding="utf-8")
     assert all(f"`{field}`" in readme for field in ALLOWED_FIELDS)
 
 

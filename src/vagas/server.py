@@ -6,6 +6,7 @@ import sqlite3
 import subprocess
 import sys
 from collections.abc import Callable, Iterator
+from datetime import date
 from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Annotated, Any
@@ -15,8 +16,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from mcp.server.mcpserver.exceptions import ToolError
 
 from vagas import config as paths_config
-from vagas import system
+from vagas import panel, system
 from vagas.db import connect, default_db_path
+from vagas.experience import years_to_declare
 from vagas.models import (
     Contract, Currency, InitialStatus, LinkedInSection, ResumeSourceKind, RoleKey, SalaryMode, Seniority,
     Source, Status, WorkMode,
@@ -73,10 +75,11 @@ def build_server(
     search_launcher: Callable[[int], int] | None = None,
 ) -> MCPServer:
     server = MCPServer("vagas", instructions=(
-        "No primeiro uso, chame get_config: se needs_setup trouxer chaves, pergunte ao usuário onde guardar "
-        "cada coisa (pasta dos currículos em PDF, pasta dos CSVs, arquivo do currículo geral), sugerindo "
-        "uma das suggestions (ou o default) e grave a resposta com set_config. Não escolha sozinho a pasta "
-        "dos currículos. Ao citar uma vaga ao usuário (resumos, listas, tabelas, pendências), escreva o nome "
+        "No primeiro uso, chame get_config: se needs_setup trouxer chaves, chame settings_link e mande ao "
+        "usuário o link do painel, onde ele configura pastas, perfil, critérios e currículo sem editar arquivos. "
+        "Se ele preferir responder no chat, pergunte onde guardar cada coisa (pasta dos currículos em PDF, pasta "
+        "dos CSVs, arquivo do currículo geral), sugerindo uma das suggestions (ou o default), e grave a resposta "
+        "com set_config. Não escolha sozinho a pasta dos currículos. Ao citar uma vaga ao usuário (resumos, listas, tabelas, pendências), escreva o nome "
         "dela como link Markdown para a página da vaga, no formato [Cargo — Empresa](url), usando o campo url "
         "que as tools retornam; se a vaga não tiver url, escreva o nome sem link. Não mostre a URL crua ao lado. "
         "Em formulários de candidatura, os dados pessoais vêm de get_profile (não de cópias de arquivos da Skill), "
@@ -135,6 +138,22 @@ def build_server(
             salary_rule=salary_rule()))
 
     @server.tool()
+    def settings_link() -> dict[str, Any]:
+        """Link do painel de configuração no navegador, abrindo o painel se ainda não estiver aberto.
+
+        Chame no primeiro uso (get_config com needs_setup) ou quando o usuário quiser mudar pastas, perfil,
+        critérios de triagem, política salarial, documentos do cofre ou o currículo geral, ou ver as vagas e
+        buscas numa página. Mande o link ao usuário como link Markdown; ele vale só neste computador e
+        enquanto o painel estiver aberto (fecha sozinho depois de uma hora sem uso).
+        Retorna {url, started} (started: true se o painel foi aberto agora).
+        """
+        try:
+            url, started = panel.ensure_running(db_path)
+        except VagasError as exc:
+            raise ToolError(str(exc)) from exc
+        return {"url": url, "started": started}
+
+    @server.tool()
     def get_config() -> dict[str, Any]:
         """Mostra onde o MCP guarda os arquivos de cada tarefa e o que ainda falta configurar.
 
@@ -168,6 +187,8 @@ def build_server(
         vírgula, onde a extensão do Chrome preenche os documentos do cofre; só com o pedido do usuário);
         autofill_platforms (value: plataformas de recrutamento, como gupy.io, separadas por vírgula, em que um
         "Permitir sempre" da extensão vale para todas as empresas da plataforma; só com o pedido do usuário);
+        resume_pdf (value: caminho do PDF do currículo, usado para montar o currículo geral; aceita C:\\Users\\...);
+        linkedin_url (value: endereço do perfil do LinkedIn do usuário, https://www.linkedin.com/in/...);
         salary_rule (value: teto, meio_termo, percentil_25 ou
         ponto_baixo). Ao gravar salary_rule, as vagas a_aplicar e pendente_usuario já avaliadas são
         reavaliadas com a regra nova: o retorno traz "reevaluated" ({reevaluated, changed, errors}),
@@ -466,13 +487,27 @@ def build_server(
         deixe o campo vazio, o value nunca é o dado) ou "cofre_vazio" (marcado como no cofre, mas não
         cadastrado: o usuário cadastra com python -m vagas.sensitive set <vault_field>).
         notes: orientações do campo (ex.: como escolher em escala fixa).
+        experience: {years_to_inform, years_computed, years_exact, years_declared, periods}. Quando o
+        formulário pedir anos de experiência, informe years_to_inform: o valor que o usuário declarou no
+        perfil ou, sem ele, os anos do currículo geral aprovado (somados sem sobreposição, arredondados).
+        Não calcule você mesmo. periods: empresa, cargo, início e fim de cada experiência do currículo.
         """
         try:
             fields = (vault or Vault(default_vault_path(db_path), default_backend())).list()
             profile = ProfileFiles(default_skill_dir(db_path)).get_profile(vault_fields=fields)
-            return profile
         except VagasError as exc:
             raise ToolError(str(exc)) from exc
+        try:
+            with resumes() as r:
+                master = r.get_master_resume()["resume"]
+        except (VagasError, ToolError):
+            master = None
+        profile["experience"] = {
+            **years_to_declare(profile, master, date.today()),
+            "periods": [{k: item.get(k) for k in ("company", "title", "start", "end")}
+                        for item in (master or {}).get("experience", [])],
+        }
+        return profile
 
     @server.tool()
     def add_profile_field(label: str, section: str | None = None, value: str | None = None,

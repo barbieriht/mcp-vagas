@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import os
+import shutil
 import zipfile
 from pathlib import Path
 
@@ -192,3 +193,55 @@ def test_native_windows_host_bat_runs_python_directly_with_the_host_variables():
     assert 'set "VAGAS_DB=C:\\d\\vagas.db"' in bat and 'set "VAGAS_SKILL_DIR=' in bat
     assert "VAGAS_RESUME_OUT" not in bat  # o host só lê banco, config, cofre e a Skill
     assert f'"{python}" -m vagas.autofill_host' in bat
+
+
+# --- atalho do painel ------------------------------------------------------------------------------
+
+def test_panel_bat_opens_the_panel_in_wsl_with_the_same_variables_as_the_server():
+    bat = inst.panel_bat("Ubuntu", "/home/u/.local/share/vagas/venv/bin/python", ENV)
+
+    assert bat.startswith("@echo off\r\n") and bat.endswith("\r\n")
+    assert 'wsl.exe -d Ubuntu -e env "VAGAS_DB=/home/u/.local/share/vagas/vagas.db" ' in bat
+    assert '"VAGAS_RESUME_OUT=/mnt/c/Users/T/Curriculos"' in bat
+    assert bat.rstrip().endswith('"/home/u/.local/share/vagas/venv/bin/python" -m vagas.panel')
+
+
+def test_native_panel_bat_sets_every_variable_before_python():
+    env = {"VAGAS_DB": r"C:\Users\T\AppData\Local\vagas\vagas.db", "VAGAS_SKILL_DIR": r"C:\repo\skill\candidaturas"}
+
+    bat = inst.panel_bat_native(r"C:\Users\T\AppData\Local\vagas\venv\Scripts\python.exe", env)
+
+    assert 'set "VAGAS_SKILL_DIR=C:\\repo\\skill\\candidaturas"\r\n' in bat
+    assert bat.index("VAGAS_DB") < bat.index("-m vagas.panel")
+    assert '"C:\\Users\\T\\AppData\\Local\\vagas\\venv\\Scripts\\python.exe" -m vagas.panel' in bat
+
+
+def test_shortcut_script_puts_a_link_to_the_bat_on_the_windows_desktop():
+    script = inst.shortcut_script(r"C:\Users\O'Neil\AppData\Local\vagas\painel.bat")
+
+    assert "[Environment]::GetFolderPath('Desktop')" in script
+    assert "'Painel do mcp-vagas.lnk'" in script
+    assert "TargetPath = 'C:\\Users\\O''Neil\\AppData\\Local\\vagas\\painel.bat'" in script  # aspas simples dobradas
+    assert "WindowStyle = 7" in script and script.rstrip().endswith("Write-Output $path")
+
+
+@pytest.mark.skipif(not shutil.which("powershell.exe"), reason="só no Windows ou no WSL")
+def test_shortcut_is_really_created_by_powershell(tmp_path):
+    import subprocess
+
+    def windows(path):
+        if os.name == "nt":
+            return str(path)
+        return subprocess.run(["wslpath", "-w", str(path)], capture_output=True, text=True).stdout.strip()
+
+    bat = write(tmp_path / "painel.bat", "@echo off\r\n")
+    run = {"capture_output": True, "text": True, "cwd": None if os.name == "nt" else "/mnt/c"}
+    created = subprocess.run(["powershell.exe", "-NoProfile", "-Command",
+                              inst.shortcut_script(windows(bat), folder=windows(tmp_path))], **run)
+
+    assert created.returncode == 0, created.stderr
+    assert (tmp_path / "Painel do mcp-vagas.lnk").exists()
+    target = subprocess.run(["powershell.exe", "-NoProfile", "-Command",
+                             f"(New-Object -ComObject WScript.Shell).CreateShortcut('{created.stdout.strip()}').TargetPath"],
+                            **run).stdout.strip()
+    assert target.lower() == windows(bat).lower()

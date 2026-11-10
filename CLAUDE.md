@@ -7,6 +7,7 @@ Servidor MCP local (stdio) em Python + SQLite para registrar e deduplicar candid
 - Setup: `uv venv -p 3.12 .venv && uv pip install --python .venv/bin/python -e ".[dev]"`
 - Testes: `.venv/bin/pytest -q`
 - Inspector: `.venv/bin/mcp dev src/vagas/server.py`
+- Painel de configuração: `.venv/bin/python -m vagas.panel` (página local; regra em `settings_form.py`, `settings_files.py`, `settings_resume.py` e `jobs_view.py`, HTTP em `panel.py`, página em `templates/panel/`)
 - Servidor: `.venv/bin/python -m vagas.server` (banco em `$VAGAS_DB`, padrão `~/.local/share/vagas/vagas.db`; no Windows nativo, `%LOCALAPPDATA%\vagas\vagas.db`)
 
 ## Convenções

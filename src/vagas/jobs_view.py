@@ -1,0 +1,205 @@
+"""Vagas registradas, vistas pelo painel: lista com filtros, contagens por status e detalhe. Não depende de HTTP.
+
+Usa o que o Repo já oferece (list_applications, get_history); aqui ficam só os filtros que a lista do
+painel acrescenta (texto, aderência mínima), a ordem, a paginação e os rótulos em português.
+"""
+
+import re
+import sqlite3
+from datetime import date
+from typing import Any
+
+from vagas.models import SOURCES, STATUSES
+from vagas.normalize import normalize_text
+from vagas.repo import Repo, VagasError
+
+STATUS_LABELS = {
+    "a_aplicar": "A aplicar", "aplicada": "Aplicada", "pendente_usuario": "Pendente com você", "rh": "RH",
+    "tecnica": "Técnica", "gestor": "Gestor", "proposta": "Proposta", "recusada": "Recusada",
+    "desistiu": "Desistiu", "descartada": "Descartada",
+}
+WORK_MODE_LABELS = {"remoto": "Remoto", "hibrido": "Híbrido", "presencial": "Presencial"}
+SOURCE_LABELS = {"linkedin": "LinkedIn", "gupy": "Gupy", "indeed": "Indeed", "glassdoor": "Glassdoor",
+                 "outro": "Outro site"}
+_LIGHT = ("id", "company", "role", "url", "status", "source", "location", "work_mode", "seniority", "match_score",
+          "salary_ask", "pending", "discard_reason", "created_at", "updated_at", "last_event_at", "search_id")
+
+
+def _safe_url(url: Any) -> str | None:
+    """Só links http(s) viram link na página."""
+    return url if isinstance(url, str) and re.match(r"^https?://", url, re.IGNORECASE) else None
+
+
+def _light(app: dict[str, Any]) -> dict[str, Any]:
+    item = {key: app.get(key) for key in _LIGHT}
+    item["url"] = _safe_url(item["url"])
+    item["status_label"] = STATUS_LABELS.get(app["status"], app["status"])
+    item["source_label"] = SOURCE_LABELS.get(app["source"], app["source"])
+    item["work_mode"] = WORK_MODE_LABELS.get(item["work_mode"], item["work_mode"])
+    return item
+
+
+def _int(value: Any, name: str, low: int, high: int) -> int:
+    try:
+        number = int(str(value).strip())
+    except ValueError:
+        number = None
+    if number is None or not low <= number <= high:
+        raise VagasError(f"{name} inválida: {value!r} (use um número de {low} a {high}).")
+    return number
+
+
+def list_jobs(conn: sqlite3.Connection, filters: dict[str, Any]) -> dict[str, Any]:
+    """filters (texto, como vêm da URL): status, source, since (AAAA-MM-DD), min_score, text, only_pending,
+    order ("aderencia" ou "recentes"), page, per_page."""
+    status = filters.get("status") or None
+    if status and status not in STATUSES:
+        raise VagasError(f"status desconhecido: {status!r}. Use um de: {', '.join(STATUSES)}.")
+    source = filters.get("source") or None
+    if source and source not in SOURCES:
+        raise VagasError(f"site desconhecido: {source!r}. Use um de: {', '.join(SOURCES)}.")
+    since = filters.get("since") or None
+    if since:
+        try:
+            date.fromisoformat(since)
+        except ValueError:
+            raise VagasError(f"data inválida: {since!r} (use AAAA-MM-DD).") from None
+    min_score = _int(filters["min_score"], "aderência mínima", 0, 100) if filters.get("min_score") else None
+    page = _int(filters.get("page") or 1, "página", 1, 100000)
+    per_page = _int(filters.get("per_page") or 50, "itens por página", 1, 200)
+    only_pending = str(filters.get("only_pending") or "").lower() in ("1", "true", "sim", "on")
+
+    rows = Repo(conn).list_applications(status=status, only_pending=only_pending, source=source,
+                                        since=since)["applications"]
+    if text := normalize_text(str(filters.get("text") or "")).strip():
+        words = text.split()
+        rows = [r for r in rows if all(w in normalize_text(f"{r['role']} {r['company']} {r.get('location') or ''}")
+                                       for w in words)]
+    if min_score is not None:
+        rows = [r for r in rows if r.get("match_score") is not None and r["match_score"] >= min_score]
+    if filters.get("search_id"):
+        search_id = _int(filters["search_id"], "busca", 1, 10**9)
+        rows = [r for r in rows if r.get("search_id") == search_id]
+    order = filters.get("order") or ("aderencia" if status == "a_aplicar" else "recentes")
+    if order == "aderencia":
+        rows = sorted(rows, key=lambda r: (r.get("match_score") is None, -(r.get("match_score") or 0)))
+    elif order != "recentes":
+        raise VagasError(f"ordem desconhecida: {order!r} (use aderencia ou recentes).")
+
+    counts = {s: 0 for s in STATUSES}
+    for row in conn.execute("SELECT status, COUNT(*) AS n FROM applications GROUP BY status"):
+        counts[row["status"]] = row["n"]
+    pages = max(1, -(-len(rows) // per_page))
+    start = (page - 1) * per_page
+    return {"items": [_light(r) for r in rows[start:start + per_page]], "total": len(rows), "page": page,
+            "pages": pages, "counts": counts, "order": order,
+            "statuses": [{"value": s, "label": STATUS_LABELS[s]} for s in STATUSES],
+            "sources": [{"value": s, "label": SOURCE_LABELS[s]} for s in SOURCES]}
+
+
+def job_detail(conn: sqlite3.Connection, application_id: int) -> dict[str, Any]:
+    """Vaga completa: dados, descrição, avaliação salarial, termos da aderência, linha do tempo e currículos."""
+    from vagas.resume_extract import windows_path
+
+    history = Repo(conn).get_history(application_id)
+    app = {**history["application"]}
+    app["url"] = _safe_url(app.get("url"))
+    app["status_label"] = STATUS_LABELS.get(app["status"], app["status"])
+    app["source_label"] = SOURCE_LABELS.get(app["source"], app["source"])
+    app["work_mode"] = WORK_MODE_LABELS.get(app.get("work_mode"), app.get("work_mode"))
+    events = [{**e, "to_label": STATUS_LABELS.get(e["to_status"], e["to_status"]),
+               "from_label": STATUS_LABELS.get(e["from_status"], e["from_status"]) if e["from_status"] else None}
+              for e in history["events"]]
+    resumes = [{**r, "windows_path": windows_path(r["pdf_path"])} for r in history["resumes"]]
+    return {"application": app, "events": events, "resumes": resumes}
+
+
+# --- ações (pelas mesmas regras do update_application) -------------------------------------------------
+
+def _clean(value: Any) -> str | None:
+    return value.strip() if isinstance(value, str) else None
+
+
+def update_job(conn: sqlite3.Connection, application_id: int, changes: dict[str, Any]) -> dict[str, Any]:
+    """Muda a etapa, a pendência (vazia limpa) e/ou anota no histórico. Devolve a vaga atualizada."""
+    repo = Repo(conn)
+    current = repo.get(application_id)
+    status = _clean(changes.get("status")) or None
+    pending = _clean(changes.get("pending"))  # "" limpa; None não mexe
+    note = _clean(changes.get("note")) or None
+    reason = _clean(changes.get("discard_reason")) or None
+    if status is not None and status not in STATUSES:
+        raise VagasError(f"Etapa desconhecida: {status!r}.")
+    if status == current["status"]:
+        status = None
+    if pending is not None and pending == (current["pending"] or ""):
+        pending = None
+    if status is None and note is None and pending is None:
+        raise VagasError("Nada a mudar: escolha outra etapa, mude a pendência ou escreva uma anotação.")
+    final_pending = current["pending"] if pending is None else pending
+    if (status or current["status"]) == "pendente_usuario" and not final_pending:
+        raise VagasError("Descreva o que falta (a pendência) para marcar como pendente com você.")
+    if status == "descartada" and reason is None:
+        raise VagasError("Informe o motivo do descarte.")
+    return _light(repo.update_application(application_id, status=status, note=note, pending=pending,
+                                          discard_reason=reason if status == "descartada" else None))
+
+
+def discard_jobs(conn: sqlite3.Connection, ids: list[int], reason: str) -> list[dict[str, Any]]:
+    """Descarta várias vagas com o mesmo motivo; confere todas antes e não descarta nenhuma se uma falhar."""
+    repo = Repo(conn)
+    reason = (reason or "").strip()
+    if not reason:
+        raise VagasError("Informe o motivo do descarte.")
+    if not ids or not all(isinstance(i, int) for i in ids):
+        raise VagasError("Escolha ao menos uma vaga.")
+    apps = [repo.get(i) for i in dict.fromkeys(ids)]
+    already = [f"{a['role']} — {a['company']}" for a in apps if a["status"] == "descartada"]
+    if already:
+        raise VagasError(f"Já descartada(s): {', '.join(already)}. Tire da seleção e tente de novo.")
+    return [_light(repo.update_application(a["id"], status="descartada", discard_reason=reason)) for a in apps]
+
+
+def reopen_job(conn: sqlite3.Connection, application_id: int, reason: str) -> dict[str, Any]:
+    """Traz uma vaga descartada de volta para a lista de trabalho (a_aplicar), com o motivo no histórico."""
+    repo = Repo(conn)
+    if repo.get(application_id)["status"] != "descartada":
+        raise VagasError("Dá para reabrir só vagas descartadas.")
+    note = f"Reaberta: {reason.strip()}" if (reason or "").strip() else "Reaberta"
+    return _light(repo.update_application(application_id, status="a_aplicar", note=note))
+
+
+# --- buscas feitas (só leitura) ----------------------------------------------------------------------
+
+RUN_LABELS = {"running": "Em andamento", "done": "Concluída", "error": "Erro", "interrompida": "Interrompida"}
+
+
+def list_searches(conn: sqlite3.Connection, filters: dict[str, Any]) -> dict[str, Any]:
+    """Buscas registradas (mais recentes primeiro, com quantas vagas cada uma registrou) e as buscas em lote."""
+    import json
+
+    from vagas.search_run import SearchRunStore
+
+    source = filters.get("source") or None
+    if source and source not in SOURCES:
+        raise VagasError(f"site desconhecido: {source!r}. Use um de: {', '.join(SOURCES)}.")
+    limit = _int(filters.get("limit") or 200, "limite", 1, 1000)
+    rows = conn.execute(
+        """
+        SELECT s.*, (SELECT COUNT(*) FROM applications a WHERE a.search_id = s.id) AS jobs_count
+        FROM job_searches s WHERE ? IS NULL OR s.source = ? ORDER BY s.searched_at DESC, s.id DESC LIMIT ?
+        """, (source, source, limit)).fetchall()
+    searches = []
+    for row in rows:
+        item = dict(row)
+        item["filters"] = json.loads(item["filters"]) if item.get("filters") else None
+        item["source_label"] = SOURCE_LABELS.get(item["source"], item["source"])
+        searches.append(item)
+    store = SearchRunStore(conn)
+    runs = []
+    for (run_id,) in conn.execute("SELECT id FROM search_runs ORDER BY id DESC LIMIT 20").fetchall():
+        run = store.get(run_id)  # atualiza "running" de processo que morreu para "interrompida"
+        run["status_label"] = RUN_LABELS.get(run["status"], run["status"])
+        runs.append(run)
+    return {"searches": searches, "runs": runs,
+            "sources": [{"value": s, "label": SOURCE_LABELS[s]} for s in SOURCES]}
