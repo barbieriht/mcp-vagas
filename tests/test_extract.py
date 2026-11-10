@@ -5,6 +5,7 @@ import pypdf
 import pytest
 
 from resume_fixture import fictitious_resume
+from vagas import system
 from vagas.db import connect
 from vagas.repo import VagasError
 from vagas.resume_extract import review_draft, wsl_path
@@ -60,7 +61,8 @@ def test_pdf_without_text_is_a_readable_error(store, tmp_path):
         store.extract_resume_text(blank)
 
 
-def test_windows_paths_are_accepted():
+def test_windows_paths_are_accepted(monkeypatch):
+    monkeypatch.setattr(system, "NATIVE_WINDOWS", False)
     assert wsl_path(r"C:\Users\Maria\Downloads\cv.pdf") == Path("/mnt/c/Users/Maria/Downloads/cv.pdf")
     assert wsl_path("/home/x/cv.pdf") == Path("/home/x/cv.pdf")
 

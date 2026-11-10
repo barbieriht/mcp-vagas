@@ -32,7 +32,8 @@ def test_set_get_list_remove(vault, tmp_path):
     assert vault.list() == ["cpf", "rg"]
     raw = (tmp_path / "cofre.json").read_text()
     assert "52998224725" not in raw and "12.345.678-9" not in raw
-    assert stat.S_IMODE(os.stat(tmp_path / "cofre.json").st_mode) == 0o600
+    if os.name != "nt":  # no Windows a proteção é a ACL da pasta do usuário, não o modo do arquivo
+        assert stat.S_IMODE(os.stat(tmp_path / "cofre.json").st_mode) == 0o600
 
     assert vault.remove("rg") is True and vault.remove("rg") is False
     assert vault.list() == ["cpf"]

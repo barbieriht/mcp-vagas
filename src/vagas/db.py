@@ -6,6 +6,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+from vagas import system
 from vagas.normalize import canonical_url, normalize_company
 
 log = logging.getLogger(__name__)
@@ -223,7 +224,7 @@ LATEST_VERSION = len(MIGRATIONS)
 def default_db_path() -> Path:
     if env := os.environ.get("VAGAS_DB"):
         return Path(env)
-    return Path.home() / ".local/share/vagas/vagas.db"
+    return system.default_data_dir() / "vagas.db"
 
 
 def connect(path: Path | str | None = None) -> sqlite3.Connection:

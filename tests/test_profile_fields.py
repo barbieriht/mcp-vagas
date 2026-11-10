@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -125,6 +126,7 @@ def test_missing_files_are_a_clear_error(tmp_path):
         ProfileFiles(tmp_path).add_profile_field("X")
 
 
+@pytest.mark.skipif(os.name == "nt", reason="symlink exige privilégio no Windows; lá o instalador define VAGAS_SKILL_DIR")
 def test_skill_dir_from_env_or_policy_symlink(tmp_path, monkeypatch, skill):
     monkeypatch.setenv("VAGAS_SKILL_DIR", str(skill))
     assert default_skill_dir(tmp_path / "db" / "vagas.db") == skill
