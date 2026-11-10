@@ -77,7 +77,8 @@ section.secao h2 { margin: 0 0 4px; font-size: 22px; }
 .campo input:focus-visible, .campo select:focus-visible, button:focus-visible, .secoes a:focus-visible {
   outline: 3px solid var(--foco); outline-offset: 2px;
 }
-.selo { display: inline-block; margin-left: 8px; padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--aviso-fundo); color: var(--texto); }
+.cabeca { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.selo { display: inline-block; padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--aviso-fundo); color: var(--texto); }
 .nota { margin: 6px 0 0; font-size: 14px; color: var(--texto-suave); overflow-wrap: anywhere; }
 .nota.aviso { padding: 8px 10px; border-radius: 8px; background: var(--aviso-fundo); color: var(--texto); }
 .erro { margin: 6px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--erro-fundo); color: var(--erro); font-size: 14px; }
@@ -101,3 +102,15 @@ section.secao h2 { margin: 0 0 4px; font-size: 22px; }
   .secoes { position: static; }
   section.secao { padding: 16px; }
 }
+
+.grupo-titulo { margin: 24px 0 0; padding-top: 16px; border-top: 1px solid var(--borda); font-size: 18px; color: var(--destaque); }
+.grupo h3 { margin: 0; font-size: 16px; }
+.subcampo { margin-left: 20px; padding-left: 12px; border-left: 2px solid var(--borda); border-top: none; }
+.rotulo { margin: 0; font-weight: 600; }
+fieldset.campo { border: none; margin: 0; padding: 16px 0; box-shadow: 0 -1px 0 var(--borda); min-width: 0; }
+fieldset.campo legend { float: left; width: 100%; padding: 0; font-weight: 600; }
+fieldset.campo legend + * { clear: both; }
+.opcoes { clear: both; display: flex; flex-wrap: wrap; gap: 10px 24px; margin-top: 8px; }
+.campo .opcao { display: inline-flex; align-items: center; gap: 8px; font-weight: 400; cursor: pointer; }
+.opcao input { width: 18px; height: 18px; margin: 0; accent-color: var(--destaque); }
+fieldset.com-erro .opcoes { outline: 2px solid var(--erro); outline-offset: 6px; border-radius: 4px; }

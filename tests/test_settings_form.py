@@ -107,3 +107,151 @@ def test_malformed_payload_is_a_readable_error(db_path, bad):
     result = save(bad, db_path)
 
     assert not result["saved"] and result["errors"]
+
+
+# --- perfil e critérios de triagem -------------------------------------------------------------
+
+import shutil  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+from vagas.triage import parse_criteria  # noqa: E402
+
+EXAMPLES = Path(__file__).resolve().parents[1] / "skill" / "candidaturas"
+
+
+@pytest.fixture
+def skill(tmp_path, monkeypatch):
+    folder = tmp_path / "skill"
+    folder.mkdir()
+    for name in ("perfil.example.md", "criterios-triagem.example.md"):
+        shutil.copy(EXAMPLES / name, folder / name)
+    monkeypatch.setenv("VAGAS_SKILL_DIR", str(folder))
+    monkeypatch.setenv("VAGAS_TRIAGE_CRITERIA", str(folder / "criterios-triagem.md"))
+    return folder
+
+
+def section_fields(data, name):
+    return {f["id"]: f for group in data["sections"][name]["groups"] for f in group["fields"]}
+
+
+def test_profile_from_the_example_starts_empty_with_hints_and_documents_locked(db_path, skill):
+    profile = section_fields(load(db_path), "profile")
+
+    assert profile["Contato e identificação/Nome"]["value"] == ""
+    assert profile["Contato e identificação/Nome"]["hint"] == "Fulano de Tal"  # exemplo vira dica, nunca valor
+    assert profile["Contato e identificação/Data de nascimento"]["hint"] == "DD/MM/AAAA"
+    assert profile["Outros campos de formulário/CPF"]["kind"] == "locked"
+    assert profile["Respostas padrão/Incluir em bancos de talentos"]["kind"] == "yesno"
+    assert not any(field_id.split("/")[-1].startswith("<") for field_id in profile)  # linha-modelo do exemplo
+    assert not (skill / "perfil.md").exists()
+
+
+def test_saving_the_profile_fills_what_was_typed_and_marks_the_rest_pending(db_path, skill):
+    result = save({"profile": {"Contato e identificação/Nome": "Maria Teste",
+                               "Respostas padrão/Incluir em bancos de talentos": "Não."}}, db_path)
+
+    assert result["saved"], result["errors"]
+    text = (skill / "perfil.md").read_text(encoding="utf-8")
+    assert "- Nome: Maria Teste" in text and "- Incluir em bancos de talentos: não" in text
+    assert "- Telefone: <PREENCHER>" in text and "Fulano" not in text
+    assert "- CPF: informar manualmente" in text
+    example = (skill / "perfil.example.md").read_text(encoding="utf-8")
+    assert text.splitlines()[:5] == example.splitlines()[:5]  # cabeçalho e explicações do exemplo
+
+
+def test_editing_the_profile_keeps_hand_written_extras_and_layout(db_path, skill):
+    original = (EXAMPLES / "perfil.example.md").read_text(encoding="utf-8").replace("Fulano de Tal", "Maria Teste")
+    original += "- Pretensão para PJ: conversar\n  - observação escrita à mão\n"
+    (skill / "perfil.md").write_text(original, encoding="utf-8")
+
+    fields = section_fields(load(db_path), "profile")
+    result = save({"profile": {"Contato e identificação/Nome": "Maria Souza"}}, db_path)
+
+    assert fields["Outros campos de formulário/Pretensão para PJ"]["value"] == "conversar"
+    assert result["saved"]
+    assert (skill / "perfil.md").read_text(encoding="utf-8") == original.replace("Maria Teste", "Maria Souza")
+
+
+def test_profile_never_takes_a_document_value(db_path, skill):
+    result = save({"profile": {"Outros campos de formulário/CPF": "529.982.247-25"}}, db_path)
+
+    assert not result["saved"] and "Outros campos de formulário/CPF" in "".join(result["errors"])
+    assert not (skill / "perfil.md").exists()
+
+
+def test_profile_yes_no_field_only_takes_yes_or_no(db_path, skill):
+    result = save({"profile": {"Respostas padrão/Incluir em bancos de talentos": "talvez"}}, db_path)
+
+    assert result["errors"] == {"profile.Respostas padrão/Incluir em bancos de talentos": "Responda sim ou não."}
+
+
+def test_criteria_from_the_example_offer_choices_and_save_a_valid_file(db_path, skill):
+    criteria = section_fields(load(db_path), "criteria")
+
+    roles = criteria["Cargos alvo"]
+    assert roles["kind"] == "multi" and roles["value"] == ["data_scientist", "ml_engineer", "ai_engineer"]
+    assert {c["value"] for c in roles["choices"]} >= {"data_scientist", "data_analyst"}
+    assert criteria["Senioridades buscadas"]["kind"] == "multi"
+    assert criteria["Aderência mínima"]["kind"] == "int"
+
+    result = save({"criteria": {"Cargos alvo": ["data_scientist"], "Senioridades buscadas": ["pleno", "senior"],
+                                "Vagas afirmativas que posso disputar": ["women"], "Aderência mínima": "60",
+                                "Empresas ignoradas": "Acme, Outra S.A."}}, db_path)
+
+    assert result["saved"], result["errors"]
+    saved = parse_criteria((skill / "criterios-triagem.md").read_text(encoding="utf-8"))
+    assert saved.target_roles == ("data_scientist",) and saved.search_seniorities == ("pleno", "senior")
+    assert saved.affirmative_ok == ("women",) and saved.min_match == 60
+    assert "## Valores aceitos" in (skill / "criterios-triagem.md").read_text(encoding="utf-8")
+
+
+def test_criteria_errors_come_back_for_every_bad_field(db_path, skill):
+    result = save({"criteria": {"Cargos alvo": [], "Aderência mínima": "150",
+                                "Estados aceitos para híbrido e presencial": "Narnia"}}, db_path)
+
+    assert not result["saved"]
+    assert set(result["errors"]) == {"criteria.Cargos alvo", "criteria.Aderência mínima",
+                                     "criteria.Estados aceitos para híbrido e presencial"}
+    assert not (skill / "criterios-triagem.md").exists()
+
+
+def test_criteria_written_by_hand_with_names_are_read_as_choices(db_path, skill):
+    text = (EXAMPLES / "criterios-triagem.example.md").read_text(encoding="utf-8")
+    text = text.replace("- Cargos alvo: data_scientist, ml_engineer, ai_engineer", "- Cargos alvo: Cientista de Dados.")
+    text = text.replace("- Senioridades buscadas:", "- Senioridades buscadas: Júnior, Sênior")
+    (skill / "criterios-triagem.md").write_text(text, encoding="utf-8")
+
+    criteria = section_fields(load(db_path), "criteria")
+
+    assert criteria["Cargos alvo"]["value"] == ["data_scientist"]
+    assert criteria["Senioridades buscadas"]["value"] == ["junior", "senior"]
+
+
+def test_one_invalid_section_saves_no_section(db_path, skill, tmp_path):
+    result = save({"config": {"export_dir": str(tmp_path / "csv")},
+                   "profile": {"Contato e identificação/Nome": "Maria"},
+                   "criteria": {"Cargos alvo": []}}, db_path)
+
+    assert not result["saved"]
+    assert not config_path(db_path).exists() and not (skill / "perfil.md").exists()
+
+
+def test_without_the_skill_folder_the_sections_explain_what_to_do(db_path, monkeypatch):
+    monkeypatch.delenv("VAGAS_SKILL_DIR", raising=False)
+    monkeypatch.delenv("VAGAS_TRIAGE_CRITERIA", raising=False)
+
+    data = load(db_path)
+
+    assert "VAGAS_SKILL_DIR" in data["sections"]["profile"]["error"]
+    assert data["sections"]["profile"]["groups"] == []
+
+
+def test_talent_pool_is_yes_or_no_even_without_the_note(db_path, skill):
+    text = (EXAMPLES / "perfil.example.md").read_text(encoding="utf-8")
+    text = "\n".join(line for line in text.splitlines() if "Valores aceitos: sim ou não" not in line) + "\n"
+    (skill / "perfil.md").write_text(text.replace("- Incluir em bancos de talentos: <...>",
+                                                  "- Incluir em bancos de talentos: Sim."), encoding="utf-8")
+
+    field = section_fields(load(db_path), "profile")["Respostas padrão/Incluir em bancos de talentos"]
+
+    assert field["kind"] == "yesno" and field["value"] == "sim"
