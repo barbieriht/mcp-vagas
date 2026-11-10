@@ -134,3 +134,6 @@ button.adicionar { margin-top: 12px; }
   .faixa-grade { grid-template-columns: 1fr 1fr; }
   .celula-name, .celula-alias, .celula-clt { grid-column: 1 / -1; }
 }
+.selo.ok { background: transparent; border: 1px solid var(--ok); color: var(--ok); }
+.a-remover input { text-decoration: line-through; }
+.campo input[type=password] + .remover { margin-top: 8px; }
