@@ -20,7 +20,8 @@ Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor 
   |---|---|
   | Windows (sem WSL) | tudo, inclusive o Claude Desktop e a extensão do Chrome (documentos, termos de uso e anexo do currículo). Veja [Windows sem WSL](#windows-sem-wsl) |
   | Windows + WSL2 | tudo, como no Windows nativo |
-  | Linux ou macOS | tudo pelo Claude Code, menos a extensão: documentos, termos e anexo ficam como pendência para você resolver ([#170](https://github.com/barbieriht/mcp-vagas/issues/170)). No macOS ainda não houve teste |
+  | Linux | tudo pelo Claude Code, inclusive a extensão do Chrome. O cofre de documentos usa o chaveiro do sistema (GNOME Keyring ou KWallet, pelo `secret-tool`); sem ele, a extensão anexa o currículo e marca os termos, e os documentos você digita |
+  | macOS | tudo pelo Claude Code ou pelo Desktop, e a extensão anexa o currículo e marca os termos. O cofre de documentos ainda não existe no macOS: CPF e RG você digita. Ainda não houve teste no macOS |
 - A busca por código cobre Gupy e LinkedIn. Indeed e Glassdoor bloqueiam leitura automática e são feitos pelo navegador.
 - Os textos da Skill e dos currículos estão em português.
 
@@ -126,7 +127,7 @@ Specs e tickets: [issues do repositório](https://github.com/barbieriht/mcp-vaga
 
 ## Requisitos
 
-- Windows (com ou sem WSL2), Linux ou macOS, com Python 3.12 (no Windows, o `uv` instala sozinho). A extensão do Chrome exige Windows (veja as [limitações](#mcp-vagas)).
+- Windows (com ou sem WSL2), Linux ou macOS, com Python 3.12 (no Windows, o `uv` instala sozinho). O cofre de documentos da extensão usa a DPAPI no Windows e o chaveiro do sistema no Linux (veja as [limitações](#mcp-vagas)).
 - [`uv`](https://docs.astral.sh/uv/).
 - Claude Code e/ou Claude Desktop.
 
@@ -177,7 +178,7 @@ As demais opções continuam por variável de ambiente:
 | `VAGAS_MAX_OPEN_TABS` | sobrepõe `max_open_tabs` do `config.toml` | 12 |
 | `VAGAS_RESUME_OUT` | sobrepõe `resume_out` do `config.toml` | nenhum (configurada no primeiro uso) |
 | `VAGAS_SALARY_POLICY` | política salarial lida por `evaluate_salary` | `politica-salarial.md` ao lado do banco (o instalador cria um symlink para o da Skill) |
-| `VAGAS_SENSITIVE_FILE` | cofre de dados sensíveis (CPF, RG...), cifrado pela DPAPI do Windows | `cofre.json` ao lado do banco |
+| `VAGAS_SENSITIVE_FILE` | cofre de dados sensíveis (CPF, RG...): cifrado pela DPAPI no Windows e no WSL; no Linux, só identificadores, e os valores ficam no chaveiro do sistema | `cofre.json` ao lado do banco |
 | `VAGAS_AUTO_SUBMIT` | sobrepõe `auto_submit` do `config.toml` (`sim` envia sozinho as candidaturas sem pendências, com os campos da extensão preenchidos, a pretensão da avaliação e sem texto livre escrito pelo Claude) | `nao` |
 | `VAGAS_AUTOFILL_DOMAINS` | sobrepõe `autofill_domains` do `config.toml` (domínios extras da extensão do Chrome) | nenhum |
 | `VAGAS_AUTOFILL_PLATFORMS` | sobrepõe `autofill_platforms` do `config.toml` (plataformas, como `gupy.io`, em que um "Permitir sempre" da extensão vale para todas as empresas) | nenhuma |
@@ -492,9 +493,15 @@ Tudo fica na sua máquina: o banco, o `config.toml`, o YAML do currículo e os P
 
 ### Cofre de dados sensíveis
 
-CPF, RG e outros documentos da lista fechada podem ficar num cofre local, para a extensão do Chrome preenchê-los nos formulários com a sua confirmação. Cada valor é cifrado pela DPAPI do Windows, ligada ao seu usuário: o arquivo no WSL só guarda o texto cifrado (decisão em [docs/adr/0001](docs/adr/0001-cofre-de-dados-sensiveis-com-dpapi.md)). Senhas, dados bancários e cartões nunca entram no cofre.
+CPF, RG e outros documentos da lista fechada podem ficar num cofre local, para a extensão do Chrome preenchê-los nos formulários com a sua confirmação. Senhas, dados bancários e cartões nunca entram no cofre.
 
-O cadastro é feito só por você, no terminal do WSL. O valor é digitado sem aparecer na tela e não passa pela conversa:
+| Sistema | Onde fica o valor |
+|---|---|
+| Windows e WSL | cifrado pela DPAPI do Windows, ligada ao seu usuário; o arquivo só guarda o texto cifrado ([ADR 0001](docs/adr/0001-cofre-de-dados-sensiveis-com-dpapi.md)) |
+| Linux | no chaveiro do sistema (GNOME Keyring, KWallet), pelo `secret-tool` (pacote `libsecret-tools`); o arquivo só guarda um identificador ([ADR 0004](docs/adr/0004-extensao-e-cofre-no-linux-e-no-macos.md)) |
+| macOS | ainda sem cofre: documentos você digita |
+
+O cadastro é feito só por você, no terminal (no Windows sem WSL, troque o caminho do Python como em [Windows sem WSL](#windows-sem-wsl)). O valor é digitado sem aparecer na tela e não passa pela conversa:
 
 ```bash
 ~/.local/share/vagas/venv/bin/python -m vagas.sensitive set cpf     # pede o valor duas vezes
@@ -508,7 +515,11 @@ Campos aceitos: `cpf`, `rg`, `rg_orgao_emissor`, `cnh`, `pis`, `ctps`, `titulo_e
 
 O Claude in Chrome não digita documentos de identidade nem marca termos de uso, nem com a sua autorização, e a ferramenta de upload dele não pega arquivos do seu disco. Por isso, quem preenche CPF, RG e os demais documentos do cofre, marca o aceite dos termos de uso e da política de privacidade e anexa o currículo personalizado é uma extensão local do Chrome, sem passar pelo modelo (decisão em [docs/adr/0002](docs/adr/0002-documentos-preenchidos-pela-extensao-do-chrome.md)). O Claude preenche o resto do formulário e deixa esses campos para ela.
 
-**Instalação:** `scripts/instalar_desktop.py` copia a extensão para `%LOCALAPPDATA%\vagas\extensao` e registra o host de native messaging no Chrome. Na primeira vez, carregue a extensão: abra `chrome://extensions`, ligue o **Modo do desenvolvedor**, clique em **Carregar sem compactação** e escolha essa pasta. Nas atualizações, o instalador troca os arquivos; clique em recarregar na extensão ou reinicie o Chrome.
+**Instalação:**
+- **Windows e WSL:** `scripts/instalar_desktop.py` copia a extensão para `%LOCALAPPDATA%\vagas\extensao` e registra o host de native messaging no Chrome.
+- **Linux e macOS:** `scripts/instalar_claude_code.py` registra o host nos navegadores instalados (Chrome, Chromium, Edge e Brave), e a extensão é carregada direto da pasta `extension/` do repositório.
+
+Na primeira vez, carregue a extensão: abra `chrome://extensions`, ligue o **Modo do desenvolvedor**, clique em **Carregar sem compactação** e escolha a pasta que o instalador mostrar. Nas atualizações, clique em recarregar na extensão ou reinicie o Chrome.
 
 **Como funciona:**
 - A extensão procura campos de texto vazios, visíveis e habilitados com rótulo de documento (CPF, RG, órgão emissor, CNH, PIS, CTPS, título de eleitor, passaporte, nome da mãe). Campos ocultos e já preenchidos ficam como estão.

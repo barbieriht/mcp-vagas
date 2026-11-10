@@ -89,20 +89,35 @@ def _unregister_host() -> None:
 pytestmark = pytest.mark.skipif(not _chromium_available(), reason="Playwright com Chromium não instalado")
 
 
+BACKENDS = {
+    "fake": ("from test_sensitive import FakeBackend as Backend", "test_sensitive", "FakeBackend"),
+    "sem-cofre": ("from vagas.sensitive import NoVaultBackend as Backend", "vagas.sensitive", "NoVaultBackend"),
+    "secret-service": ("from vagas.sensitive import SecretServiceBackend as Backend", "vagas.sensitive",
+                       "SecretServiceBackend"),
+}
+
+
 @pytest.fixture
-def browser(tmp_path):
+def backend_name(request):
+    return getattr(request, "param", "fake")
+
+
+@pytest.fixture
+def browser(tmp_path, backend_name):
     from playwright.sync_api import sync_playwright
+
+    backend_import, backend_module, backend_class = BACKENDS[backend_name]
 
     script = tmp_path / "host.py"
     script.write_text(textwrap.dedent(f"""
         import sys
         sys.path.insert(0, {str(REPO / 'tests')!r})
-        from test_sensitive import FakeBackend
+        {backend_import}
         from vagas.autofill import Applications, Approvals, Autofill
         from vagas.autofill_host import serve
         from vagas.sensitive import Vault
         apps = Applications({str(tmp_path / 'vagas.db')!r})
-        autofill = Autofill(Vault({str(tmp_path / 'cofre.json')!r}, FakeBackend()),
+        autofill = Autofill(Vault({str(tmp_path / 'cofre.json')!r}, Backend()),
                             Approvals({str(tmp_path / 'aprovacoes.json')!r}), log_path={str(tmp_path / 'autofill.log')!r},
                             open_sites=apps.sites, extra_domains=lambda: [], resumes=apps.with_resumes)
         serve(sys.stdin.buffer, sys.stdout.buffer, autofill)
@@ -116,12 +131,12 @@ def browser(tmp_path):
         wrapper.chmod(0o755)
 
     sys.path.insert(0, str(REPO / "tests"))
-    from test_sensitive import FakeBackend
     from vagas.sensitive import Vault
 
-    vault = Vault(tmp_path / "cofre.json", FakeBackend())
-    vault.set("cpf", "529.982.247-25")
-    vault.set("rg", "12.345.678-9")
+    vault = Vault(tmp_path / "cofre.json", getattr(importlib.import_module(backend_module), backend_class)())
+    if backend_name != "sem-cofre":
+        vault.set("cpf", "529.982.247-25")
+        vault.set("rg", "12.345.678-9")
     pdfs = _applications_with_resumes(tmp_path)
 
     profile = tmp_path / "perfil-chromium"
@@ -144,6 +159,8 @@ def browser(tmp_path):
             context.close()
     finally:
         _unregister_host()
+        for field in vault.list():
+            vault.remove(field)  # no chaveiro real, não deixa nada para trás
 
 
 def _applications_with_resumes(tmp_path):
@@ -257,3 +274,31 @@ def test_untrusted_sites_are_never_filled_nor_asked(browser):
     assert page.evaluate("window.uploaded") == []
     assert not [p for p in context.pages if p.url.startswith("chrome-extension://")]
     assert not (tmp_path / "autofill.log").exists()
+
+
+@pytest.mark.parametrize("backend_name", ["sem-cofre"], indirect=True)
+def test_without_a_vault_the_resume_and_terms_still_go_in_and_documents_stay_empty(browser):
+    # Linux sem chaveiro e macOS: a extensão continua útil para o anexo e os termos.
+    context, _, pdfs = browser
+
+    shown = []
+    page = _open_and_confirm(context, "https://acme.gupy.io/candidates/jobs/1/apply", "Permitir sempre para acme",
+                             shown)
+
+    page.wait_for_function("window.uploaded.length > 0", timeout=15000)
+    assert "CPF" not in shown[0] and pdfs["Data Scientist"].name in shown[0]
+    assert page.is_checked("#termos") and page.input_value("#cpf") == ""
+    assert page.evaluate("window.uploaded")[0][0] == pdfs["Data Scientist"].name
+
+
+@pytest.mark.skipif(os.environ.get("VAGAS_TEST_SECRET_SERVICE") != "1",
+                    reason="defina VAGAS_TEST_SECRET_SERVICE=1 (Linux com chaveiro desbloqueado e secret-tool)")
+@pytest.mark.parametrize("backend_name", ["secret-service"], indirect=True)
+def test_documents_come_from_the_system_keyring_on_linux(browser):
+    context, _, _ = browser
+
+    page = _open_and_confirm(context, "https://acme.gupy.io/candidates/jobs/1/apply", "Permitir sempre para acme")
+
+    page.wait_for_function("document.getElementById('cpf').value !== ''", timeout=15000)
+    assert page.input_value("#cpf") == "529.982.247-25"
+    assert page.input_value("[name=documento2]") == "12.345.678-9"

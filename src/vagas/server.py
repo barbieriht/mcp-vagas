@@ -33,7 +33,7 @@ from vagas.linkedin_import import LinkedInImporter
 from vagas.salary import SalaryPoint, SalaryStore
 from vagas.profile_fields import ProfileFiles, default_skill_dir
 from vagas.search_run import SearchRunStore
-from vagas.sensitive import DpapiBackend, Vault, default_vault_path
+from vagas.sensitive import Vault, default_backend, default_vault_path
 from vagas.salary_policy import default_policy_path
 from vagas.triage import Triage, default_criteria_path
 from vagas.work_list import build_work_list
@@ -468,7 +468,7 @@ def build_server(
         notes: orientações do campo (ex.: como escolher em escala fixa).
         """
         try:
-            fields = (vault or Vault(default_vault_path(db_path), DpapiBackend())).list()
+            fields = (vault or Vault(default_vault_path(db_path), default_backend())).list()
             profile = ProfileFiles(default_skill_dir(db_path)).get_profile(vault_fields=fields)
             return profile
         except VagasError as exc:

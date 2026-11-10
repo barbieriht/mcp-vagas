@@ -17,7 +17,7 @@ from vagas.autofill import Applications, Approvals, Autofill, default_approvals_
 from vagas.db import default_db_path
 from vagas.profile_fields import ProfileFiles, default_skill_dir
 from vagas.repo import VagasError
-from vagas.sensitive import DpapiBackend, Vault, default_vault_path
+from vagas.sensitive import Vault, default_backend, default_vault_path
 
 log = logging.getLogger("vagas.autofill_host")
 MAX_MESSAGE = 1024 * 1024  # mensagens da extensão para o host têm até 4 GB; aqui, uma página pequena basta
@@ -75,7 +75,7 @@ def build_autofill() -> Autofill:
             return None
 
     applications = Applications(db_path)
-    return Autofill(Vault(default_vault_path(db_path), DpapiBackend()), Approvals(default_approvals_path(db_path)),
+    return Autofill(Vault(default_vault_path(db_path), default_backend()), Approvals(default_approvals_path(db_path)),
                     log_path=default_log_path(db_path), open_sites=applications.sites, extra_domains=extra_domains,
                     resumes=applications.with_resumes, platforms=platforms,
                     talent_pool=talent_pool)
