@@ -129,14 +129,18 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         self.server.last_seen = time.monotonic()
-        if not (self._host_ok() and self._origin_ok() and self._token_ok(self.headers.get("X-Panel-Token"))):
-            return self._denied()
-        if urlsplit(self.path).path != "/api/settings":
-            return self._send(404, b"", "text/plain")
         try:
             size = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             size = -1
+        if not (self._host_ok() and self._origin_ok() and self._token_ok(self.headers.get("X-Panel-Token"))):
+            self.close_connection = True
+            self._denied()
+            return self._discard(size)
+        if urlsplit(self.path).path != "/api/settings":
+            self.close_connection = True
+            self._send(404, b"", "text/plain")
+            return self._discard(size)
         if size < 0 or size > MAX_BODY:
             self.close_connection = True
             self._json(413, {"error": "Formulário grande demais."})
