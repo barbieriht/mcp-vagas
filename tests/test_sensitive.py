@@ -68,6 +68,10 @@ def test_get_of_missing_field_is_a_clear_error(vault):
 
 
 def test_cli_set_list_remove_without_echo(tmp_path, monkeypatch, capsys):
+    # A pasta da Skill do teste desde o início: o CLI marca o perfil.md e nunca pode achar o real.
+    empty_skill = tmp_path / "skill-vazia"
+    empty_skill.mkdir()
+    monkeypatch.setenv("VAGAS_SKILL_DIR", str(empty_skill))
     monkeypatch.setenv("VAGAS_SENSITIVE_FILE", str(tmp_path / "cofre.json"))
     answers = iter(["529.982.247-25", "529.982.247-25"])
     monkeypatch.setattr("vagas.sensitive.getpass.getpass", lambda prompt="": next(answers))
