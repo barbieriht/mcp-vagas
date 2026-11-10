@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from mcp.server.mcpserver.exceptions import ToolError
 
 from vagas import config as paths_config
-from vagas import system
+from vagas import panel, system
 from vagas.db import connect, default_db_path
 from vagas.experience import years_to_declare
 from vagas.models import (
@@ -75,10 +75,11 @@ def build_server(
     search_launcher: Callable[[int], int] | None = None,
 ) -> MCPServer:
     server = MCPServer("vagas", instructions=(
-        "No primeiro uso, chame get_config: se needs_setup trouxer chaves, pergunte ao usuário onde guardar "
-        "cada coisa (pasta dos currículos em PDF, pasta dos CSVs, arquivo do currículo geral), sugerindo "
-        "uma das suggestions (ou o default) e grave a resposta com set_config. Não escolha sozinho a pasta "
-        "dos currículos. Ao citar uma vaga ao usuário (resumos, listas, tabelas, pendências), escreva o nome "
+        "No primeiro uso, chame get_config: se needs_setup trouxer chaves, chame settings_link e mande ao "
+        "usuário o link do painel, onde ele configura pastas, perfil, critérios e currículo sem editar arquivos. "
+        "Se ele preferir responder no chat, pergunte onde guardar cada coisa (pasta dos currículos em PDF, pasta "
+        "dos CSVs, arquivo do currículo geral), sugerindo uma das suggestions (ou o default), e grave a resposta "
+        "com set_config. Não escolha sozinho a pasta dos currículos. Ao citar uma vaga ao usuário (resumos, listas, tabelas, pendências), escreva o nome "
         "dela como link Markdown para a página da vaga, no formato [Cargo — Empresa](url), usando o campo url "
         "que as tools retornam; se a vaga não tiver url, escreva o nome sem link. Não mostre a URL crua ao lado. "
         "Em formulários de candidatura, os dados pessoais vêm de get_profile (não de cópias de arquivos da Skill), "
@@ -135,6 +136,22 @@ def build_server(
             conn, fetcher=job_fetcher or http_fetch, criteria_path=default_criteria_path(db_path),
             policy_path=default_policy_path(db_path), draft_path=draft_path or default_draft_path(db_path),
             salary_rule=salary_rule()))
+
+    @server.tool()
+    def settings_link() -> dict[str, Any]:
+        """Link do painel de configuração no navegador, abrindo o painel se ainda não estiver aberto.
+
+        Chame no primeiro uso (get_config com needs_setup) ou quando o usuário quiser mudar pastas, perfil,
+        critérios de triagem, política salarial, documentos do cofre ou o currículo geral, ou ver as vagas e
+        buscas numa página. Mande o link ao usuário como link Markdown; ele vale só neste computador e
+        enquanto o painel estiver aberto (fecha sozinho depois de uma hora sem uso).
+        Retorna {url, started} (started: true se o painel foi aberto agora).
+        """
+        try:
+            url, started = panel.ensure_running(db_path)
+        except VagasError as exc:
+            raise ToolError(str(exc)) from exc
+        return {"url": url, "started": started}
 
     @server.tool()
     def get_config() -> dict[str, Any]:

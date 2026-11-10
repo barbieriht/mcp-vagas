@@ -280,6 +280,32 @@ def running_url(db_path: Path | str | None = None) -> str | None:
     return None
 
 
+def launch_detached(db_path: Path | str | None = None) -> subprocess.Popen:
+    """Abre o painel num processo à parte, sem navegador e sem herdar o stdout de quem chamou (o do MCP)."""
+    db = Path(db_path) if db_path is not None else default_db_path()
+    return subprocess.Popen([sys.executable, "-m", "vagas.panel", "--sem-navegador"],
+                            env={**os.environ, "VAGAS_DB": str(db)}, stdin=subprocess.DEVNULL,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            **system.detached_process_options())
+
+
+def ensure_running(db_path: Path | str | None = None, launcher: Any = None, timeout: float = 15.0) -> tuple[str, bool]:
+    """Link do painel, abrindo-o se preciso. Devolve (url, started): started diz se foi aberto agora."""
+    if url := running_url(db_path):
+        return url, False
+    try:
+        (launcher or launch_detached)(db_path)
+    except OSError as exc:
+        raise VagasError(f"Não foi possível abrir o painel: {exc}. Rode python -m vagas.panel no terminal.") from exc
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if url := running_url(db_path):
+            return url, True
+        time.sleep(0.2)
+    raise VagasError("O painel não respondeu a tempo. Rode python -m vagas.panel no terminal e use o link que ele "
+                     "mostrar.")
+
+
 def open_browser(url: str) -> None:
     """Abre o navegador padrão; no WSL, o do Windows."""
     if system.IN_WSL:
@@ -300,10 +326,22 @@ def _close_when_idle(server: PanelServer, idle_seconds: float) -> None:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m vagas.panel", description="Painel de configuração do mcp-vagas.")
     parser.add_argument("--sem-navegador", action="store_true", help="só mostra o link, sem abrir o navegador")
+    parser.add_argument("--em-segundo-plano", action="store_true",
+                        help="abre o painel num processo à parte e sai (usado pelos instaladores)")
     parser.add_argument("--minutos-sem-uso", type=float, default=60, help="fecha depois desse tempo sem uso (60)")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
 
+    if args.em_segundo_plano:
+        try:
+            url, started = ensure_running()
+        except VagasError as exc:
+            sys.exit(str(exc))
+        print(f"Painel do mcp-vagas{'' if started else ' (já estava aberto)'}: {url}\n"
+              "Ele fecha sozinho depois de uma hora sem uso; o atalho abre de novo.")
+        if not args.sem_navegador:
+            open_browser(url)
+        return
     if url := running_url():
         print(f"O painel já está aberto: {url}")
         if not args.sem_navegador:

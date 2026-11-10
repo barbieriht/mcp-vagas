@@ -314,3 +314,10 @@ def test_versioned_skill_files_do_not_name_a_specific_person():
     assert files
     for path in files:
         assert "Thiago" not in path.read_text(encoding="utf-8"), path
+
+
+def test_first_use_sends_the_panel_link_before_asking_field_by_field():
+    text = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    first_use = text[text.index("## Primeiro uso"):text.index("## Escolha o fluxo")]
+
+    assert "`settings_link`" in first_use and first_use.index("settings_link") < first_use.index("`set_config`")

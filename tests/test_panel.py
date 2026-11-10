@@ -823,3 +823,145 @@ def test_searches_tab_shows_runs_and_leads_to_the_jobs_of_each_search(db_path):
     finally:
         server.shutdown()
         server.server_close()
+
+
+# --- abrir o painel pelo Claude (settings_link) ------------------------------------------------------
+
+def test_ensure_running_reuses_the_open_panel(db_path):
+    server = panel.make_server(db_path, token="aberto")
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        panel.remember(server, db_path)
+
+        url, started = panel.ensure_running(db_path, launcher=lambda db: pytest.fail("não devia abrir outro"))
+
+        assert url == server.url and not started
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_ensure_running_starts_a_panel_and_waits_for_its_link(db_path):
+    servers = []
+
+    def launcher(db):
+        server = panel.make_server(db, token="novo")
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        panel.remember(server, db)
+        servers.append(server)
+
+    try:
+        url, started = panel.ensure_running(db_path, launcher=launcher)
+
+        assert started and url == servers[0].url
+    finally:
+        for server in servers:
+            server.shutdown()
+            server.server_close()
+
+
+def test_ensure_running_explains_when_the_panel_does_not_come_up(db_path):
+    from vagas.repo import VagasError
+
+    with pytest.raises(VagasError, match="painel"):
+        panel.ensure_running(db_path, launcher=lambda db: None, timeout=0.5)
+
+
+@pytest.mark.anyio
+async def test_settings_link_tool_gives_the_link(db_path, monkeypatch):
+    from mcp import Client
+
+    from vagas.server import build_server
+
+    monkeypatch.setattr(panel, "ensure_running", lambda db, **kw: ("http://127.0.0.1:1/?t=x", True))
+    async with Client(build_server(db_path)) as client:
+        result = await client.call_tool("settings_link", {})
+        instructions = client.instructions
+
+    assert result.structured_content["url"] == "http://127.0.0.1:1/?t=x" and result.structured_content["started"]
+    assert "settings_link" in instructions
+
+
+def test_the_real_launcher_opens_a_panel_on_the_same_database(tmp_path):
+    db = tmp_path / "outra" / "vagas.db"
+    db.parent.mkdir()
+    processes = []
+
+    def launcher(path):
+        processes.append(panel.launch_detached(path))
+
+    try:
+        url, started = panel.ensure_running(db, launcher=launcher, timeout=20)
+
+        assert started and (db.parent / panel.STATE_NAME).exists()
+        assert panel.running_url(db) == url
+    finally:
+        for process in processes:
+            process.terminate()
+            process.wait(timeout=10)
+
+
+def test_background_option_leaves_the_panel_running_and_exits_with_the_link(monkeypatch, capsys):
+    opened = []
+    monkeypatch.setattr(panel, "ensure_running", lambda db=None, **kw: ("http://127.0.0.1:9/?t=x", True))
+    monkeypatch.setattr(panel, "open_browser", opened.append)
+
+    panel.main(["--em-segundo-plano"])
+
+    assert "http://127.0.0.1:9/?t=x" in capsys.readouterr().out and opened == ["http://127.0.0.1:9/?t=x"]
+
+
+@pytest.mark.skipif(not _chromium(), reason="Playwright com Chromium não instalado")
+def test_whole_first_use_from_the_link_the_claude_sends(skill, db_path, tmp_path, monkeypatch):
+    """Primeiro uso inteiro: o link vem de settings_link, a pessoa preenche tudo e salva uma vez só."""
+    import anyio
+    from mcp import Client
+    from playwright.sync_api import sync_playwright
+
+    from vagas.server import build_server
+    from vagas.triage import parse_criteria
+
+    policy = skill / "politica-salarial.md"
+    policy.write_text("# Política salarial\n\n- Modo: minimo\n- Multiplicador PJ: 1.4\n"
+                      "- Remoto nacional (BRL, CLT): mínimo 8.000\n", encoding="utf-8")
+    monkeypatch.setenv("VAGAS_SALARY_POLICY", str(policy))
+    monkeypatch.setattr("vagas.settings_form._reevaluate_salaries", lambda db: {"changed": []})
+    servers = []
+
+    def launcher(db):
+        server = panel.make_server(db)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        panel.remember(server, db)
+        servers.append(server)
+
+    real = panel.ensure_running
+    monkeypatch.setattr(panel, "ensure_running", lambda db, **kw: real(db, launcher=launcher))
+
+    async def link():
+        async with Client(build_server(db_path)) as client:
+            return (await client.call_tool("settings_link", {})).structured_content["url"]
+
+    try:
+        url = anyio.run(link)
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            page.goto(url)
+            page.get_by_role("heading", name="Pastas e opções").wait_for()
+            page.get_by_label("Pasta dos currículos em PDF").fill(str(tmp_path / "pdfs"))
+            page.get_by_placeholder("Ex.: Fulano de Tal").fill("Maria Teste")
+            page.get_by_label("Aderência mínima").fill("65")
+            bands = page.get_by_role("group", name="Faixas")
+            bands.locator(".faixa").nth(0).get_by_label("Mínimo mensal").fill("9.000")
+            page.get_by_role("button", name="Salvar tudo").click()
+            page.get_by_text("Tudo salvo").wait_for()
+            browser.close()
+    finally:
+        for server in servers:
+            server.shutdown()
+            server.server_close()
+
+    assert resolve("resume_out", db_path) == (tmp_path / "pdfs", "config")
+    assert "- Nome: Maria Teste" in (skill / "perfil.md").read_text(encoding="utf-8")
+    assert parse_criteria((skill / "criterios-triagem.md").read_text(encoding="utf-8")).min_match == 65
+    assert "mínimo 9000" in policy.read_text(encoding="utf-8")
