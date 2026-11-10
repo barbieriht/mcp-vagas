@@ -5,6 +5,7 @@ import pytest
 from mcp import Client
 
 from resume_fixture import fictitious_resume
+from vagas import system
 from vagas.config import SETTINGS, config_path, normalize_path, resolve, split_domains, suggest_dirs
 from vagas.server import build_server
 
@@ -20,7 +21,7 @@ def test_precedence_is_env_then_config_file_then_default(db_path, monkeypatch, t
     assert resolve("export_dir", db_path) == (db_path.parent / "exports", "default")
     assert resolve("resume_out", db_path) == (None, "unset")
 
-    config_path(db_path).write_text(f'export_dir = "{tmp_path / "csv"}"\n', encoding="utf-8")
+    config_path(db_path).write_text(f"export_dir = '{tmp_path / 'csv'}'\n", encoding="utf-8")
     assert resolve("export_dir", db_path) == (tmp_path / "csv", "config")
 
     monkeypatch.setenv("VAGAS_EXPORT_DIR", str(tmp_path / "env"))
@@ -95,8 +96,9 @@ async def test_set_config_without_value_confirms_the_default(db_path):
     assert "export_dir" not in result["needs_setup"]
 
 
-def test_windows_and_home_paths_are_normalized_for_wsl():
-    assert str(normalize_path("C:\\Users\\Teste\\Curriculos")) == "/mnt/c/Users/Teste/Curriculos"
+def test_windows_and_home_paths_are_normalized_for_wsl(monkeypatch):
+    monkeypatch.setattr(system, "NATIVE_WINDOWS", False)
+    assert normalize_path("C:\\Users\\Teste\\Curriculos") == Path("/mnt/c/Users/Teste/Curriculos")
     assert normalize_path("~/pdfs") == Path.home() / "pdfs"
 
 
@@ -112,7 +114,7 @@ async def test_set_config_keeps_the_other_keys(db_path, tmp_path):
 @pytest.mark.parametrize("arguments, message", [
     ({"key": "resume_out", "value": "pasta/relativa"}, "absoluto"),
     ({"key": "outra_coisa", "value": "/tmp/x"}, "resume_out"),
-    ({"key": "master_resume", "value": "/tmp/curriculo.txt"}, ".yaml"),
+    ({"key": "master_resume", "value": str(Path.home() / "curriculo.txt")}, ".yaml"),  # absoluto em qualquer sistema
     ({"key": "resume_out"}, "value"),
 ])
 async def test_set_config_rejects_bad_input(db_path, arguments, message):

@@ -195,8 +195,11 @@ def test_requires_an_approved_master(db_path, tmp_path, out_dir):
         empty.create_tailored_resume(selection(tech_lead({"id": P1})), out_dir)
 
 
-def test_result_gives_the_windows_path_when_the_pdf_is_under_mnt(store, tmp_path):
+def test_result_gives_the_windows_path_when_the_pdf_is_under_mnt(store, tmp_path, monkeypatch):
+    from vagas import system
     from vagas.resume_extract import windows_path
+
+    monkeypatch.setattr(system, "NATIVE_WINDOWS", False)  # comportamento do WSL; o nativo está em test_system
 
     assert windows_path("/mnt/c/Users/T/Documents/Curriculos/Fulana_Tal_Resume_Nubank.pdf") == \
         "C:\\Users\\T\\Documents\\Curriculos\\Fulana_Tal_Resume_Nubank.pdf"

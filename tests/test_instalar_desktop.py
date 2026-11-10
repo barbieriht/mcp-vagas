@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 import zipfile
 from pathlib import Path
 
@@ -112,6 +113,7 @@ def test_command_zips_have_one_folder_each(tmp_path):
         assert z.namelist() == ["apply/SKILL.md"]
 
 
+@pytest.mark.skipif(os.name == "nt", reason="no Windows nativo o instalador aponta o servidor para a Skill por variáveis")
 def test_personal_link_is_created_kept_and_never_replaces_a_real_file(skill, tmp_path):
     data = tmp_path / "data"
 
@@ -153,3 +155,40 @@ def test_native_host_is_registered_for_the_current_user_in_chrome():
 
     assert command == ["reg.exe", "add", "HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\com.barbieriht.vagas",
                        "/ve", "/t", "REG_SZ", "/d", "C:\\x\\com.barbieriht.vagas.json", "/f"]
+
+
+def test_native_windows_merge_runs_the_local_python_with_env():
+    config = {"mcpServers": {"outro": {"command": "x"}}}
+    python = r"C:\Users\T\AppData\Local\vagas\venv\Scripts\python.exe"
+    env = {"VAGAS_DB": r"C:\Users\T\AppData\Local\vagas\vagas.db"}
+
+    merged = inst.merge_config_native(config, env, python)
+
+    assert merged["mcpServers"]["outro"] == {"command": "x"}
+    assert merged["mcpServers"]["vagas"] == {"command": python, "args": ["-m", "vagas.server"], "env": env}
+
+
+def test_native_windows_env_points_to_the_skill_and_keeps_claude_code_settings(tmp_path):
+    claude_json = write(tmp_path / ".claude.json", json.dumps({"mcpServers": {"vagas": {"env": {
+        "VAGAS_RESUME_OUT": r"C:\Users\T\Curriculos"}}}}))
+    data, skill = tmp_path / "vagas", tmp_path / "repo" / "skill" / "candidaturas"
+
+    env = inst.native_env(claude_json, data, skill)
+
+    assert env == {"VAGAS_DB": str(data / "vagas.db"), "VAGAS_SKILL_DIR": str(skill),
+                   "VAGAS_SALARY_POLICY": str(skill / "politica-salarial.md"),
+                   "VAGAS_TRIAGE_CRITERIA": str(skill / "criterios-triagem.md"),
+                   "VAGAS_RESUME_OUT": r"C:\Users\T\Curriculos"}
+
+
+def test_native_windows_host_bat_runs_python_directly_with_the_host_variables():
+    python = r"C:\Users\T\AppData\Local\vagas\venv\Scripts\python.exe"
+    env = {"VAGAS_DB": r"C:\d\vagas.db", "VAGAS_SKILL_DIR": r"C:\repo\skill\candidaturas",
+           "VAGAS_RESUME_OUT": r"C:\out"}
+
+    bat = inst.host_bat_native(python, env)
+
+    assert "wsl.exe" not in bat and bat.endswith("\r\n")
+    assert 'set "VAGAS_DB=C:\\d\\vagas.db"' in bat and 'set "VAGAS_SKILL_DIR=' in bat
+    assert "VAGAS_RESUME_OUT" not in bat  # o host só lê banco, config, cofre e a Skill
+    assert f'"{python}" -m vagas.autofill_host' in bat

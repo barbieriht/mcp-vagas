@@ -21,9 +21,9 @@ Sempre que citar uma vaga ao usuário (resumo, tabela, lista de trabalho, pendê
 Antes de qualquer fluxo, e sempre que uma tool reclamar de pasta não configurada, chame `get_config`.
 Se `needs_setup` trouxer chaves, o MCP ainda não sabe onde guardar aqueles arquivos. Pergunte ao usuário, uma chave por vez:
 
-- `resume_out`: pasta dos PDFs de currículo. Sugira a primeira de `suggestions` (no WSL, costuma ser `Documents` do Windows, para anexar o PDF no navegador) e diga que ele pode escolher outra.
+- `resume_out`: pasta dos PDFs de currículo. Sugira a primeira de `suggestions` (no WSL ou no Windows, costuma ser `Documents` do Windows, para anexar o PDF no navegador) e diga que ele pode escolher outra.
 - `export_dir`: pasta dos CSVs exportados. Sugira uma de `suggestions` ou aceite o `default`.
-- `master_resume`: arquivo YAML do currículo geral. Sugira o `default` (fica no WSL, fora do `/mnt/c`, que é lento).
+- `master_resume`: arquivo YAML do currículo geral. Sugira o `default` (no WSL, fica fora do `/mnt/c`, que é lento).
 - `login_email`: conta Google, a segunda opção de login quando o site não oferece o LinkedIn. Sugira o "E-mail / login Google" do `get_profile` e confirme com o usuário.
 - `login_method` não é perguntado: o padrão é `linkedin` primeiro e Google em segunda opção. Só grave `google` se o usuário pedir para inverter a ordem.
 

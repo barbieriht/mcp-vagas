@@ -1,12 +1,12 @@
 """Extensão do Chrome de ponta a ponta: Chromium (Playwright) com a extensão carregada e o host de native
 messaging de verdade, apontando para um cofre temporário. Páginas https simuladas por rota."""
 
+import importlib.util
 import json
+import os
 import sys
 import textwrap
 from pathlib import Path
-
-import importlib.util
 
 import pytest
 
@@ -53,7 +53,37 @@ def _chromium_available() -> bool:
         from playwright.sync_api import sync_playwright  # noqa: F401
     except ImportError:
         return False
-    return any((Path.home() / ".cache/ms-playwright").glob("chromium-*"))
+    cache = (Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright" if os.name == "nt"
+             else Path.home() / ".cache/ms-playwright")
+    return any(cache.glob("chromium-*"))
+
+
+# No Windows o Chromium só acha hosts de native messaging pelo Registro (no Linux, pela pasta do perfil).
+# As chaves de teste são do Chromium e do Chrome for Testing, nunca a do Google Chrome do usuário.
+_WINDOWS_HOST_KEYS = (rf"Software\Chromium\NativeMessagingHosts\{HOST_NAME}",
+                      rf"Software\Google\Chrome for Testing\NativeMessagingHosts\{HOST_NAME}")
+
+
+def _register_host(manifest: Path) -> None:
+    if os.name != "nt":
+        return
+    import winreg
+
+    for key in _WINDOWS_HOST_KEYS:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key) as handle:
+            winreg.SetValueEx(handle, "", 0, winreg.REG_SZ, str(manifest))
+
+
+def _unregister_host() -> None:
+    if os.name != "nt":
+        return
+    import winreg
+
+    for key in _WINDOWS_HOST_KEYS:
+        try:
+            winreg.DeleteKey(winreg.HKEY_CURRENT_USER, key)
+        except FileNotFoundError:
+            pass
 
 
 pytestmark = pytest.mark.skipif(not _chromium_available(), reason="Playwright com Chromium não instalado")
@@ -77,9 +107,13 @@ def browser(tmp_path):
                             open_sites=apps.sites, extra_domains=lambda: [], resumes=apps.with_resumes)
         serve(sys.stdin.buffer, sys.stdout.buffer, autofill)
     """), encoding="utf-8")
-    wrapper = tmp_path / "host.sh"
-    wrapper.write_text(f"#!/bin/sh\nexec {sys.executable} {script}\n", encoding="utf-8")
-    wrapper.chmod(0o755)
+    if os.name == "nt":
+        wrapper = tmp_path / "host.bat"
+        wrapper.write_text(f'@echo off\r\n"{sys.executable}" "{script}"\r\n', encoding="utf-8")
+    else:
+        wrapper = tmp_path / "host.sh"
+        wrapper.write_text(f"#!/bin/sh\nexec {sys.executable} {script}\n", encoding="utf-8")
+        wrapper.chmod(0o755)
 
     sys.path.insert(0, str(REPO / "tests"))
     from test_sensitive import FakeBackend
@@ -94,17 +128,22 @@ def browser(tmp_path):
     hosts = profile / "NativeMessagingHosts"
     hosts.mkdir(parents=True)
     ext_id = extension_id(json.loads((EXTENSION / "manifest.json").read_text(encoding="utf-8"))["key"])
-    (hosts / f"{HOST_NAME}.json").write_text(json.dumps({
+    manifest = hosts / f"{HOST_NAME}.json"
+    manifest.write_text(json.dumps({
         "name": HOST_NAME, "description": "teste", "path": str(wrapper), "type": "stdio",
         "allowed_origins": [f"chrome-extension://{ext_id}/"]}), encoding="utf-8")
+    _register_host(manifest)
 
-    with sync_playwright() as p:
-        context = p.chromium.launch_persistent_context(
-            str(profile), channel="chromium", headless=True,
-            args=[f"--disable-extensions-except={EXTENSION}", f"--load-extension={EXTENSION}"])
-        context.route("https://**/*", lambda route: route.fulfill(status=200, content_type="text/html", body=FORM))
-        yield context, tmp_path, pdfs
-        context.close()
+    try:
+        with sync_playwright() as p:
+            context = p.chromium.launch_persistent_context(
+                str(profile), channel="chromium", headless=True,
+                args=[f"--disable-extensions-except={EXTENSION}", f"--load-extension={EXTENSION}"])
+            context.route("https://**/*", lambda route: route.fulfill(status=200, content_type="text/html", body=FORM))
+            yield context, tmp_path, pdfs
+            context.close()
+    finally:
+        _unregister_host()
 
 
 def _applications_with_resumes(tmp_path):

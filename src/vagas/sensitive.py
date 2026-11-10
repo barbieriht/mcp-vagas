@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Protocol
 
 from vagas.db import default_db_path
+from vagas import system
 from vagas.repo import VagasError
 
 ALLOWED_FIELDS: dict[str, str] = {
@@ -56,7 +57,8 @@ class DpapiBackend:
         try:
             done = subprocess.run(
                 ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", _PS_PROTECT.format(op=op)],
-                input=base64.b64encode(data).decode(), capture_output=True, text=True, timeout=60, cwd="/mnt/c",
+                input=base64.b64encode(data).decode(), capture_output=True, text=True, timeout=60,
+                cwd=None if system.NATIVE_WINDOWS else "/mnt/c",
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise VagasError(f"Não foi possível usar a proteção do Windows (powershell.exe): {exc}") from exc

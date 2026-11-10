@@ -1,0 +1,4 @@
+# LF em todos os sistemas (os testes e o parser do perfil comparam texto; o Git for Windows converteria para CRLF).
+* text=auto eol=lf
+*.pdf binary
+*.png binary

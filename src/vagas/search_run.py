@@ -18,6 +18,7 @@ import traceback
 from collections.abc import Callable
 from typing import Any
 
+from vagas import system
 from vagas.job_board import MAX_PAGES, SEARCHABLE, JobBoard
 from vagas.repo import VagasError, _utcnow
 
@@ -27,15 +28,7 @@ LIMIT_WAIT_SECONDS = 180
 
 
 def _alive(pid: int | None) -> bool:
-    if not pid:
-        return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+    return system.process_alive(pid)
 
 
 def check_params(params: dict[str, Any] | None) -> dict[str, Any]:

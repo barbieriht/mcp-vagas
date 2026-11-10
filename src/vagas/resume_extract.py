@@ -14,6 +14,7 @@ from typing import Any
 import pypdf
 from pypdf.errors import PdfReadError
 
+from vagas import system
 from vagas.repo import VagasError
 from vagas.resume_validate import numbers, term_candidates
 
@@ -34,6 +35,8 @@ _LONG_FIELDS = {"education": "notes"}
 def wsl_path(path: str | Path) -> Path:
     """Aceita caminhos do Windows (C:\\Users\\...) e devolve o equivalente no WSL (/mnt/c/Users/...)."""
     text = str(path)
+    if system.NATIVE_WINDOWS:
+        return Path(text)
     match = re.match(r"^([A-Za-z]):[\\/](.*)$", text)
     if match:
         return Path("/mnt", match.group(1).lower(), *re.split(r"[\\/]+", match.group(2)))
@@ -41,7 +44,11 @@ def wsl_path(path: str | Path) -> Path:
 
 
 def windows_path(path: str | Path) -> str | None:
-    """/mnt/c/Users/... -> C:\\Users\\... (o caminho que o usuário vê no Windows); None fora de /mnt/<letra>."""
+    """/mnt/c/Users/... -> C:\\Users\\... (o caminho que o usuário vê no Windows); None fora de /mnt/<letra>.
+
+    No Windows nativo o caminho já é o do Windows."""
+    if system.NATIVE_WINDOWS:
+        return str(path)
     match = re.match(r"^/mnt/([a-zA-Z])(?:/(.*))?$", str(path))
     if not match:
         return None

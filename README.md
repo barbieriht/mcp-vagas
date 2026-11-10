@@ -18,9 +18,9 @@ Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor 
 
   | Onde | O que funciona |
   |---|---|
-  | Windows + WSL2 | tudo, inclusive o Claude Desktop e a extensão do Chrome (documentos, termos de uso e anexo do currículo) |
+  | Windows (sem WSL) | tudo, inclusive o Claude Desktop e a extensão do Chrome (documentos, termos de uso e anexo do currículo). Veja [Windows sem WSL](#windows-sem-wsl) |
+  | Windows + WSL2 | tudo, como no Windows nativo |
   | Linux ou macOS | tudo pelo Claude Code, menos a extensão: documentos, termos e anexo ficam como pendência para você resolver ([#170](https://github.com/barbieriht/mcp-vagas/issues/170)). No macOS ainda não houve teste |
-  | Windows sem WSL | ainda não é suportado ([#169](https://github.com/barbieriht/mcp-vagas/issues/169)) |
 - A busca por código cobre Gupy e LinkedIn. Indeed e Glassdoor bloqueiam leitura automática e são feitos pelo navegador.
 - Os textos da Skill e dos currículos estão em português.
 
@@ -30,7 +30,7 @@ Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor 
 
 Resumo prático, do zero até a primeira candidatura. Os detalhes de cada passo estão nas seções seguintes.
 
-**1. Instale** (Linux, macOS ou WSL2, com [`uv`](https://docs.astral.sh/uv/) e Python 3.12). Na raiz do repositório:
+**1. Instale** (Linux, macOS ou WSL2, com [`uv`](https://docs.astral.sh/uv/) e Python 3.12; no Windows sem WSL, veja [Windows sem WSL](#windows-sem-wsl)). Na raiz do repositório:
 
 ```bash
 git clone https://github.com/barbieriht/mcp-vagas.git ~/projects/mcp-vagas && cd ~/projects/mcp-vagas
@@ -39,6 +39,31 @@ python3 scripts/instalar_desktop.py         # Claude Desktop (opcional): MCP, co
 ```
 
 Para o Claude preencher formulários sozinho, veja [Navegador](#navegador-para-preencher-formulários); no WSL, a melhor opção é o Claude Desktop.
+
+### Windows sem WSL
+
+No PowerShell, sem WSL e sem instalar Python à parte (o `uv` baixa o Python 3.12):
+
+```powershell
+winget install astral-sh.uv Git.Git    # se ainda não tiver; depois abra um PowerShell novo
+git clone https://github.com/barbieriht/mcp-vagas.git $HOME\projects\mcp-vagas
+cd $HOME\projects\mcp-vagas
+uv run --no-project -p 3.12 scripts\instalar_desktop.py      # Claude Desktop: MCP, extensão do Chrome e zip da Skill
+uv run --no-project -p 3.12 scripts\instalar_claude_code.py  # Claude Code (opcional): Skill, comandos e MCP
+```
+
+Diferenças em relação ao Linux e ao WSL:
+- A cópia estável, o banco e o `config.toml` ficam em `%LOCALAPPDATA%\vagas` (em vez de `~/.local/share/vagas`).
+- O servidor acha a Skill pelas variáveis `VAGAS_SKILL_DIR`, `VAGAS_SALARY_POLICY` e `VAGAS_TRIAGE_CRITERIA`, que os instaladores registram. Não há symlinks, que no Windows exigem administrador. No Claude Code, os links da Skill em `~/.claude/skills` são junções.
+- O cofre usa a DPAPI direto, e a extensão do Chrome chama o `python.exe` da cópia estável, sem `wsl.exe`.
+- Os arquivos pessoais do passo 2, no PowerShell:
+
+  ```powershell
+  cd skill\candidaturas
+  foreach ($f in "perfil", "politica-salarial", "criterios-triagem") { if (-not (Test-Path "$f.md")) { Copy-Item "$f.example.md" "$f.md" } }
+  ```
+
+- Nos comandos de terminal deste guia, troque `~/.local/share/vagas/venv/bin/python` por `$env:LOCALAPPDATA\vagas\venv\Scripts\python.exe`. Por exemplo, para o cofre: `& "$env:LOCALAPPDATA\vagas\venv\Scripts\python.exe" -m vagas.sensitive set cpf`.
 
 **2. Crie os seus arquivos pessoais** a partir dos exemplos e preencha os campos `<PREENCHER>`:
 
@@ -101,7 +126,7 @@ Specs e tickets: [issues do repositório](https://github.com/barbieriht/mcp-vaga
 
 ## Requisitos
 
-- Linux, macOS ou Windows com WSL2, com Python 3.12. O Claude Desktop e a extensão do Chrome exigem Windows + WSL2 (veja as [limitações](#mcp-vagas)).
+- Windows (com ou sem WSL2), Linux ou macOS, com Python 3.12 (no Windows, o `uv` instala sozinho). A extensão do Chrome exige Windows (veja as [limitações](#mcp-vagas)).
 - [`uv`](https://docs.astral.sh/uv/).
 - Claude Code e/ou Claude Desktop.
 
@@ -180,7 +205,7 @@ Confira com `claude mcp list`. As pastas (currículos, CSVs) não vão aqui: o C
 
 ### Claude Desktop (Windows)
 
-O Claude Desktop roda no Windows e chama o servidor dentro do WSL pelo `wsl.exe`. O banco, o código e a cópia estável continuam no Linux.
+O Claude Desktop roda no Windows. Sem WSL, ele chama direto o `python.exe` da cópia estável: basta o instalador da seção [Windows sem WSL](#windows-sem-wsl). Com WSL, ele chama o servidor dentro do Linux pelo `wsl.exe`, e o banco, o código e a cópia estável continuam no Linux; o resto desta seção é sobre esse caso.
 
 **Instalação automática (recomendada).** No WSL, na raiz do repositório:
 
@@ -254,7 +279,7 @@ A extensão **Claude in Chrome** (Chrome ou Edge) dá essa ferramenta, mas **nã
 
 | Como você usa | Melhor opção |
 |---|---|
-| Windows + WSL (o caso deste guia) | **Claude Desktop** com a extensão Claude in Chrome. O instalador do Desktop já registra o MCP; a Skill vai pelo zip. O Claude Code no WSL continua ótimo para busca, triagem e currículos. |
+| Windows (com ou sem WSL) | **Claude Desktop** com a extensão Claude in Chrome. O instalador do Desktop já registra o MCP; a Skill vai pelo zip. O Claude Code no WSL continua ótimo para busca, triagem e currículos. |
 | Claude Code direto no Windows, Linux ou macOS | `claude --chrome` (ou `/chrome`) com a extensão instalada e logada na mesma conta. |
 | Sem navegador conectado | Use o Claude Code normalmente e preencha os formulários com a ajuda dele (preenchimento guiado). |
 

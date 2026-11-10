@@ -48,7 +48,9 @@ def test_skill_has_frontmatter_and_instruction_files():
 def test_linked_files_exist():
     for doc in INSTRUCTIONS:
         for target in re.findall(r"\]\(([^)#]+\.md)\)", doc.read_text(encoding="utf-8")):
-            assert (SKILL_DIR / target).exists() or target.endswith(".example.md"), f"{doc.name} -> {target}"
+            # Os arquivos pessoais ficam fora do git: num clone novo, basta existir o exemplo.
+            example = SKILL_DIR / target.replace(".md", ".example.md")
+            assert (SKILL_DIR / target).exists() or example.exists(), f"{doc.name} -> {target}"
 
 
 async def test_skill_cites_only_identifiers_the_server_knows(server):

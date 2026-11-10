@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from resume_fixture import fictitious_resume
@@ -66,7 +68,7 @@ def test_long_role_titles_are_shortened_on_a_word_boundary(repo, store, out_dir)
 
     resume = store.create_tailored_resume(SELECTION, out_dir, application_id=app["id"])
 
-    name = resume["path"].rsplit("/", 1)[1]
+    name = Path(resume["path"]).name
     assert name.startswith("Fulana_Tal_Resume_Nubank_Cientista_de_Dados_Senior_Machine_Learning")
     assert len(name) <= 100 and not name.endswith("_.pdf")
 

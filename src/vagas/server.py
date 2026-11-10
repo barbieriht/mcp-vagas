@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from mcp.server.mcpserver.exceptions import ToolError
 
 from vagas import config as paths_config
+from vagas import system
 from vagas.db import connect, default_db_path
 from vagas.models import (
     Contract, Currency, InitialStatus, LinkedInSection, ResumeSourceKind, RoleKey, SalaryMode, Seniority,
@@ -122,7 +123,7 @@ def build_server(
         process = subprocess.Popen(
             [sys.executable, "-m", "vagas.search_run", "run", "--run-id", str(run_id)],
             env={**os.environ, "VAGAS_DB": str(db)}, stdin=subprocess.DEVNULL, stdout=log_file, stderr=log_file,
-            start_new_session=True,
+            **system.detached_process_options(),
         )
         log_file.close()
         return process.pid

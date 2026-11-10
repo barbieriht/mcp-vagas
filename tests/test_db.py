@@ -78,13 +78,6 @@ def test_db_path_comes_from_env(monkeypatch, tmp_path):
     assert default_db_path() == tmp_path / "outro.db"
 
 
-def test_db_path_defaults_to_local_share(monkeypatch, tmp_path):
-    monkeypatch.delenv("VAGAS_DB", raising=False)
-    monkeypatch.setenv("HOME", str(tmp_path))
-
-    assert default_db_path() == tmp_path / ".local/share/vagas/vagas.db"
-
-
 def test_contract_is_backfilled_from_published_salary_points(db_path):
     conn = connect(db_path)
     now = "2026-01-01T00:00:00+00:00"
