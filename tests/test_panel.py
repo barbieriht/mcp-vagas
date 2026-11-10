@@ -636,3 +636,67 @@ def test_profile_shows_resume_experiences_and_computed_years(skill, db_path):
         server.server_close()
 
     assert "- Anos de experiência a declarar: 8\n" in (skill / "perfil.md").read_text(encoding="utf-8")
+
+
+def test_jobs_api_lists_filters_and_details_with_the_token(running, db_path):
+    from vagas.db import connect
+    from vagas.repo import Repo
+
+    conn = connect(db_path)
+    app = Repo(conn).add_application(company="Acme", role="Data Scientist", source="gupy", status="a_aplicar",
+                                     url="https://acme.gupy.io/jobs/1")["application"]
+    conn.close()
+
+    denied, _ = request(running, "GET", "/api/jobs")
+    ok, body = request(running, "GET", "/api/jobs?status=a_aplicar&text=data", headers=TOKEN)
+    detail, detail_body = request(running, "GET", f"/api/jobs/{app['id']}", headers=TOKEN)
+    bad, bad_body = request(running, "GET", "/api/jobs?status=contratado", headers=TOKEN)
+    missing, _ = request(running, "GET", "/api/jobs/999", headers=TOKEN)
+
+    assert denied == 403 and (ok, detail, bad, missing) == (200, 200, 400, 404)
+    assert json.loads(body)["items"][0]["role"] == "Data Scientist"
+    assert json.loads(detail_body)["application"]["company"] == "Acme"
+    assert "status" in json.loads(bad_body)["error"]
+
+
+@pytest.mark.skipif(not _chromium(), reason="Playwright com Chromium não instalado")
+def test_jobs_tab_lists_filters_and_opens_the_detail(db_path):
+    from playwright.sync_api import expect, sync_playwright
+
+    from vagas.db import connect
+    from vagas.repo import Repo
+
+    conn = connect(db_path)
+    repo = Repo(conn)
+    for n, (company, role, status) in enumerate([("Acme", "Data Scientist", "a_aplicar"),
+                                                 ("Beta", "ML Engineer", "a_aplicar"),
+                                                 ("Gama", "Data Analyst", "aplicada")], start=1):
+        app = repo.add_application(company=company, role=role, source="gupy", status=status,
+                                   url=f"https://example.com/vagas/{n}", description="<b>Python</b> e SQL")["application"]
+        repo.set_match(app["id"], 50 + n * 10, {"matched": ["Python"], "missing": ["Spark"]})
+    conn.close()
+    server = panel.make_server(db_path, token="t0k3n")
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            page.goto(server.url)
+            page.get_by_role("link", name="Vagas").click()
+            page.get_by_role("button", name="A aplicar: 2").wait_for()
+            assert page.locator(".tabela-vagas tbody tr").count() == 3
+
+            page.get_by_role("button", name="A aplicar: 2").click()
+            expect(page.locator(".tabela-vagas tbody tr")).to_have_count(2)  # a CSP bloqueia wait_for_function
+            assert page.locator(".tabela-vagas tbody tr").first.inner_text().startswith("ML Engineer")  # maior aderência
+            page.get_by_role("button", name="Detalhes de Data Scientist — Acme").click()
+            detail = page.locator(".detalhe")
+            detail.wait_for()
+            assert "Termos ausentes" in detail.inner_text() and "Spark" in detail.inner_text()
+            detail.get_by_text("Descrição da vaga").click()
+            assert detail.locator(".descricao").inner_text() == "<b>Python</b> e SQL"  # texto, nunca HTML
+            assert page.get_by_role("button", name="Salvar tudo").is_hidden()
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
