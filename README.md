@@ -14,7 +14,13 @@ Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor 
 **Para quem é:** quem procura emprego (o foco são vagas no Brasil, na Gupy e no LinkedIn) e usa o Claude Code ou o Claude Desktop. Você conversa com o Claude; ele busca, tria, monta o currículo da vaga e prepara o formulário, e você revisa antes de enviar.
 
 **Limitações:**
-- Roda em Linux ou WSL2. O cofre de documentos (CPF, RG...) usa a DPAPI do Windows, então a extensão que preenche esses campos só funciona com Windows + WSL.
+- Plataformas:
+
+  | Onde | O que funciona |
+  |---|---|
+  | Windows + WSL2 | tudo, inclusive o Claude Desktop e a extensão do Chrome (documentos, termos de uso e anexo do currículo) |
+  | Linux ou macOS | tudo pelo Claude Code, menos a extensão: documentos, termos e anexo ficam como pendência para você resolver ([#170](https://github.com/barbieriht/mcp-vagas/issues/170)). No macOS ainda não houve teste |
+  | Windows sem WSL | ainda não é suportado ([#169](https://github.com/barbieriht/mcp-vagas/issues/169)) |
 - A busca por código cobre Gupy e LinkedIn. Indeed e Glassdoor bloqueiam leitura automática e são feitos pelo navegador.
 - Os textos da Skill e dos currículos estão em português.
 
@@ -24,7 +30,7 @@ Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor 
 
 Resumo prático, do zero até a primeira candidatura. Os detalhes de cada passo estão nas seções seguintes.
 
-**1. Instale** (Linux ou WSL2, com [`uv`](https://docs.astral.sh/uv/) e Python 3.12). Na raiz do repositório:
+**1. Instale** (Linux, macOS ou WSL2, com [`uv`](https://docs.astral.sh/uv/) e Python 3.12). Na raiz do repositório:
 
 ```bash
 git clone https://github.com/barbieriht/mcp-vagas.git ~/projects/mcp-vagas && cd ~/projects/mcp-vagas
@@ -95,7 +101,7 @@ Specs e tickets: [issues do repositório](https://github.com/barbieriht/mcp-vaga
 
 ## Requisitos
 
-- Linux ou WSL2, com Python 3.12.
+- Linux, macOS ou Windows com WSL2, com Python 3.12. O Claude Desktop e a extensão do Chrome exigem Windows + WSL2 (veja as [limitações](#mcp-vagas)).
 - [`uv`](https://docs.astral.sh/uv/).
 - Claude Code e/ou Claude Desktop.
 
