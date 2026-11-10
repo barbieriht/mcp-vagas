@@ -139,7 +139,8 @@ class _Handler(BaseHTTPRequestHandler):
             size = -1
         if size < 0 or size > MAX_BODY:
             self.close_connection = True
-            return self._json(413, {"error": "Formulário grande demais."})
+            self._json(413, {"error": "Formulário grande demais."})
+            return self._discard(size)
         try:
             data = json.loads(self.rfile.read(size).decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
@@ -149,6 +150,18 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._json(200, settings_form.save(data, self.server.db_path))
             except VagasError as exc:
                 return self._json(500, {"error": str(exc)})
+
+
+    def _discard(self, size: int) -> None:
+        """Lê e joga fora o corpo recusado (até um limite), para fechar a conexão sem reset: no Windows,
+        fechar com dados não lidos aborta a conexão antes de o navegador ler a resposta."""
+        remaining = min(max(size, 0), 8 * MAX_BODY)
+        self.connection.settimeout(1)
+        try:
+            while remaining > 0 and (chunk := self.rfile.read1(min(remaining, 65536))):
+                remaining -= len(chunk)
+        except OSError:
+            pass
 
 
 # --- estado do painel aberto -----------------------------------------------------------------

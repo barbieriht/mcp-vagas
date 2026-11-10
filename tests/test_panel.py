@@ -8,7 +8,7 @@ import threading
 import pytest
 
 from vagas import panel
-from vagas.config import config_path
+from vagas.config import config_path, resolve
 
 
 @pytest.fixture
@@ -95,7 +95,7 @@ def test_saving_from_the_panel_writes_the_config(running, db_path, tmp_path):
     status, body = request(running, "POST", "/api/settings", form, {**TOKEN, "Origin": f"http://127.0.0.1:{port}"})
 
     assert status == 200 and json.loads(body)["saved"]
-    assert str(tmp_path / "csv") in config_path(db_path).read_text(encoding="utf-8")
+    assert resolve("export_dir", db_path) == (tmp_path / "csv", "config")
 
 
 def test_invalid_fields_come_back_with_errors(running):
@@ -177,8 +177,8 @@ def test_filling_the_page_shows_errors_by_field_and_then_saves(running, db_path,
         assert page.get_by_text("Falta configurar").count() == 0
         browser.close()
 
-    saved = config_path(db_path).read_text(encoding="utf-8")
-    assert f'resume_out = "{tmp_path / "pdfs"}"'.replace("\\", "\\\\") in saved
-    assert "max_open_tabs = 8" in saved and 'login_method = "linkedin"' in saved
-    assert "export_dir" in saved and "master_resume" in saved  # padrões confirmados: o Claude não pergunta mais
+    assert resolve("resume_out", db_path) == (tmp_path / "pdfs", "config")
+    assert resolve("max_open_tabs", db_path) == (8, "config") and resolve("login_method", db_path) == ("linkedin", "config")
+    # padrões confirmados: o Claude não pergunta mais
+    assert resolve("export_dir", db_path)[1] == "config" and resolve("master_resume", db_path)[1] == "config"
     assert (tmp_path / "pdfs").is_dir()
