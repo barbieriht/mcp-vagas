@@ -108,7 +108,7 @@ def load_resume(db_path: Path | str | None) -> dict[str, Any]:
             value = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         except yaml.YAMLError as exc:
             return {**base, "error": f"O rascunho {path} não é um YAML válido ({exc}). Corrija o arquivo à mão."}
-        return {**base, "origin": "draft", "value": value, "hash": _fingerprint(path)}
+        return {**base, "origin": "draft", "value": value, "hash": _fingerprint(path), "approval": _approval(db_path)}
     conn = connect(db_path) if db_path is not None else connect()
     try:
         approved = ResumeStore(conn, path).get_master_resume()
@@ -117,7 +117,9 @@ def load_resume(db_path: Path | str | None) -> dict[str, Any]:
     finally:
         conn.close()
     return {**base, "origin": "approved", "value": approved["resume"], "hash": "",
-            "approved_at": approved["approved_at"]}
+            "approved_at": approved["approved_at"],
+            "approval": {"can_approve": False, "reason": "Não há rascunho: edite e salve para criar um.",
+                         "changes": [], "review": []}}
 
 
 def _slug(text: str) -> str:
@@ -234,3 +236,92 @@ def plan_resume(values: Any, db_path: Path | str | None) -> tuple[ResumeChange |
     if problems := source_note_problems(clean):
         return None, {"resume": f"Estes campos {SOURCE_NOTES_HELP}: " + "; ".join(problems)}
     return ResumeChange(db_path, clean), {}
+
+
+# --- diferenças com a versão aprovada e aprovação ----------------------------------------------------
+
+_LABEL_KEYS = ("title", "role", "degree", "name", "label", "company", "organization", "institution")
+
+
+def _label(item: dict[str, Any]) -> str:
+    parts = [str(item[k]) for k in _LABEL_KEYS if item.get(k)][:2]
+    return " · ".join(parts) or str(item.get("id", ""))
+
+
+def _key_of(item: dict[str, Any]) -> str:
+    return str(item.get("id") or normalize_text(str(item.get("name", ""))))
+
+
+def draft_changes(store: Any) -> list[dict[str, Any]]:
+    """O que o rascunho muda em relação à versão aprovada: por seção, itens novos, removidos e alterados
+    (com os campos). Sem versão aprovada, tudo é novo."""
+    from vagas.resume_model import MasterResume
+
+    draft = MasterResume.model_validate(store._read_draft()).as_data()
+    try:
+        approved = store.get_master_resume()["resume"]
+    except VagasError:
+        approved = {}
+    changes: list[dict[str, Any]] = []
+    for key in ("basics", "summary"):
+        old, new = approved.get(key), draft.get(key)
+        if old == new:
+            continue
+        if isinstance(old, dict) or isinstance(new, dict):
+            fields = sorted(k for k in set(old or {}) | set(new or {}) if (old or {}).get(k) != (new or {}).get(k))
+        else:
+            fields = [key]
+        changes.append({"section": key, "kind": "changed", "fields": fields, "label": ""})
+    for section in ("experience", "education", "volunteering", "projects", "publications", "skills",
+                    "certifications", "languages"):
+        old = {_key_of(i): i for i in approved.get(section, [])}
+        new = {_key_of(i): i for i in draft.get(section, [])}
+        for key, item in new.items():
+            entry = {"section": section, "id": item.get("id"), "label": _label(item)}
+            if key not in old:
+                changes.append({**entry, "kind": "added"})
+            elif item != old[key]:
+                fields = sorted(k for k in set(item) | set(old[key]) if item.get(k) != old[key].get(k))
+                changes.append({**entry, "kind": "changed", "fields": fields})
+        for key, item in old.items():
+            if key not in new:
+                changes.append({"section": section, "id": item.get("id"), "label": _label(item), "kind": "removed"})
+    return changes
+
+
+def _approval(db_path: Path | str | None) -> dict[str, Any]:
+    from pydantic import ValidationError as _Invalid
+
+    from vagas.db import connect
+    from vagas.resume_repo import ResumeStore
+
+    conn = connect(db_path) if db_path is not None else connect()
+    try:
+        store = ResumeStore(conn, _draft_path(db_path))
+        try:
+            changes = draft_changes(store)
+            review = store.draft_review() or []
+        except (VagasError, _Invalid) as exc:
+            return {"can_approve": False, "changes": [], "review": [],
+                    "reason": f"O rascunho tem erros: corrija e salve antes de aprovar. ({str(exc)[:300]})"}
+    finally:
+        conn.close()
+    if not changes:
+        return {"can_approve": False, "changes": [], "review": review,
+                "reason": "Nenhuma diferença em relação à versão aprovada."}
+    return {"can_approve": True, "changes": changes, "review": review, "reason": ""}
+
+
+def approve(db_path: Path | str | None, fingerprint: str) -> dict[str, Any]:
+    """Aprova o rascunho que o usuário viu no painel (mesma impressão digital), pelo approve_master."""
+    from vagas.db import connect
+    from vagas.resume_repo import ResumeStore
+
+    if not isinstance(fingerprint, str) or fingerprint != _fingerprint(_draft_path(db_path)) or not fingerprint:
+        raise VagasError("O rascunho mudou depois que você abriu o painel (ou não existe mais). Recarregue a "
+                         "página, confira as diferenças e aprove de novo.")
+    conn = connect(db_path) if db_path is not None else connect()
+    try:
+        return ResumeStore(conn, _draft_path(db_path)).approve_master()
+    finally:
+        conn.close()

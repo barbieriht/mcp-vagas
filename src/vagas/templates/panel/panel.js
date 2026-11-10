@@ -271,9 +271,8 @@ function renderSecret(section, field, name, id) {
 // próprio currículo (campos que o painel não mostra voltam como vieram); listas viram blocos recolhíveis.
 function renderResume(section, box) {
   const state = structuredClone(section.value);
-  const before = JSON.stringify({ data: state, hash: section.hash });
   box.append(el("p", { class: "nota aviso", text: section.origin === "draft"
-    ? "Você está editando o rascunho do currículo geral. Os currículos personalizados só usam a versão aprovada: depois de editar, aprove o rascunho (pedindo ao Claude, por enquanto)."
+    ? "Você está editando o rascunho do currículo geral. Os currículos personalizados só usam a versão aprovada: depois de salvar, aprove o rascunho no fim desta seção."
     : `Não há rascunho: salvar aqui cria um rascunho a partir da versão aprovada${section.approved_at ? ` em ${section.approved_at.slice(0, 10)}` : ""}.` }));
 
   const summaryOf = (spec, item) => (spec.item.summary || []).map((key) => item[key]).filter(Boolean).join(" · ") || "Novo item";
@@ -362,7 +361,76 @@ function renderResume(section, box) {
       el("summary", { text: spec.label }), node(spec, state, [spec.key]));
     box.append(part);
   }
+  // O "antes" vem depois de montar o editor: listas ausentes viram [] e não contam como alteração.
+  const before = JSON.stringify({ data: state, hash: section.hash });
   controls.push({ section: "resume", key: "__whole__", before, node: box, read: () => ({ data: state, hash: section.hash }) });
+  renderApproval(section, box);
+}
+
+// Aprovação do currículo geral: o que muda em relação à versão aprovada, o que não aparece nas fontes e
+// o botão Aprovar, com uma confirmação que repete os avisos. Aprovar não faz parte do "Salvar tudo".
+function renderApproval(section, box) {
+  const approval = section.approval;
+  if (!approval) return;
+  // Rótulos por seção: "title" é Cargo nas experiências e Título nas publicações.
+  const labels = {};
+  const fieldLabels = {};
+  for (const spec of section.schema.fields) {
+    labels[spec.key] = spec.label;
+    fieldLabels[spec.key] = Object.fromEntries((spec.item ? spec.item.fields : spec.fields || [spec]).map((f) => [f.key, f.label]));
+  }
+  const kinds = { added: "novo", removed: "removido", changed: "alterado" };
+  const area = el("div", { class: "aprovacao" }, el("h3", { text: "Aprovar o rascunho" }));
+  if (approval.changes.length) {
+    const list = el("ul", { class: "mudancas" });
+    for (const change of approval.changes) {
+      const fields = (change.fields || []).map((f) => (fieldLabels[change.section] || {})[f] || f).join(", ");
+      list.append(el("li", { text: `${labels[change.section] || change.section}: ${change.label ? change.label + " — " : ""}${kinds[change.kind]}${fields ? ` (${fields})` : ""}` }));
+    }
+    area.append(el("p", { class: "ajuda", text: "O que muda em relação à versão aprovada:" }), list);
+  }
+  if (approval.review.length) {
+    const list = el("ul", { class: "mudancas" });
+    for (const item of approval.review.slice(0, 30)) list.append(el("li", { text: `${item.where}: ${item.value} (${item.reason})` }));
+    const warning = el("p", { class: "nota aviso", text: `Não encontrado no PDF nem no LinkedIn (${approval.review.length}). Confira se é verdade antes de aprovar: nada inventado pode chegar ao recrutador.` });
+    area.append(warning, approval.review.length > 5
+      ? el("details", { class: "cv-secao" }, el("summary", { text: `Ver os ${approval.review.length} itens` }), list)
+      : list);
+  }
+  const message = el("p", { class: "nota", role: "status" });
+  const button = el("button", { type: "button", class: "aprovar", text: "Aprovar o rascunho", disabled: !approval.can_approve });
+  if (!approval.can_approve) message.textContent = approval.reason;
+  const confirm = el("div", { class: "confirmacao", hidden: true },
+    el("p", { text: `Aprovar torna este rascunho a versão usada nos currículos personalizados e recalcula a aderência das vagas abertas.${approval.review.length ? ` Há ${approval.review.length} item(ns) que não aparecem nas fontes.` : ""}` }));
+  const yes = el("button", { type: "button", class: "aprovar", text: "Confirmar aprovação" });
+  const no = el("button", { type: "button", class: "remover", text: "Cancelar", onclick: () => { confirm.hidden = true; button.hidden = false; } });
+  confirm.append(el("div", { class: "cv-acoes" }, no, yes));
+  button.addEventListener("click", () => {
+    if (changes().resume) {  // só as alterações do currículo importam para aprovar
+      message.textContent = "Há alterações não salvas no currículo: clique em \"Salvar tudo\" antes de aprovar.";
+      return;
+    }
+    button.hidden = true;
+    confirm.hidden = false;
+    yes.focus();
+  });
+  yes.addEventListener("click", async () => {
+    yes.disabled = true;
+    try {
+      const response = await fetch("/api/resume/approve", { method: "POST", headers: { "X-Panel-Token": token, "Content-Type": "application/json" }, body: JSON.stringify({ hash: section.hash }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || `O painel respondeu ${response.status}.`);
+      render(result.settings);
+      status(`Currículo geral aprovado (versão ${result.version_id}). Aderência recalculada em ${result.rescored} vaga(s).`, "ok");
+    } catch (error) {
+      confirm.hidden = true;
+      button.hidden = false;
+      message.textContent = error.message;
+      yes.disabled = false;
+    }
+  });
+  area.append(button, confirm, message);
+  box.append(area);
 }
 
 const plain = (text) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();

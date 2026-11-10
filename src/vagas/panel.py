@@ -137,7 +137,8 @@ class _Handler(BaseHTTPRequestHandler):
             self.close_connection = True
             self._denied()
             return self._discard(size)
-        if urlsplit(self.path).path != "/api/settings":
+        route = urlsplit(self.path).path
+        if route not in ("/api/settings", "/api/resume/approve"):
             self.close_connection = True
             self._send(404, b"", "text/plain")
             return self._discard(size)
@@ -151,9 +152,22 @@ class _Handler(BaseHTTPRequestHandler):
             return self._json(400, {"error": "Formulário inválido (JSON)."})
         with self.server.save_lock:  # duas abas salvando juntas não se misturam
             try:
+                if route == "/api/resume/approve":
+                    return self._approve(data)
                 return self._json(200, settings_form.save(data, self.server.db_path))
             except VagasError as exc:
                 return self._json(500, {"error": str(exc)})
+
+    def _approve(self, data: Any) -> None:
+        """Aprova o rascunho do currículo geral que o usuário viu (mesma impressão digital)."""
+        from vagas import settings_resume
+
+        fingerprint = data.get("hash") if isinstance(data, dict) else None
+        try:
+            result = settings_resume.approve(self.server.db_path, fingerprint)
+        except VagasError as exc:
+            return self._json(409, {"error": str(exc)})
+        return self._json(200, {"approved": True, **result, "settings": settings_form.load(self.server.db_path)})
 
 
     def _discard(self, size: int) -> None:
