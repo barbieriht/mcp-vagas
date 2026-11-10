@@ -126,8 +126,13 @@ function renderFileField(section, field, isNew) {
     return group;
   }
   if (field.kind === "choice_other") return renderChoiceOther(section, field, name, id, classes, help, notes);
+  if (field.kind === "bands") return renderBands(section, field, name, help);
   let control;
-  if (field.kind === "yesno") {
+  if (field.kind === "choice") {
+    control = el("select", { id });
+    for (const choice of field.choices) control.append(el("option", { value: choice.value, text: choice.label }));
+    control.value = field.value;
+  } else if (field.kind === "yesno") {
     control = el("select", { id });
     for (const [value, label] of [["", "Escolha…"], ["sim", "Sim"], ["não", "Não"]]) control.append(el("option", { value, text: label }));
     control.value = field.value;
@@ -174,6 +179,93 @@ function nextFieldOnEnter(event) {
     .filter((node) => !node.disabled && !node.hidden && node.offsetParent !== null);
   const next = fields[fields.indexOf(target) + 1];
   if (next) next.focus();
+}
+
+const plain = (text) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+
+// Tabela de faixas da política salarial: uma linha por faixa, com "usar a faixa de" outra linha.
+function renderBands(section, field, name, help) {
+  const list = el("div", { class: "faixas" });
+  const box = el("fieldset", { class: "campo", "data-campo": name }, el("legend", { text: field.title }), help, list);
+  const rows = [];
+
+  function aliasTarget(row, alias) {
+    if (!alias) return "";
+    const target = plain(alias);
+    const hit = rows.find((other) => other !== row && (plain(other.name.value).startsWith(target) || target.startsWith(plain(other.name.value))));
+    return hit ? hit.name.value : alias;
+  }
+
+  function refresh() {
+    rows.forEach((row, index) => {
+      row.node.querySelector(".faixa-titulo").textContent = `Faixa ${index + 1}`;
+      for (const [key, node] of Object.entries(row.cells)) node.dataset.campo = `${name}.${index}.${key}`;
+      const current = row.alias.value;
+      row.alias.replaceChildren(el("option", { value: "", text: "Não: valores próprios" }));
+      for (const other of rows) {
+        if (other !== row && other.name.value.trim()) row.alias.append(el("option", { value: other.name.value.trim(), text: other.name.value.trim() }));
+      }
+      row.alias.value = [...row.alias.options].some((o) => o.value === current) ? current : "";
+      const usesOther = Boolean(row.alias.value);
+      row.min.disabled = row.max.disabled = usesOther;
+    });
+  }
+
+  function addRow(data) {
+    const n = ++counter;
+    const make = (key, label, control) => {
+      control.id = `faixa-${n}-${key}`;
+      const cell = el("div", { class: `celula celula-${key}` }, el("label", { for: control.id, text: label }), control);
+      return cell;
+    };
+    const row = {
+      name: el("input", { type: "text", value: data.name || "", placeholder: "Ex.: Remoto nacional", autocomplete: "off" }),
+      currency: el("select", {}),
+      clt: el("input", { type: "checkbox" }),
+      min: el("input", { type: "text", inputmode: "decimal", value: data.min || "", placeholder: data.hint_min ? `Ex.: ${data.hint_min}` : "Ex.: 8000", autocomplete: "off" }),
+      max: el("input", { type: "text", inputmode: "decimal", value: data.max || "", placeholder: data.hint_max ? `Ex.: ${data.hint_max}` : "Opcional", autocomplete: "off" }),
+      alias: el("select", {}),
+    };
+    for (const currency of field.currencies) row.currency.append(el("option", { value: currency, text: currency }));
+    row.currency.value = data.currency || field.currencies[0];
+    row.clt.checked = Boolean(data.clt);
+    row.cells = {
+      name: make("name", "Nome", row.name),
+      currency: make("currency", "Moeda", row.currency),
+      min: make("min", "Mínimo mensal", row.min),
+      max: make("max", "Máximo mensal", row.max),
+      alias: make("alias", "Usar os valores da faixa", row.alias),
+    };
+    row.clt.id = `faixa-${n}-clt`;
+    const clt = el("label", { class: "opcao celula-clt", for: row.clt.id }, row.clt, el("span", { text: "CLT (multiplicada em vagas PJ)" }));
+    const remove = el("button", { type: "button", class: "remover", text: "Remover faixa", onclick: () => {
+      rows.splice(rows.indexOf(row), 1);
+      row.node.remove();
+      refresh();
+    } });
+    row.node = el("div", { class: "faixa" },
+      el("div", { class: "faixa-topo" }, el("p", { class: "faixa-titulo" }), remove),
+      el("div", { class: "faixa-grade" }, row.cells.name, row.cells.currency, row.cells.min, row.cells.max, row.cells.alias, clt),
+      data.applies ? el("p", { class: "nota", text: data.applies }) : null);
+    row.name.addEventListener("input", refresh);
+    row.alias.addEventListener("change", refresh);
+    rows.push(row);
+    list.append(row.node);
+    refresh();
+    row.alias.value = aliasTarget(row, data.alias || "");
+    refresh();
+    return row;
+  }
+
+  for (const data of field.value) addRow(data);
+  const add = el("button", { type: "button", class: "adicionar", text: "Adicionar faixa", onclick: () => addRow({}).name.focus() });
+  box.append(add);
+  const read = () => rows.map((row) => ({
+    name: row.name.value.trim(), currency: row.currency.value, clt: row.clt.checked,
+    min: row.alias.value ? "" : row.min.value.trim(), max: row.alias.value ? "" : row.max.value.trim(), alias: row.alias.value,
+  }));
+  register(section.key, field.id, read(), read, box);
+  return box;
 }
 
 function sectionPending(key, section) {

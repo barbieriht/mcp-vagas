@@ -280,3 +280,52 @@ def test_enter_moves_to_the_next_field_and_diversity_offers_other(skill, db_path
     profile = (skill / "perfil.md").read_text(encoding="utf-8")
     assert "  - Sexo: Masculino\n" in profile and "  - Raça/etnia: Branco/Latino\n" in profile
     assert "  - Identidade de gênero: <...>\n" in profile and "- Nome: Maria Teste" in profile
+
+
+@pytest.mark.skipif(not _chromium(), reason="Playwright com Chromium não instalado")
+def test_salary_bands_are_edited_as_a_table(skill, db_path, monkeypatch):
+    from playwright.sync_api import sync_playwright
+
+    from vagas.salary_policy import parse_policy
+
+    policy = skill / "politica-salarial.md"
+    policy.write_text("# Política salarial\n\n- Modo: minimo\n- Multiplicador PJ: 1.4\n"
+                      "- Remoto nacional (BRL, CLT): mínimo 8.000, máximo 12.000\n"
+                      "- Internacional (USD): mínimo 3000\n", encoding="utf-8")
+    monkeypatch.setenv("VAGAS_SALARY_POLICY", str(policy))
+    monkeypatch.setattr("vagas.settings_form._reevaluate_salaries", lambda db: {"changed": []})
+    server = panel.make_server(db_path, token="t0k3n")
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            page.goto(server.url)
+            bands = page.get_by_role("group", name="Faixas")
+            bands.wait_for()
+            first = bands.locator(".faixa").nth(0)
+            first.get_by_label("Mínimo mensal").fill("")
+            page.get_by_role("button", name="Salvar tudo").click()
+            page.get_by_text("Nada foi salvo").wait_for()
+            assert first.locator(".celula-min .erro").is_visible()
+
+            first.get_by_label("Mínimo mensal").fill("9.500")
+            bands.get_by_role("button", name="Adicionar faixa").click()
+            new = bands.locator(".faixa").nth(2)
+            new.get_by_label("Nome").fill("Híbrido em Campinas")
+            new.get_by_label("Usar os valores da faixa").select_option("Remoto nacional")
+            assert new.get_by_label("Mínimo mensal").is_disabled()
+            new.locator("input[type=checkbox]").check()
+            bands.locator(".faixa").nth(1).get_by_role("button", name="Remover faixa").click()
+            page.get_by_role("button", name="Salvar tudo").click()
+            page.get_by_text("Tudo salvo").wait_for()
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    text = policy.read_text(encoding="utf-8")
+    assert "- Remoto nacional (BRL, CLT): mínimo 9500, máximo 12000\n" in text
+    assert "- Híbrido em Campinas (BRL, CLT): usar a faixa do Remoto nacional\n" in text
+    assert "Internacional" not in text
+    assert [b.label for b in parse_policy(text).bands] == ["Remoto nacional", "Híbrido em Campinas"]

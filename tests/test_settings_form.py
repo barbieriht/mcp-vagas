@@ -320,6 +320,138 @@ def test_pcd_terms_are_not_a_user_setting_anymore(db_path, skill):
     assert "Termos de vaga exclusiva PcD" not in (EXAMPLES / "criterios-triagem.example.md").read_text(encoding="utf-8")
 
 
+# --- política salarial ---------------------------------------------------------------------------
+
+from vagas.salary_policy import parse_policy  # noqa: E402
+
+POLICY_TEXT = """# Política salarial
+
+Explicação que precisa ficar.
+
+- Modo: minimo
+  - minimo: aplicar se a mediana for maior ou igual ao mínimo
+- Multiplicador PJ: 1.4
+- Remoto nacional (BRL, CLT): mínimo 8.000, máximo 12.000
+- Híbrido/presencial em São Paulo e região (BRL, CLT): mínimo 10.500
+- Híbrido/presencial em Campinas (BRL, CLT): usar a faixa do remoto nacional
+- Internacional (USD): mínimo 3000
+
+## Valores aceitos
+- **Modo:** `minimo` ou `faixa`.
+"""
+
+
+@pytest.fixture
+def policy(tmp_path, monkeypatch, skill):
+    shutil.copy(EXAMPLES / "politica-salarial.example.md", skill / "politica-salarial.example.md")
+    path = skill / "politica-salarial.md"
+    monkeypatch.setenv("VAGAS_SALARY_POLICY", str(path))
+    return path
+
+
+def policy_section(db_path):
+    return {f["id"]: f for g in load(db_path)["sections"]["policy"]["groups"] for f in g["fields"]}
+
+
+def test_policy_shows_mode_multiplier_and_one_row_per_band(db_path, policy):
+    policy.write_text(POLICY_TEXT, encoding="utf-8")
+
+    fields = policy_section(db_path)
+
+    assert fields["Modo"]["kind"] == "choice" and fields["Modo"]["value"] == "minimo"
+    assert fields["Multiplicador PJ"]["value"] == "1.4"
+    bands = fields["Faixas"]
+    assert bands["kind"] == "bands" and bands["currencies"] == ["BRL", "USD", "EUR"]
+    assert [(b["name"], b["currency"], b["clt"], b["min"], b["max"], b["alias"]) for b in bands["value"]] == [
+        ("Remoto nacional", "BRL", True, "8000", "12000", ""),
+        ("Híbrido/presencial em São Paulo e região", "BRL", True, "10500", "", ""),
+        ("Híbrido/presencial em Campinas", "BRL", True, "", "", "remoto nacional"),
+        ("Internacional", "USD", False, "3000", "", ""),
+    ]
+    assert bands["value"][1]["applies"] == "Vale para vagas híbridas e presenciais em São Paulo."
+    assert bands["value"][3]["applies"] == "Vale para vagas remotas, híbridas e presenciais em qualquer local."
+
+
+def test_saving_bands_rewrites_only_the_band_lines_in_place(db_path, policy):
+    policy.write_text(POLICY_TEXT, encoding="utf-8")
+    bands = policy_section(db_path)["Faixas"]["value"]
+    bands[0]["min"] = "9000"
+    del bands[3]
+    bands.append({"name": "Presencial em Curitiba", "currency": "BRL", "clt": False, "min": "R$ 11.000,00",
+                  "max": "14000", "alias": ""})
+
+    result = save({"policy": {"Faixas": bands, "Multiplicador PJ": "1,5"}}, db_path)
+
+    assert result["saved"], result["errors"]
+    text = policy.read_text(encoding="utf-8")
+    assert text == POLICY_TEXT.replace("- Multiplicador PJ: 1.4", "- Multiplicador PJ: 1,5").replace(
+        "- Remoto nacional (BRL, CLT): mínimo 8.000, máximo 12.000\n"
+        "- Híbrido/presencial em São Paulo e região (BRL, CLT): mínimo 10.500\n"
+        "- Híbrido/presencial em Campinas (BRL, CLT): usar a faixa do remoto nacional\n"
+        "- Internacional (USD): mínimo 3000\n",
+        "- Remoto nacional (BRL, CLT): mínimo 9000, máximo 12000\n"
+        "- Híbrido/presencial em São Paulo e região (BRL, CLT): mínimo 10500\n"
+        "- Híbrido/presencial em Campinas (BRL, CLT): usar a faixa do remoto nacional\n"
+        "- Presencial em Curitiba (BRL): mínimo 11000, máximo 14000\n")
+    assert len(parse_policy(text).bands) == 4
+
+
+def test_each_bad_band_comes_back_with_its_own_error(db_path, policy):
+    policy.write_text(POLICY_TEXT, encoding="utf-8")
+    before = policy.read_text(encoding="utf-8")
+    bands = [
+        {"name": "Remoto", "currency": "BRL", "clt": True, "min": "", "max": "", "alias": ""},
+        {"name": "Híbrido", "currency": "XYZ", "clt": False, "min": "9000", "max": "", "alias": ""},
+        {"name": "Presencial", "currency": "BRL", "clt": False, "min": "9000", "max": "8000", "alias": ""},
+        {"name": "Outra (teste)", "currency": "BRL", "clt": False, "min": "", "max": "", "alias": "inexistente"},
+    ]
+
+    result = save({"policy": {"Faixas": bands, "Multiplicador PJ": "zero"}}, db_path)
+
+    assert not result["saved"] and policy.read_text(encoding="utf-8") == before
+    assert set(result["errors"]) == {"policy.Faixas.0.min", "policy.Faixas.1.currency", "policy.Faixas.2.max",
+                                     "policy.Faixas.3.name", "policy.Faixas.3.alias", "policy.Multiplicador PJ"}
+
+
+def test_range_mode_needs_a_maximum_in_every_band(db_path, policy):
+    policy.write_text(POLICY_TEXT, encoding="utf-8")
+
+    result = save({"policy": {"Modo": "faixa"}}, db_path)
+
+    assert not result["saved"]
+    assert {"policy.Faixas.1.max", "policy.Faixas.3.max"} <= set(result["errors"])
+
+
+def test_at_least_one_band_is_needed(db_path, policy):
+    policy.write_text(POLICY_TEXT, encoding="utf-8")
+
+    result = save({"policy": {"Faixas": []}}, db_path)
+
+    assert result["errors"] == {"policy.Faixas": "Cadastre pelo menos uma faixa."}
+
+
+def test_new_policy_keeps_the_example_bands_but_not_its_values(db_path, policy):
+    bands = policy_section(db_path)["Faixas"]
+
+    assert [b["name"] for b in bands["value"]][:2] == ["Remoto nacional", "Híbrido/presencial em São Paulo e região"]
+    assert all(b["min"] == "" and b["max"] == "" for b in bands["value"])
+    assert bands["value"][0]["hint_min"] == "8000"
+    blocked = save({"policy": {"Faixas": bands["value"]}}, db_path)
+    assert not blocked["saved"] and "policy.Faixas.0.min" in blocked["errors"]
+    assert not policy.exists()
+
+
+def test_changing_the_policy_reevaluates_the_open_applications(db_path, policy, monkeypatch):
+    policy.write_text(POLICY_TEXT, encoding="utf-8")
+    calls = []
+    monkeypatch.setattr("vagas.settings_form._reevaluate_salaries", lambda db: calls.append(db) or {"changed": []})
+
+    save({"profile": {}}, db_path)  # nada da política: não reavalia
+    result = save({"policy": {"Multiplicador PJ": "1.5"}}, db_path)
+
+    assert calls == [db_path] and result["reevaluated"] == {"changed": []}
+
+
 # --- campos novos do exemplo num perfil que já existe ------------------------------------------
 
 def test_the_example_has_a_portfolio_for_people_outside_tech():

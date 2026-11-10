@@ -15,6 +15,7 @@ from vagas.repo import VagasError
 FILE_SECTIONS = {
     "profile": (settings_files.load_profile, settings_files.plan_profile),
     "criteria": (settings_files.load_criteria, settings_files.plan_criteria),
+    "policy": (settings_files.load_policy, settings_files.plan_policy),
 }
 
 
@@ -114,7 +115,7 @@ def save(data: Any, db_path: Path | str | None = None) -> dict[str, Any]:
             planned, section_errors = plan_section(data[key], db_path)
             result["errors"].update(section_errors)
             if planned is not None:
-                pending_files.append(planned)
+                pending_files.append((key, planned))
     if not result["errors"]:
         for key, stored in cleaned.items():
             if stored is not None:
@@ -128,11 +129,12 @@ def save(data: Any, db_path: Path | str | None = None) -> dict[str, Any]:
     rule_before = config.resolve("salary_rule", db_path)[0]
     if cleaned:
         config.write(cleaned, db_path)
-    for planned in pending_files:  # tudo validado antes: cada arquivo é gravado de uma vez
+    for _, planned in pending_files:  # tudo validado antes: cada arquivo é gravado de uma vez
         md_fields.write_atomic(planned.path, planned.text)
     result["saved"] = True
     result["warnings"] = [w for key in cleaned if cleaned[key] is not None and (w := config.env_warning(key, db_path))]
-    if config.resolve("salary_rule", db_path)[0] != rule_before:
-        result["reevaluated"] = _reevaluate_salaries(db_path)
+    policy_changed = any(key == "policy" for key, _ in pending_files)
+    if config.resolve("salary_rule", db_path)[0] != rule_before or policy_changed:
+        result["reevaluated"] = _reevaluate_salaries(db_path)  # pretensões das vagas abertas com a regra nova
     result["settings"] = load(db_path)
     return result
