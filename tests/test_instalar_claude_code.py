@@ -1,7 +1,7 @@
 import importlib.util
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -140,7 +140,7 @@ def test_host_uses_the_same_db_as_the_claude_code_registration(tmp_path):
 
 def test_linux_shortcut_is_a_desktop_entry_that_runs_the_panel(tmp_path):
     path = inst.panel_shortcut_path(tmp_path, macos=False)
-    text = inst.panel_shortcut(Path("/home/u/.local/share/vagas/venv/bin/python"),
+    text = inst.panel_shortcut(PurePosixPath("/home/u/.local/share/vagas/venv/bin/python"),
                                {"VAGAS_DB": "/home/u/dados com espaço/vagas.db"}, macos=False)
 
     assert path == tmp_path / ".local/share/applications/mcp-vagas-painel.desktop"
@@ -154,7 +154,7 @@ def test_linux_shortcut_is_a_desktop_entry_that_runs_the_panel(tmp_path):
 
 def test_macos_shortcut_is_a_command_file_on_the_desktop(tmp_path):
     path = inst.panel_shortcut_path(tmp_path, macos=True)
-    text = inst.panel_shortcut(Path("/Users/u/.local/share/vagas/venv/bin/python"), {"VAGAS_DB": "/Users/u/x.db"},
+    text = inst.panel_shortcut(PurePosixPath("/Users/u/.local/share/vagas/venv/bin/python"), {"VAGAS_DB": "/Users/u/x.db"},
                                macos=True)
 
     assert path == tmp_path / "Desktop" / "Painel do mcp-vagas.command"
