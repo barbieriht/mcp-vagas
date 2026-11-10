@@ -144,3 +144,18 @@ button.adicionar { margin-top: 12px; }
 .selo.ok { background: transparent; border: 1px solid var(--ok); color: var(--ok); }
 .a-remover input { text-decoration: line-through; }
 .campo input[type=password] + .remover { margin-top: 8px; }
+
+details.cv-secao { border-top: 1px solid var(--borda); padding: 12px 0; }
+details.cv-secao > summary { cursor: pointer; font-weight: 600; font-size: 18px; color: var(--destaque); }
+.cv-objeto { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
+.cv-campo { padding: 8px 0; border-top: none; }
+.cv-campo textarea { width: 100%; padding: 8px 10px; font: inherit; color: var(--texto); background: var(--fundo); border: 1px solid var(--borda); border-radius: 8px; resize: vertical; }
+.cv-campo textarea:focus-visible { outline: 3px solid var(--foco); outline-offset: 2px; }
+.cv-lista { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+details.cv-item { border: 1px solid var(--borda); border-radius: 10px; padding: 8px 12px; background: var(--fundo); }
+details.cv-item > summary { cursor: pointer; font-weight: 600; overflow-wrap: anywhere; }
+.cv-item-corpo { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
+.cv-item-corpo > .cv-lista-campo, .cv-item-corpo > .cv-acoes, .cv-item-corpo > .cv-campo:has(textarea) { grid-column: 1 / -1; }
+.cv-acoes { display: flex; gap: 8px; justify-content: flex-end; padding-top: 8px; }
+.cv-lista-campo { border-top: none; }
+@media (max-width: 720px) { .cv-objeto, .cv-item-corpo { grid-template-columns: minmax(0, 1fr); } }

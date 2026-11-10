@@ -267,6 +267,104 @@ function renderSecret(section, field, name, id) {
   return box;
 }
 
+// Currículo geral: editor guiado pela descrição das seções (schema) que vem do servidor. O estado é o
+// próprio currículo (campos que o painel não mostra voltam como vieram); listas viram blocos recolhíveis.
+function renderResume(section, box) {
+  const state = structuredClone(section.value);
+  const before = JSON.stringify({ data: state, hash: section.hash });
+  box.append(el("p", { class: "nota aviso", text: section.origin === "draft"
+    ? "Você está editando o rascunho do currículo geral. Os currículos personalizados só usam a versão aprovada: depois de editar, aprove o rascunho (pedindo ao Claude, por enquanto)."
+    : `Não há rascunho: salvar aqui cria um rascunho a partir da versão aprovada${section.approved_at ? ` em ${section.approved_at.slice(0, 10)}` : ""}.` }));
+
+  const summaryOf = (spec, item) => (spec.item.summary || []).map((key) => item[key]).filter(Boolean).join(" · ") || "Novo item";
+
+  function field(spec, holder, path) {
+    const name = `resume.${path.join(".")}`;
+    const id = `campo-${++counter}`;
+    const label = el("label", { for: id, text: spec.label + (spec.required ? " *" : "") });
+    let control;
+    if (spec.type === "longtext") {
+      control = el("textarea", { id, rows: "3" });
+      control.value = holder[spec.key] || "";
+    } else if (spec.type === "textlist") {
+      control = el("textarea", { id, rows: "3", placeholder: "Um por linha" });
+      control.value = (holder[spec.key] || []).join("\n");
+    } else if (spec.type === "choice") {
+      control = el("select", { id });
+      control.append(el("option", { value: "", text: "—" }));
+      for (const choice of spec.choices) control.append(el("option", { value: choice.value, text: choice.label }));
+      control.value = holder[spec.key] || "";
+    } else {
+      control = el("input", { id, type: spec.type === "int" ? "number" : "text", placeholder: spec.placeholder || "", autocomplete: "off" });
+      control.value = holder[spec.key] ?? "";
+    }
+    control.addEventListener("input", () => {
+      const raw = control.value;
+      if (spec.type === "textlist") holder[spec.key] = raw.split("\n").map((s) => s.trim()).filter(Boolean);
+      else if (spec.type === "int") holder[spec.key] = raw === "" ? "" : Number(raw);
+      else holder[spec.key] = raw;
+      control.dispatchEvent(new CustomEvent("resume-change", { bubbles: true }));
+    });
+    return el("div", { class: "campo cv-campo", "data-campo": name }, label, control);
+  }
+
+  function list(spec, holder, path) {
+    holder[spec.key] ||= [];
+    const items = holder[spec.key];
+    const name = `resume.${path.join(".")}`;
+    const wrap = el("div", { class: "cv-lista" });
+    // No topo, o bloco recolhível já tem o título da seção; dentro de um item (ex.: parágrafos), mostra o rótulo.
+    const title = path.length > 1 ? el("p", { class: "rotulo", text: spec.label + (spec.required ? " *" : "") }) : null;
+    const container = el("div", { class: `campo cv-lista-campo`, "data-campo": name }, title, wrap);
+    function draw() {
+      wrap.replaceChildren();
+      items.forEach((item, index) => {
+        const head = el("summary", { text: summaryOf(spec, item) });
+        const move = (delta) => {
+          const target = index + delta;
+          if (target < 0 || target >= items.length) return;
+          [items[index], items[target]] = [items[target], items[index]];
+          draw();
+        };
+        const tools = el("div", { class: "cv-acoes" },
+          el("button", { type: "button", class: "remover", text: "Subir", disabled: index === 0, onclick: () => move(-1) }),
+          el("button", { type: "button", class: "remover", text: "Descer", disabled: index === items.length - 1, onclick: () => move(1) }),
+          el("button", { type: "button", class: "remover", text: "Remover", onclick: () => { items.splice(index, 1); draw(); } }));
+        const body = el("div", { class: "cv-item-corpo" }, ...spec.item.fields.map((child) => node(child, item, [...path, index, child.key])), tools);
+        const details = el("details", { class: "cv-item" }, head, body);
+        details.addEventListener("resume-change", () => { head.textContent = summaryOf(spec, item); });
+        wrap.append(details);
+      });
+    }
+    draw();
+    container.append(el("button", { type: "button", class: "adicionar", text: spec.add || "Adicionar", onclick: () => {
+      items.push({});
+      draw();
+      const last = wrap.lastElementChild;
+      last.open = true;
+      const first = last.querySelector("input, textarea, select");
+      if (first) first.focus();
+    } }));
+    return container;
+  }
+
+  function node(spec, holder, path) {
+    if (spec.type === "list") return list(spec, holder, path);
+    if (spec.type === "object") {
+      holder[spec.key] ||= {};
+      return el("div", { class: "cv-objeto" }, ...spec.fields.map((child) => node(child, holder[spec.key], [...path, child.key])));
+    }
+    return field(spec, holder, path);
+  }
+
+  for (const spec of section.schema.fields) {
+    const part = el("details", { class: "cv-secao", open: spec.key === "basics" },
+      el("summary", { text: spec.label }), node(spec, state, [spec.key]));
+    box.append(part);
+  }
+  controls.push({ section: "resume", key: "__whole__", before, node: box, read: () => ({ data: state, hash: section.hash }) });
+}
+
 const plain = (text) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 
 // Tabela de faixas da política salarial: uma linha por faixa, com "usar a faixa de" outra linha.
@@ -374,6 +472,8 @@ function render(data) {
       section.file ? el("p", { class: "arquivo", text: `Arquivo: ${section.file}` }) : null);
     if (section.error) {
       box.append(el("p", { class: "erro", text: section.error }));
+    } else if (key === "resume") {
+      renderResume(section, box);
     } else if (key === "config") {
       for (const field of section.fields) box.append(renderConfigField(field, (section.needs_setup || []).includes(field.key)));
     } else {
@@ -399,7 +499,8 @@ function changes() {
       continue;
     }
     if (JSON.stringify(value) === control.before) continue;
-    (form[control.section] ||= {})[control.key] = value;
+    if (control.key === "__whole__") form[control.section] = value;  // seção enviada inteira (currículo)
+    else (form[control.section] ||= {})[control.key] = value;
   }
   return form;
 }
@@ -413,9 +514,10 @@ function showErrors(errors) {
     const box = [...document.querySelectorAll("[data-campo]")].find((node) => node.dataset.campo === name);
     if (!box) { loose.push(message); continue; }
     box.classList.add("com-erro");
+    for (let open = box.closest("details"); open; open = open.parentElement.closest("details")) open.open = true;
     const note = el("p", { class: "erro do-campo", id: `erro-${++counter}`, text: message });
     box.append(note);
-    const control = box.querySelector("input, select");
+    const control = box.querySelector("input, select, textarea");
     if (control) {
       control.setAttribute("aria-describedby", note.id);
       first ||= control;
