@@ -329,3 +329,29 @@ def test_salary_bands_are_edited_as_a_table(skill, db_path, monkeypatch):
     assert "- Híbrido em Campinas (BRL, CLT): usar a faixa do Remoto nacional\n" in text
     assert "Internacional" not in text
     assert [b.label for b in parse_policy(text).bands] == ["Remoto nacional", "Híbrido em Campinas"]
+
+
+@pytest.mark.skipif(not _chromium(), reason="Playwright com Chromium não instalado")
+def test_resume_sources_are_configured_in_the_panel(running, db_path, tmp_path):
+    from playwright.sync_api import sync_playwright
+
+    pdf = tmp_path / "Curriculo.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        page.goto(f"http://127.0.0.1:{running.server_address[1]}/?t=t0k3n")
+        page.get_by_label("PDF do currículo (fonte do currículo geral)").fill(str(tmp_path / "nao-existe.pdf"))
+        page.get_by_label("Perfil do LinkedIn (fonte do currículo geral)").fill("https://github.com/fulano")
+        page.get_by_role("button", name="Salvar tudo").click()
+        page.get_by_text("Nada foi salvo").wait_for()
+        assert page.locator(".campo.com-erro").count() == 2
+
+        page.get_by_label("PDF do currículo (fonte do currículo geral)").fill(str(pdf))
+        page.get_by_label("Perfil do LinkedIn (fonte do currículo geral)").fill("linkedin.com/in/fulano/")
+        page.get_by_role("button", name="Salvar tudo").click()
+        page.get_by_text("Tudo salvo").wait_for()
+        browser.close()
+
+    assert resolve("resume_pdf", db_path) == (pdf, "config")
+    assert resolve("linkedin_url", db_path) == ("https://www.linkedin.com/in/fulano", "config")

@@ -6,7 +6,9 @@ from mcp import Client
 
 from resume_fixture import fictitious_resume
 from vagas import system
-from vagas.config import SETTINGS, config_path, normalize_path, resolve, split_domains, suggest_dirs
+from vagas.config import (SETTINGS, config_path, describe, normalize_path, resolve, set_value, split_domains,
+                          suggest_dirs)
+from vagas.repo import VagasError
 from vagas.server import build_server
 
 pytestmark = pytest.mark.anyio
@@ -401,3 +403,49 @@ async def test_server_instructions_point_to_the_profile_and_tailored_resume_tool
         instructions = client.instructions
 
     assert "get_profile" in instructions and "create_tailored_resume" in instructions
+
+
+# --- PDF e LinkedIn de origem do currículo geral --------------------------------------------------
+
+def test_resume_sources_are_optional_and_never_asked(db_path):
+    described = describe(db_path)
+
+    assert "resume_pdf" not in described["needs_setup"] and "linkedin_url" not in described["needs_setup"]
+    assert resolve("resume_pdf", db_path) == (None, "unset")
+
+
+def test_resume_pdf_must_be_an_existing_pdf(db_path, tmp_path):
+    pdf = tmp_path / "Curriculo.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    (tmp_path / "notas.txt").write_text("x", encoding="utf-8")
+
+    set_value("resume_pdf", str(pdf), db_path)
+
+    assert resolve("resume_pdf", db_path) == (pdf, "config")
+    with pytest.raises(VagasError, match="não existe"):
+        set_value("resume_pdf", str(tmp_path / "outro.pdf"), db_path)
+    with pytest.raises(VagasError, match=".pdf"):
+        set_value("resume_pdf", str(tmp_path / "notas.txt"), db_path)
+
+
+@pytest.mark.parametrize("typed, stored", [
+    ("https://www.linkedin.com/in/fulano-de-tal/", "https://www.linkedin.com/in/fulano-de-tal"),
+    ("linkedin.com/in/fulano?trk=abc", "https://www.linkedin.com/in/fulano"),
+    ("https://br.linkedin.com/in/Fulano", "https://www.linkedin.com/in/Fulano"),
+])
+def test_linkedin_url_is_normalized(db_path, typed, stored):
+    set_value("linkedin_url", typed, db_path)
+
+    assert resolve("linkedin_url", db_path) == (stored, "config")
+
+
+@pytest.mark.parametrize("bad", ["https://github.com/fulano", "https://www.linkedin.com/company/acme", "fulano"])
+def test_linkedin_url_must_be_a_profile(db_path, bad):
+    with pytest.raises(VagasError, match="linkedin.com/in/"):
+        set_value("linkedin_url", bad, db_path)
+
+
+def test_skill_uses_the_configured_sources_when_building_the_master_resume():
+    text = (Path(__file__).resolve().parents[1] / "skill" / "candidaturas" / "curriculo.md").read_text(encoding="utf-8")
+
+    assert "`resume_pdf`" in text and "`linkedin_url`" in text and "`get_config`" in text

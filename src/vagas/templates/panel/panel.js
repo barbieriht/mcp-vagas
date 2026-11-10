@@ -51,6 +51,8 @@ function input(field, id) {
   const attrs = { id, name: id, value: field.value, autocomplete: "off", spellcheck: "false" };
   if (field.kind === "int") Object.assign(attrs, { type: "number", inputmode: "numeric", min: field.bounds[0], max: field.bounds[1], placeholder: field.default });
   else if (field.key === "login_email") Object.assign(attrs, { type: "email", placeholder: "nome@gmail.com" });
+  else if (field.kind === "pdf") Object.assign(attrs, { type: "text", placeholder: "Ex.: C:\\Users\\você\\Downloads\\Curriculo.pdf" });
+  else if (field.key === "linkedin_url") Object.assign(attrs, { type: "url", placeholder: "https://www.linkedin.com/in/seu-nome" });
   else Object.assign(attrs, { type: "text", placeholder: field.default || (field.kind === "dir" ? "Caminho da pasta" : "") });
   return el("input", attrs);
 }
