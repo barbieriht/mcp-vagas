@@ -54,12 +54,12 @@ def test_env_comes_from_claude_code_registration(tmp_path):
     claude_json = write(tmp_path / ".claude.json", json.dumps({"mcpServers": {"vagas": {"env": {
         "VAGAS_DB": "/db/vagas.db", "VAGAS_RESUME_OUT": "/mnt/c/out", "VAGAS_EXPORT_DIR": "/mnt/c/exp"}}}}))
 
-    assert inst.desktop_env(claude_json, "Thiago", tmp_path / "home") == {
+    assert inst.desktop_env(claude_json, "Maria", tmp_path / "home") == {
         "VAGAS_DB": "/db/vagas.db", "VAGAS_RESUME_OUT": "/mnt/c/out", "VAGAS_EXPORT_DIR": "/mnt/c/exp"}
 
 
 def test_env_defaults_without_claude_code_registration(tmp_path):
-    assert inst.desktop_env(tmp_path / "nada.json", "Thiago", tmp_path / "home") == {
+    assert inst.desktop_env(tmp_path / "nada.json", "Maria", tmp_path / "home") == {
         "VAGAS_DB": str(tmp_path / "home/.local/share/vagas/vagas.db")}  # pastas: perguntadas no primeiro uso
 
 
@@ -69,7 +69,7 @@ def skill(tmp_path):
     for name in ("SKILL.md", "candidatar.md", "buscar.md", "curriculo.md", "perfil.example.md",
                  "politica-salarial.example.md", "criterios-triagem.example.md"):
         write(d / name)
-    write(d / "perfil.md", "- Nome: Thiago\n")
+    write(d / "perfil.md", "- Nome: Maria\n")
     write(d / "politica-salarial.md", "- Modo: minimo\n")
     write(d / "criterios-triagem.md", "- Cargos alvo: data_scientist\n")
     return d

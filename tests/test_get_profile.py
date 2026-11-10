@@ -15,7 +15,7 @@ PERFIL = """\
 Fonte da verdade: o currículo geral.
 
 ## Contato e identificação
-- Nome: Thiago Teste
+- Nome: Maria Teste
 - E-mail / login Google: thiago@example.com
 
 ## Respostas padrão

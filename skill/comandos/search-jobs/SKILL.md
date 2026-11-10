@@ -7,4 +7,4 @@ disable-model-invocation: true
 
 Use a skill **candidaturas** e siga o fluxo de busca de vagas (buscar.md).
 
-Critério adicional do Thiago, se houver: $ARGUMENTS
+Critério adicional do usuário, se houver: $ARGUMENTS

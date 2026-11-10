@@ -1,6 +1,6 @@
 ---
 name: pending
-description: Mostra o que depende do Thiago e as candidaturas sem resposta há mais de 30 dias.
+description: Mostra o que depende do usuário e as candidaturas sem resposta há mais de 30 dias.
 disable-model-invocation: true
 ---
 

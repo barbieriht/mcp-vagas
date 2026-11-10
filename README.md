@@ -11,6 +11,15 @@ A Skill "candidaturas" (pasta `skill/candidaturas`) orquestra tudo isso: triagem
 
 Ele roda localmente (stdio) e guarda tudo num arquivo SQLite. Não há servidor na nuvem.
 
+**Para quem é:** quem procura emprego (o foco são vagas no Brasil, na Gupy e no LinkedIn) e usa o Claude Code ou o Claude Desktop. Você conversa com o Claude; ele busca, tria, monta o currículo da vaga e prepara o formulário, e você revisa antes de enviar.
+
+**Limitações:**
+- Roda em Linux ou WSL2. O cofre de documentos (CPF, RG...) usa a DPAPI do Windows, então a extensão que preenche esses campos só funciona com Windows + WSL.
+- A busca por código cobre Gupy e LinkedIn. Indeed e Glassdoor bloqueiam leitura automática e são feitos pelo navegador.
+- Os textos da Skill e dos currículos estão em português.
+
+**Uso responsável:** a ferramenta trabalha com os *seus* dados e as *suas* contas. O envio automático vem desligado (`auto_submit = "nao"`): o Claude preenche e você confere e envia. O leitor do LinkedIn lê só o seu perfil, sem técnicas de disfarce, e para diante de login ou verificação. Respeite os termos de uso de cada site.
+
 ## Primeiros passos
 
 Resumo prático, do zero até a primeira candidatura. Os detalhes de cada passo estão nas seções seguintes.
@@ -18,6 +27,7 @@ Resumo prático, do zero até a primeira candidatura. Os detalhes de cada passo 
 **1. Instale** (Linux ou WSL2, com [`uv`](https://docs.astral.sh/uv/) e Python 3.12). Na raiz do repositório:
 
 ```bash
+git clone https://github.com/barbieriht/mcp-vagas.git ~/projects/mcp-vagas && cd ~/projects/mcp-vagas
 python3 scripts/instalar_claude_code.py     # Claude Code: Skill, comandos e MCP
 python3 scripts/instalar_desktop.py         # Claude Desktop (opcional): MCP, configuração e zip da Skill
 ```
@@ -484,3 +494,11 @@ Empresas com "Permitir sempre":
 ~/.local/share/vagas/venv/bin/python -m vagas.autofill list
 ~/.local/share/vagas/venv/bin/python -m vagas.autofill revoke acme.gupy.io   # ou: revoke gupy.io (plataforma), revoke --all
 ```
+
+## Contribuindo
+
+Sugestões e correções são bem-vindas. Abra uma [issue](https://github.com/barbieriht/mcp-vagas/issues) descrevendo o problema ou a ideia antes de um PR grande. O projeto segue TDD (teste antes da implementação) e as convenções do [CLAUDE.md](CLAUDE.md); rode `.venv/bin/pytest -q` antes de abrir o PR. Nunca inclua dados pessoais reais em testes, exemplos ou issues.
+
+## Licença
+
+[GPL-3.0](LICENSE). Você pode usar, estudar, modificar e redistribuir; versões modificadas distribuídas também precisam ser GPL-3.0, com o código aberto.

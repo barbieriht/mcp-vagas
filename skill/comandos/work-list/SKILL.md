@@ -10,4 +10,4 @@ Chame `work_list` e mostre as duas listas como vierem, sem recalcular:
 
 Se `salary_rule.chosen` for falso, ofereça escolher a regra da pretensão como no passo 6 de buscar.md (skill **candidaturas**).
 
-Termine perguntando em quais vagas prontas o Thiago quer se candidatar e se quer resolver as pendências. Cada candidatura segue o fluxo da skill **candidaturas** (candidatar.md).
+Termine perguntando em quais vagas prontas o usuário quer se candidatar e se quer resolver as pendências. Cada candidatura segue o fluxo da skill **candidaturas** (candidatar.md).
