@@ -61,7 +61,7 @@ def test_pdf_without_text_is_a_readable_error(store, tmp_path):
 
 
 def test_windows_paths_are_accepted():
-    assert wsl_path(r"C:\Users\Thiago\Downloads\cv.pdf") == Path("/mnt/c/Users/Thiago/Downloads/cv.pdf")
+    assert wsl_path(r"C:\Users\Maria\Downloads\cv.pdf") == Path("/mnt/c/Users/Maria/Downloads/cv.pdf")
     assert wsl_path("/home/x/cv.pdf") == Path("/home/x/cv.pdf")
 
 

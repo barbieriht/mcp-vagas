@@ -35,24 +35,24 @@ def test_config_file_location_can_be_overridden(db_path, monkeypatch, tmp_path):
 
 def test_suggestions_prefer_the_windows_documents_folder_on_wsl(tmp_path):
     users = tmp_path / "Users"
-    (users / "Thiago" / "Documents").mkdir(parents=True)
+    (users / "Maria" / "Documents").mkdir(parents=True)
     (users / "Public" / "Documents").mkdir(parents=True)
     home = tmp_path / "home"
 
     suggestions = suggest_dirs("resume_out", users_root=users, home=home)
 
-    assert suggestions == [str(users / "Thiago" / "Documents" / "Curriculos"), str(home / "Documents" / "Curriculos")]
+    assert suggestions == [str(users / "Maria" / "Documents" / "Curriculos"), str(home / "Documents" / "Curriculos")]
 
 
 @pytest.mark.parametrize("system_folder", ["Usuário Padrão", "Default User", "Todos os Usuários", "Público", "defaultuser0", "TEMP"])
 def test_suggestions_skip_windows_system_folders(tmp_path, system_folder):
     users = tmp_path / "Users"
-    (users / "Thiago" / "Documents").mkdir(parents=True)
+    (users / "Maria" / "Documents").mkdir(parents=True)
     (users / system_folder / "Documents").mkdir(parents=True)
 
     suggestions = suggest_dirs("resume_out", users_root=users, home=tmp_path / "home")
 
-    assert suggestions == [str(users / "Thiago" / "Documents" / "Curriculos"),
+    assert suggestions == [str(users / "Maria" / "Documents" / "Curriculos"),
                            str(tmp_path / "home" / "Documents" / "Curriculos")]
 
 

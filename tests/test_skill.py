@@ -272,7 +272,7 @@ def test_hybrid_or_remote_availability_is_yes_only_in_the_region_of_the_accepted
 
     assert "[criterios-triagem.md](criterios-triagem.md)" in rule and "Locais aceitos para híbrido e presencial" in rule
     assert '"sim"' in rule and "região" in rule
-    assert "pergunte ao Thiago antes" in rule and "`pending`" in rule
+    assert "pergunte ao usuário antes" in rule and "`pending`" in rule
 
 
 def test_login_prefers_linkedin_then_the_google_account():
@@ -303,3 +303,12 @@ def test_cover_letter_is_left_blank_when_optional_and_written_for_review_when_re
 
     assert "opcional" in letter and "em branco" in letter
     assert "obrigatória" in letter and "revisão" in letter
+
+
+def test_versioned_skill_files_do_not_name_a_specific_person():
+    # A Skill é pública: quem a usa é "o usuário"; o nome real só aparece no perfil.md (fora do git).
+    skill_root = SKILL_DIR.parent
+    files = [p for p in skill_root.rglob("*.md") if p.name not in {"perfil.md", "politica-salarial.md", "criterios-triagem.md"}]
+    assert files
+    for path in files:
+        assert "Thiago" not in path.read_text(encoding="utf-8"), path

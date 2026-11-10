@@ -13,7 +13,7 @@ PERFIL = """\
 # Dados para formulários
 
 ## Contato e identificação
-- Nome: Thiago Teste
+- Nome: Maria Teste
 - Telefone: +55 (00) 0000-0000
 
 ## Respostas padrão
@@ -25,7 +25,7 @@ PERFIL = """\
 Campos pedidos por formulários que não se encaixam nas seções acima.
 - Pretensão de início: imediato
 """
-EXAMPLE = PERFIL.replace("Thiago Teste", "Fulano de Tal").replace("- Pretensão de início: imediato",
+EXAMPLE = PERFIL.replace("Maria Teste", "Fulano de Tal").replace("- Pretensão de início: imediato",
                                                                    "- <Rótulo do campo como o formulário pede>: <...>")
 
 

@@ -1,8 +1,10 @@
 [project]
 name = "vagas"
 version = "0.1.0"
-description = "Servidor MCP local para registrar e deduplicar candidaturas a vagas"
+description = "Servidor MCP local e Skill do Claude para organizar candidaturas a vagas e gerar currículos personalizados"
 requires-python = ">=3.12"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
 dependencies = ["mcp==2.3.0", "pydantic==2.14.1", "PyYAML==6.0.3", "typst==0.15.0", "pypdf==6.21.3"]
 
 [project.optional-dependencies]
