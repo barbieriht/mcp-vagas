@@ -231,32 +231,55 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     """Abre o banco, aplica os PRAGMAs e migra o schema até a versão mais recente."""
     path = Path(path) if path is not None else default_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    existed = path.exists() and path.stat().st_size > 0
 
     conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout = 5000")
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA foreign_keys = ON")
-    _migrate(conn, path, existed)
+    _migrate(conn, path)
     return conn
 
 
-def _migrate(conn: sqlite3.Connection, path: Path, existed: bool) -> None:
+def _statements(script: str) -> list[str]:
+    """Divide um script SQL em comandos (executescript faria COMMIT da transação que segura a trava)."""
+    statements, current = [], ""
+    for line in script.splitlines(keepends=True):
+        current += line
+        if sqlite3.complete_statement(current):
+            statements.append(current.strip())
+            current = ""
+    if current.strip():
+        statements.append(current.strip())
+    return statements
+
+
+def _migrate(conn: sqlite3.Connection, path: Path) -> None:
+    """Migra numa transação só, sob a trava de escrita: com dois clientes abrindo juntos (Claude Code e
+    Desktop), o segundo espera o primeiro, relê a versão e não repete o que já foi feito."""
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     if version >= LATEST_VERSION:
         return
-    if existed:
-        _backup(conn, path, version)
-    for target, step in enumerate(MIGRATIONS[version:], start=version + 1):
-        if callable(step):
-            with conn:
+    if version > 0 or conn.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone():
+        _backup(conn, path, version)  # banco com dados de antes; fora da trava (o backup também lê o banco)
+    conn.execute("BEGIN IMMEDIATE")  # espera até o busy_timeout se outro processo estiver migrando
+    try:
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        if version >= LATEST_VERSION:
+            conn.rollback()
+            return
+        for target, step in enumerate(MIGRATIONS[version:], start=version + 1):
+            if callable(step):
                 step(conn)
-                conn.execute(f"PRAGMA user_version = {target}")
-        else:
-            with conn:
-                conn.executescript(f"BEGIN; {step}; PRAGMA user_version = {target}; COMMIT;")
-        log.info("Banco migrado para a versão %d", target)
+            else:
+                for statement in _statements(step):
+                    conn.execute(statement)
+            conn.execute(f"PRAGMA user_version = {target}")
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    log.info("Banco migrado da versão %d para a %d", version, LATEST_VERSION)
 
 
 def _backup(conn: sqlite3.Connection, path: Path, version: int) -> None:

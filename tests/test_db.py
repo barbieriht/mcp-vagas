@@ -130,3 +130,34 @@ def test_salary_columns_are_backfilled_from_the_evaluation(db_path):
     assert [tuple(r) for r in rows] == [(1, "mercado", 20500.0, "teto", 20500.0),
                                         (2, "sem_dados", None, "minimo", 10500.0),
                                         (3, None, None, None, None)]
+
+
+def _open_when_told(path, start, results):
+    from vagas.db import LATEST_VERSION, connect
+
+    start.wait()
+    try:
+        conn = connect(path)
+        results.put(conn.execute("PRAGMA user_version").fetchone()[0] == LATEST_VERSION)
+        conn.close()
+    except Exception as exc:  # o erro vai para o teste, que mostra qual foi
+        results.put(repr(exc))
+
+
+def test_several_processes_creating_the_same_new_db_at_once_all_succeed(tmp_path):
+    # Claude Code e Claude Desktop abertos juntos logo após a instalação: os dois criam o banco.
+    import multiprocessing
+
+    ctx = multiprocessing.get_context("spawn")
+    for round_ in range(3):
+        path = tmp_path / f"novo-{round_}.db"
+        start, results = ctx.Event(), ctx.Queue()
+        workers = [ctx.Process(target=_open_when_told, args=(path, start, results)) for _ in range(6)]
+        for worker in workers:
+            worker.start()
+        start.set()
+        outcomes = [results.get(timeout=60) for _ in workers]
+        for worker in workers:
+            worker.join(timeout=60)
+        assert outcomes == [True] * len(workers), outcomes
+        assert not list(tmp_path.glob(f"novo-{round_}.db.bak-*"))  # banco novo: nada para fazer backup
