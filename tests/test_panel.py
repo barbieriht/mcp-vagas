@@ -182,3 +182,101 @@ def test_filling_the_page_shows_errors_by_field_and_then_saves(running, db_path,
     # padrões confirmados: o Claude não pergunta mais
     assert resolve("export_dir", db_path)[1] == "config" and resolve("master_resume", db_path)[1] == "config"
     assert (tmp_path / "pdfs").is_dir()
+
+
+@pytest.fixture
+def skill(tmp_path, monkeypatch):
+    import shutil
+    from pathlib import Path
+
+    examples = Path(__file__).resolve().parents[1] / "skill" / "candidaturas"
+    folder = tmp_path / "skill"
+    folder.mkdir()
+    for name in ("perfil.example.md", "criterios-triagem.example.md"):
+        shutil.copy(examples / name, folder / name)
+    monkeypatch.setenv("VAGAS_SKILL_DIR", str(folder))
+    monkeypatch.setenv("VAGAS_TRIAGE_CRITERIA", str(folder / "criterios-triagem.md"))
+    return folder
+
+
+@pytest.mark.skipif(not _chromium(), reason="Playwright com Chromium não instalado")
+def test_profile_and_criteria_are_filled_in_one_go(skill, db_path):
+    from playwright.sync_api import sync_playwright
+
+    from vagas.triage import parse_criteria
+
+    server = panel.make_server(db_path, token="t0k3n")
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            page.goto(server.url)
+            page.get_by_role("heading", name="Perfil para formulários").wait_for()
+            assert page.get_by_label("Nome", exact=True).get_attribute("placeholder") == "Ex.: Fulano de Tal"
+            assert page.get_by_text("Você digita no formulário").count() >= 2  # CPF e RG, sem campo
+
+            page.get_by_label("Nome", exact=True).fill("Maria Teste")
+            page.get_by_label("Incluir em bancos de talentos").select_option("não")
+            page.get_by_label("Aderência mínima").fill("150")
+            page.get_by_role("button", name="Salvar tudo").click()
+            page.get_by_text("Nada foi salvo").wait_for()
+            assert not (skill / "perfil.md").exists()
+
+            page.get_by_label("Aderência mínima").fill("60")
+            criteria = page.get_by_role("group", name="Cargos alvo")
+            criteria.get_by_label("Engenheiro de ia").uncheck()
+            page.get_by_role("group", name="Senioridades buscadas").get_by_label("Pleno").check()
+            page.get_by_role("button", name="Salvar tudo").click()
+            page.get_by_text("Tudo salvo").wait_for()
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    profile = (skill / "perfil.md").read_text(encoding="utf-8")
+    assert "- Nome: Maria Teste" in profile and "- Incluir em bancos de talentos: não" in profile
+    assert "Fulano" not in profile
+    saved = parse_criteria((skill / "criterios-triagem.md").read_text(encoding="utf-8"))
+    assert saved.target_roles == ("data_scientist", "ml_engineer") and saved.search_seniorities == ("pleno",)
+    assert saved.min_match == 60
+
+
+@pytest.mark.skipif(not _chromium(), reason="Playwright com Chromium não instalado")
+def test_enter_moves_to_the_next_field_and_diversity_offers_other(skill, db_path):
+    from playwright.sync_api import sync_playwright
+
+    server = panel.make_server(db_path, token="t0k3n")
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            requests = []
+            page.on("request", lambda r: requests.append(r.method) if "/api/settings" in r.url else None)
+            page.goto(server.url)
+            page.get_by_role("heading", name="Perfil para formulários").wait_for()
+
+            name = page.get_by_label("Nome", exact=True)
+            name.fill("Maria Teste")
+            name.press("Enter")
+            assert page.evaluate("document.activeElement.id") == page.get_by_label("Telefone").get_attribute("id")
+            page.wait_for_timeout(300)
+            assert requests == ["GET"] and not (skill / "perfil.md").exists()  # Enter não salva
+
+            page.get_by_label("Sexo", exact=True).select_option("Masculino")
+            race = page.get_by_label("Raça/etnia", exact=True)
+            race.select_option("__outra__")
+            other = page.get_by_label("Raça/etnia: outra resposta")
+            assert other.is_visible() and page.evaluate("document.activeElement.placeholder") == "Escreva a resposta"
+            other.fill("Branco/Latino")
+            page.get_by_role("button", name="Salvar tudo").click()
+            page.get_by_text("Tudo salvo").wait_for()
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    profile = (skill / "perfil.md").read_text(encoding="utf-8")
+    assert "  - Sexo: Masculino\n" in profile and "  - Raça/etnia: Branco/Latino\n" in profile
+    assert "  - Identidade de gênero: <...>\n" in profile and "- Nome: Maria Teste" in profile

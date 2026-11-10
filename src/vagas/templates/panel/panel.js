@@ -55,16 +55,36 @@ function input(field, id) {
   return el("input", attrs);
 }
 
-function renderField(sectionKey, field, needsSetup) {
-  const id = `${sectionKey}.${field.key}`;
-  original[id] = field.value;
+let controls = [];  // {section, key, read(), before}: o que foi carregado e como ler o valor atual
+let counter = 0;
+
+function register(section, key, before, read, node) {
+  controls.push({ section, key, before: JSON.stringify(before), read, node });
+}
+
+// Selo fora do rótulo (o nome do campo fica limpo), ligado ao controle como descrição.
+function badgeFor(control, show, text) {
+  if (!show) return null;
+  const badge = el("span", { class: "selo", id: `selo-${++counter}`, text });
+  control.setAttribute("aria-describedby", badge.id);
+  return badge;
+}
+
+function hintFor(field, isNew) {
+  if (!field.hint) return "";
+  return isNew ? `Ex.: ${field.hint}` : field.hint;
+}
+
+function renderConfigField(field, needsSetup) {
+  const id = `campo-${++counter}`;
   const control = input(field, id);
   // Pasta ou arquivo com padrão e ainda não confirmado: o padrão já vem preenchido, e salvar o confirma.
   if (needsSetup && !field.value && field.default && (field.kind === "dir" || field.kind === "file")) {
     control.value = field.default;
   }
-  const box = el("div", { class: "campo", "data-campo": id },
-    el("label", { for: id, text: field.title }, needsSetup ? el("span", { class: "selo", text: "Falta configurar" }) : null),
+  register("config", field.key, field.value, () => control.value.trim(), control);
+  const box = el("div", { class: "campo", "data-campo": `config.${field.key}` },
+    el("div", { class: "cabeca" }, el("label", { for: id, text: field.title }), badgeFor(control, needsSetup, "Falta configurar")),
     field.label.toLowerCase() !== field.title.toLowerCase() ? el("p", { class: "ajuda", text: field.label }) : null,
     control,
     sourceNote(field));
@@ -78,49 +98,145 @@ function renderField(sectionKey, field, needsSetup) {
   return box;
 }
 
+function renderFileField(section, field, isNew) {
+  const name = `${section.key}.${field.id}`;
+  const notes = (field.notes || []).map((note) => el("p", { class: "nota", text: note }));
+  const help = field.help ? el("p", { class: "ajuda", text: field.help }) : null;
+  const loadError = field.error ? el("p", { class: "nota aviso", text: field.error }) : null;
+  const classes = `campo${field.parent ? " subcampo" : ""}`;
+  if (field.kind === "group") {
+    return el("div", { class: `${classes} grupo` }, el("h3", { text: field.title }), ...notes);
+  }
+  if (field.kind === "locked") {
+    return el("div", { class: classes, "data-campo": name },
+      el("p", { class: "rotulo", text: field.title }), el("p", { class: "nota", text: field.status }));
+  }
+  const id = `campo-${++counter}`;
+  const pending = !field.value;
+  if (field.kind === "multi") {
+    const boxes = field.choices.map((choice) => {
+      const box = el("input", { type: "checkbox", value: choice.value, id: `${id}-${choice.value}` });
+      box.checked = field.value.includes(choice.value);
+      return el("label", { class: "opcao", for: box.id }, box, el("span", { text: choice.label }));
+    });
+    const group = el("fieldset", { class: classes, "data-campo": name },
+      el("legend", { text: field.title }), help, el("div", { class: "opcoes" }, ...boxes), loadError, ...notes);
+    register(section.key, field.id, field.value,
+      () => [...group.querySelectorAll("input:checked")].map((box) => box.value), group);
+    return group;
+  }
+  if (field.kind === "choice_other") return renderChoiceOther(section, field, name, id, classes, help, notes);
+  let control;
+  if (field.kind === "yesno") {
+    control = el("select", { id });
+    for (const [value, label] of [["", "Escolha…"], ["sim", "Sim"], ["não", "Não"]]) control.append(el("option", { value, text: label }));
+    control.value = field.value;
+  } else {
+    const attrs = { id, value: field.value, autocomplete: "off", placeholder: hintFor(field, isNew) };
+    if (field.kind === "int") Object.assign(attrs, { type: "number", inputmode: "numeric", min: field.bounds[0], max: field.bounds[1] });
+    else attrs.type = "text";
+    control = el("input", attrs);
+  }
+  register(section.key, field.id, field.value, () => control.value.trim(), control);
+  return el("div", { class: classes, "data-campo": name },
+    el("div", { class: "cabeca" }, el("label", { for: id, text: field.title }), badgeFor(control, pending, "Falta preencher")),
+    help, control, loadError, ...notes);
+}
+
+const OTHER = "__outra__";
+
+// Lista de opções com "Outra…": escolher "Outra…" mostra um campo de texto livre.
+function renderChoiceOther(section, field, name, id, classes, help, notes) {
+  const select = el("select", { id });
+  select.append(el("option", { value: "", text: "Escolha…" }));
+  for (const choice of field.choices) select.append(el("option", { value: choice, text: choice }));
+  select.append(el("option", { value: OTHER, text: "Outra…" }));
+  const custom = el("input", { type: "text", id: `${id}-outra`, autocomplete: "off", "aria-label": `${field.title}: outra resposta`, placeholder: "Escreva a resposta" });
+  const known = field.choices.includes(field.value);
+  select.value = !field.value ? "" : known ? field.value : OTHER;
+  custom.value = known ? "" : field.value;
+  const showCustom = () => { custom.hidden = select.value !== OTHER; };
+  select.addEventListener("change", () => { showCustom(); if (!custom.hidden) custom.focus(); });
+  showCustom();
+  register(section.key, field.id, field.value, () => (select.value === OTHER ? custom.value.trim() : select.value), select);
+  return el("div", { class: classes, "data-campo": name },
+    el("div", { class: "cabeca" }, el("label", { for: id, text: field.title }), badgeFor(select, !field.value, "Falta preencher")),
+    help, select, custom, ...notes);
+}
+
+// Enter não envia o formulário: passa para o próximo campo. Só o botão "Salvar tudo" grava.
+function nextFieldOnEnter(event) {
+  const target = event.target;
+  if (event.key !== "Enter" || event.isComposing || !(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
+  event.preventDefault();
+  const fields = [...document.querySelectorAll("#formulario input, #formulario select, #formulario button")]
+    .filter((node) => !node.disabled && !node.hidden && node.offsetParent !== null);
+  const next = fields[fields.indexOf(target) + 1];
+  if (next) next.focus();
+}
+
+function sectionPending(key, section) {
+  if (section.error) return true;
+  if (key === "config") return (section.needs_setup || []).length > 0;
+  return (section.pending || []).length > 0;
+}
+
 function render(data) {
   const container = document.getElementById("secoes");
   const index = document.getElementById("indice");
   container.replaceChildren();
   index.replaceChildren();
-  original = {};
+  controls = [];
   for (const [key, section] of Object.entries(data.sections)) {
-    const pending = section.needs_setup && section.needs_setup.length > 0;
-    index.append(el("li", {}, el("a", { href: `#secao-${key}`, class: pending ? "pendente" : null, text: section.title })));
+    section.key = key;
+    index.append(el("li", {}, el("a", { href: `#secao-${key}`, class: sectionPending(key, section) ? "pendente" : null, text: section.title })));
     const box = el("section", { class: "secao", id: `secao-${key}`, "aria-labelledby": `titulo-${key}` },
       el("h2", { id: `titulo-${key}`, text: section.title }),
-      el("p", { class: "arquivo", text: `Arquivo: ${section.file}` }));
-    for (const field of section.fields) box.append(renderField(key, field, (section.needs_setup || []).includes(field.key)));
+      section.file ? el("p", { class: "arquivo", text: `Arquivo: ${section.file}` }) : null);
+    if (section.error) {
+      box.append(el("p", { class: "erro", text: section.error }));
+    } else if (key === "config") {
+      for (const field of section.fields) box.append(renderConfigField(field, (section.needs_setup || []).includes(field.key)));
+    } else {
+      if (section.new) box.append(el("p", { class: "nota aviso", text: "Este arquivo ainda não existe: ele é criado quando você salvar. Os textos em cinza são só exemplos." }));
+      for (const group of section.groups) {
+        if (group.name) box.append(el("h3", { class: "grupo-titulo", text: group.name }));
+        for (const field of group.fields) box.append(renderFileField(section, field, section.new));
+      }
+    }
     container.append(box);
   }
 }
 
 function changes() {
   const form = {};
-  for (const [id, before] of Object.entries(original)) {
-    const value = document.getElementById(id).value.trim();
-    if (value === before) continue;
-    const [section, key] = id.split(".");
-    (form[section] ||= {})[key] = value;
+  for (const control of controls) {
+    const value = control.read();
+    if (JSON.stringify(value) === control.before) continue;
+    (form[control.section] ||= {})[control.key] = value;
   }
   return form;
 }
 
 function showErrors(errors) {
-  document.querySelectorAll(".erro").forEach((node) => node.remove());
+  document.querySelectorAll(".erro.do-campo").forEach((node) => node.remove());
   document.querySelectorAll(".com-erro").forEach((node) => node.classList.remove("com-erro"));
   let first = null;
-  for (const [id, message] of Object.entries(errors)) {
-    const box = document.querySelector(`[data-campo="${CSS.escape(id)}"]`);
-    if (!box) continue;
+  const loose = [];
+  for (const [name, message] of Object.entries(errors)) {
+    const box = [...document.querySelectorAll("[data-campo]")].find((node) => node.dataset.campo === name);
+    if (!box) { loose.push(message); continue; }
     box.classList.add("com-erro");
-    const note = el("p", { class: "erro", id: `${id}-erro`, text: message });
+    const note = el("p", { class: "erro do-campo", id: `erro-${++counter}`, text: message });
     box.append(note);
-    document.getElementById(id).setAttribute("aria-describedby", note.id);
-    first ||= document.getElementById(id);
+    const control = box.querySelector("input, select");
+    if (control) {
+      control.setAttribute("aria-describedby", note.id);
+      first ||= control;
+    }
   }
   if (first) first.focus();
-  return Object.keys(errors).filter((id) => !document.querySelector(`[data-campo="${CSS.escape(id)}"]`));
+  return loose;
 }
 
 function status(text, kind) {
@@ -141,7 +257,7 @@ async function submit(event) {
     const loose = showErrors(result.errors || {});
     if (!result.saved) {
       const count = Object.keys(result.errors).length;
-      status(`Nada foi salvo: corrija ${count === 1 ? "o campo marcado" : `os ${count} campos marcados`}.${loose.length ? " " + loose.map((k) => result.errors[k]).join(" ") : ""}`, "falha");
+      status(`Nada foi salvo: corrija ${count === 1 ? "o campo marcado" : `os ${count} campos marcados`}.${loose.length ? " " + loose.join(" ") : ""}`, "falha");
       return;
     }
     render(result.settings);
@@ -155,7 +271,9 @@ async function submit(event) {
 }
 
 async function start() {
-  document.getElementById("formulario").addEventListener("submit", submit);
+  const form = document.getElementById("formulario");
+  form.addEventListener("submit", submit);
+  form.addEventListener("keydown", nextFieldOnEnter);
   try {
     render(await api("GET"));
   } catch (error) {

@@ -8,8 +8,14 @@ com a mesma mensagem que o set_config daria. Os arquivos continuam sendo a fonte
 from pathlib import Path
 from typing import Any
 
-from vagas import config
+from vagas import config, md_fields, settings_files
 from vagas.repo import VagasError
+
+# Seções que editam arquivos em Markdown: chave -> (load, plan).
+FILE_SECTIONS = {
+    "profile": (settings_files.load_profile, settings_files.plan_profile),
+    "criteria": (settings_files.load_criteria, settings_files.plan_criteria),
+}
 
 
 # Nomes curtos para o painel; o label do SETTINGS vira o texto de ajuda.
@@ -46,8 +52,12 @@ def _config_section(db_path: Path | str | None) -> dict[str, Any]:
 
 
 def load(db_path: Path | str | None = None) -> dict[str, Any]:
-    """Seções do painel com os valores atuais. Hoje: "config" (config.toml)."""
-    return {"sections": {"config": _config_section(db_path)}}
+    """Seções do painel com os valores atuais: config (config.toml), profile (perfil.md) e criteria
+    (criterios-triagem.md). Uma seção cujo arquivo não é encontrado volta com "error" e sem campos."""
+    sections = {"config": _config_section(db_path)}
+    for key, (load_section, _) in FILE_SECTIONS.items():
+        sections[key] = load_section(db_path)
+    return {"sections": sections}
 
 
 def _reevaluate_salaries(db_path: Path | str | None) -> dict[str, Any]:
@@ -94,10 +104,17 @@ def save(data: Any, db_path: Path | str | None = None) -> dict[str, Any]:
         result["errors"]["form"] = "Formulário inválido: envie um objeto com as seções."
         return result
     for section in data:
-        if section != "config":
+        if section != "config" and section not in FILE_SECTIONS:
             result["errors"][section] = f"Seção desconhecida: {section!r}."
     cleaned, errors = _validate_config(data.get("config", {}), db_path)
     result["errors"].update(errors)
+    pending_files = []
+    for key, (_, plan_section) in FILE_SECTIONS.items():
+        if key in data:
+            planned, section_errors = plan_section(data[key], db_path)
+            result["errors"].update(section_errors)
+            if planned is not None:
+                pending_files.append(planned)
     if not result["errors"]:
         for key, stored in cleaned.items():
             if stored is not None:
@@ -111,6 +128,8 @@ def save(data: Any, db_path: Path | str | None = None) -> dict[str, Any]:
     rule_before = config.resolve("salary_rule", db_path)[0]
     if cleaned:
         config.write(cleaned, db_path)
+    for planned in pending_files:  # tudo validado antes: cada arquivo é gravado de uma vez
+        md_fields.write_atomic(planned.path, planned.text)
     result["saved"] = True
     result["warnings"] = [w for key in cleaned if cleaned[key] is not None and (w := config.env_warning(key, db_path))]
     if config.resolve("salary_rule", db_path)[0] != rule_before:
