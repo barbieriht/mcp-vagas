@@ -1,11 +1,14 @@
 import json
 import os
 import stat
+import subprocess
 
 import pytest
 
+from vagas import sensitive, system
 from vagas.repo import VagasError
-from vagas.sensitive import ALLOWED_FIELDS, DpapiBackend, Vault, main, site, valid_cpf
+from vagas.sensitive import (ALLOWED_FIELDS, DpapiBackend, NoVaultBackend, SecretServiceBackend, Vault,
+                             default_backend, main, site, valid_cpf)
 
 
 class FakeBackend:
@@ -134,3 +137,94 @@ def test_cli_marks_the_profile(tmp_path, monkeypatch):
     assert "- RG: informar manualmente\n" in after_remove
     assert "12.345.678-9" not in after_set
     assert "- RG: informar manualmente" in (skill / "perfil.example.md").read_text(encoding="utf-8")
+
+
+class FakeSecretTool:
+    """secret-tool de mentira: guarda por atributos e registra cada chamada (argv e entrada padrão)."""
+
+    def __init__(self):
+        self.items, self.calls = {}, []
+
+    def __call__(self, command, input=None, **kwargs):
+        self.calls.append((command, input))
+        attributes = tuple(command[-4:])
+        if command[1] == "store":
+            self.items[attributes] = input
+            return subprocess.CompletedProcess(command, 0, b"", b"")
+        if command[1] == "lookup":
+            found = self.items.get(attributes)
+            return subprocess.CompletedProcess(command, 0 if found else 1, found or b"", b"")
+        self.items.pop(attributes, None)  # clear
+        return subprocess.CompletedProcess(command, 0, b"", b"")
+
+
+@pytest.fixture
+def secret_tool(monkeypatch):
+    fake = FakeSecretTool()
+    monkeypatch.setattr(sensitive.subprocess, "run", fake)
+    return fake
+
+
+def test_secret_service_keeps_the_value_in_the_keyring_and_only_a_token_in_the_file(secret_tool, tmp_path):
+    vault = Vault(tmp_path / "cofre.json", SecretServiceBackend())
+
+    vault.set("cpf", "529.982.247-25")
+
+    assert vault.get("cpf") == "52998224725"
+    assert "52998224725" not in (tmp_path / "cofre.json").read_text()
+    assert all(b"52998224725" not in " ".join(command).encode() for command, _ in secret_tool.calls)
+    assert secret_tool.calls[0][1] == b"52998224725"  # o valor vai pela entrada padrão, nunca na linha de comando
+
+
+def test_secret_service_forgets_replaced_and_removed_values(secret_tool, tmp_path):
+    vault = Vault(tmp_path / "cofre.json", SecretServiceBackend())
+
+    vault.set("rg", "1")
+    vault.set("rg", "2")
+    assert len(secret_tool.items) == 1 and vault.get("rg") == "2"
+    vault.remove("rg")
+    assert secret_tool.items == {}
+
+
+def test_secret_service_missing_value_is_a_readable_error(secret_tool, tmp_path):
+    vault = Vault(tmp_path / "cofre.json", SecretServiceBackend())
+    vault.set("cpf", "529.982.247-25")
+    secret_tool.items.clear()
+
+    with pytest.raises(VagasError, match="chaveiro"):
+        vault.get("cpf")
+
+
+def test_without_a_keyring_saving_explains_what_still_works(tmp_path):
+    vault = Vault(tmp_path / "cofre.json", NoVaultBackend())
+
+    with pytest.raises(VagasError, match="secret-tool") as error:
+        vault.set("cpf", "529.982.247-25")
+    assert "currículo" in str(error.value)
+    assert vault.list() == [] and not (tmp_path / "cofre.json").exists()
+
+
+@pytest.mark.parametrize("native_windows, wsl, has_secret_tool, expected", [
+    (True, False, False, DpapiBackend),
+    (False, True, False, DpapiBackend),
+    (False, False, True, SecretServiceBackend),
+    (False, False, False, NoVaultBackend),
+])
+def test_default_backend_follows_the_platform(monkeypatch, native_windows, wsl, has_secret_tool, expected):
+    monkeypatch.setattr(system, "NATIVE_WINDOWS", native_windows)
+    monkeypatch.setattr(system, "IN_WSL", wsl)
+    monkeypatch.setattr(sensitive.shutil, "which", lambda name: "/usr/bin/secret-tool" if has_secret_tool else None)
+
+    assert isinstance(default_backend(), expected)
+
+
+@pytest.mark.skipif(os.environ.get("VAGAS_TEST_SECRET_SERVICE") != "1",
+                    reason="defina VAGAS_TEST_SECRET_SERVICE=1 (Linux com chaveiro desbloqueado e secret-tool)")
+def test_real_secret_service_roundtrip(tmp_path):
+    vault = Vault(tmp_path / "cofre.json", SecretServiceBackend())
+
+    vault.set("rg", "12.345.678-9 ção")
+    assert vault.get("rg") == "12.345.678-9 ção"
+    vault.remove("rg")
+    with pytest.raises(VagasError):
+        SecretServiceBackend().unprotect(b"token-que-nao-existe")

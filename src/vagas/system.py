@@ -6,10 +6,12 @@ testes cobrirem os dois lados em qualquer sistema.
 """
 
 import os
+import platform
 from pathlib import Path
 from typing import Any
 
 NATIVE_WINDOWS = os.name == "nt"
+IN_WSL = not NATIVE_WINDOWS and "microsoft" in platform.uname().release.lower()
 
 # Flags do CreateProcess (subprocess só as expõe no Windows).
 DETACHED_PROCESS = 0x00000008

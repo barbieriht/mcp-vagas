@@ -13,16 +13,28 @@ Windows nativo (sem WSL; rode com `py scripts\\instalar_claude_code.py`): junç�
 symlinks (não exigem privilégio de administrador), a cópia estável e o banco em %LOCALAPPDATA%\vagas,
 e o servidor registrado com VAGAS_SKILL_DIR, VAGAS_SALARY_POLICY e VAGAS_TRIAGE_CRITERIA apontando
 para a Skill, no lugar dos symlinks ao lado do banco.
+
+Linux e macOS (fora do WSL): registra também o host de native messaging da extensão do Chrome nos
+navegadores instalados (Chrome, Chromium, Edge, Brave). Carregar a extensão continua manual. No WSL
+e no Windows, a extensão vai pelo instalar_desktop.py.
 """
 
+import argparse
 import json
 import os
+import platform
+import shlex
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from instalar_desktop import HOST_ENV_KEYS, HOST_NAME, _registered_env, extension_id, host_manifest  # noqa: E402
+
 NATIVE_WINDOWS = os.name == "nt"
+IN_WSL = not NATIVE_WINDOWS and "microsoft" in platform.uname().release.lower()
+MACOS = sys.platform == "darwin"
 REPO = Path(__file__).resolve().parents[1]
 SKILLS_HOME = Path.home() / ".claude" / "skills"
 
@@ -103,6 +115,46 @@ def mcp_add_command(python: Path, data: Path, repo: Path, native_windows: bool =
             "--", str(python), "-m", "vagas.server"]
 
 
+_BROWSERS_LINUX = ("google-chrome", "chromium", "microsoft-edge", "BraveSoftware/Brave-Browser")
+_BROWSERS_MACOS = ("Google/Chrome", "Chromium", "Microsoft Edge", "BraveSoftware/Brave-Browser")
+
+
+def browser_host_dirs(home: Path, macos: bool = MACOS) -> list[Path]:
+    """Pastas NativeMessagingHosts de cada navegador baseado no Chromium; a primeira é a do Google Chrome."""
+    if macos:
+        return [home / "Library/Application Support" / name / "NativeMessagingHosts" for name in _BROWSERS_MACOS]
+    return [home / ".config" / name / "NativeMessagingHosts" for name in _BROWSERS_LINUX]
+
+
+def host_script(python: Path, env: dict[str, str]) -> str:
+    """Script que o navegador executa: o host com a cópia estável (a sessão já traz o chaveiro)."""
+    variables = " ".join(shlex.quote(f"{key}={value}") for key, value in env.items())
+    return f"#!/bin/sh\nexec env {variables} {shlex.quote(str(python))} -m vagas.autofill_host\n"
+
+
+def install_native_host(data: Path, python: Path, home: Path, macos: bool = MACOS,
+                        registered: dict[str, str] | None = None) -> list[Path]:
+    """Grava o script do host e o manifest nos navegadores instalados (ou no Google Chrome, se nenhum).
+
+    registered: variáveis do registro do MCP no Claude Code; o host usa o mesmo banco e a mesma config."""
+    data.mkdir(parents=True, exist_ok=True)
+    script = data / "vagas-host.sh"
+    env = {"VAGAS_DB": str(data / "vagas.db")}
+    env.update({key: value for key, value in (registered or {}).items() if key in HOST_ENV_KEYS})
+    script.write_text(host_script(python, env), encoding="utf-8")
+    script.chmod(0o755)
+    key = json.loads((REPO / "extension" / "manifest.json").read_text(encoding="utf-8"))["key"]
+    manifest = json.dumps(host_manifest(str(script), extension_id(key)), indent=2) + "\n"
+    folders = browser_host_dirs(home, macos)
+    installed = [folder for folder in folders if folder.parent.is_dir()] or folders[:1]
+    paths = []
+    for folder in installed:
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / f"{HOST_NAME}.json").write_text(manifest, encoding="utf-8")
+        paths.append(folder / f"{HOST_NAME}.json")
+    return paths
+
+
 def mcp_registered(claude_json: Path) -> bool:
     try:
         return "vagas" in json.loads(claude_json.read_text(encoding="utf-8")).get("mcpServers", {})
@@ -110,7 +162,10 @@ def mcp_registered(claude_json: Path) -> bool:
         return False
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--sem-extensao", action="store_true", help="não registra o host da extensão do Chrome")
+    args = parser.parse_args(argv)
     sys.stdout.reconfigure(line_buffering=True)
     print("==> Skill e comandos em", SKILLS_HOME)
     for directory in skill_dirs(REPO):
@@ -156,6 +211,19 @@ def main() -> None:
         print("    registrado; no primeiro uso o Claude pergunta as pastas (currículos, CSVs) e grava em config.toml")
     else:
         print("    CLI 'claude' não encontrado: registre com o comando da seção Claude Code do README")
+
+    if not (NATIVE_WINDOWS or IN_WSL or args.sem_extensao):
+        print("\n==> Extensão do Chrome (currículo, termos de uso e documentos do cofre)")
+        registered = _registered_env(Path.home() / ".claude.json")
+        for manifest in install_native_host(DATA_DIR, STABLE_PYTHON, Path.home(), registered=registered):
+            print(f"    host registrado: {manifest}")
+        if not shutil.which("secret-tool") and not MACOS:
+            print("    sem secret-tool: a extensão anexa o currículo e marca os termos, mas não há cofre para CPF e RG"
+                  " (instale o pacote libsecret-tools para usar o chaveiro do sistema)")
+        elif MACOS:
+            print("    no macOS ainda não há cofre: a extensão anexa o currículo e marca os termos; documentos você digita")
+        print(f"    na primeira vez, abra chrome://extensions, ligue o Modo do desenvolvedor, clique em Carregar sem"
+              f" compactação e escolha {REPO / 'extension'}. Nas atualizações, clique em recarregar na extensão.")
 
     print("\n==> Pronto. Abra uma sessão nova do Claude Code; os comandos aparecem ao digitar /")
 

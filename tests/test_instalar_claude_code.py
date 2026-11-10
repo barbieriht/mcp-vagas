@@ -1,4 +1,6 @@
 import importlib.util
+import json
+import os
 from pathlib import Path
 
 import pytest
@@ -83,3 +85,52 @@ def test_linux_registration_relies_on_the_links_next_to_the_db(tmp_path):
 def test_stable_python_and_data_dir_follow_the_platform(tmp_path):
     assert inst.stable_python(tmp_path, native_windows=True) == tmp_path / "venv" / "Scripts" / "python.exe"
     assert inst.stable_python(tmp_path, native_windows=False) == tmp_path / "venv" / "bin" / "python"
+
+
+def test_browser_host_folders_on_linux_and_macos(tmp_path):
+    linux = inst.browser_host_dirs(tmp_path, macos=False)
+    macos = inst.browser_host_dirs(tmp_path, macos=True)
+
+    assert tmp_path / ".config/google-chrome/NativeMessagingHosts" in linux
+    assert tmp_path / ".config/chromium/NativeMessagingHosts" in linux
+    assert tmp_path / "Library/Application Support/Google/Chrome/NativeMessagingHosts" in macos
+    assert all(d.name == "NativeMessagingHosts" for d in linux + macos)
+
+
+def test_host_script_runs_the_stable_python_with_quoted_variables(tmp_path):
+    python = tmp_path / "meu venv" / "bin" / "python"
+
+    script = inst.host_script(python, {"VAGAS_DB": str(tmp_path / "a b" / "vagas.db")})
+
+    assert script.startswith("#!/bin/sh\n")
+    assert f"'VAGAS_DB={tmp_path / 'a b' / 'vagas.db'}'" in script
+    assert f"'{python}' -m vagas.autofill_host" in script
+
+
+def test_native_host_is_registered_in_the_installed_browsers_only(tmp_path):
+    home, data = tmp_path / "home", tmp_path / "data"
+    (home / ".config/chromium").mkdir(parents=True)  # só o Chromium instalado
+
+    manifests = inst.install_native_host(data, data / "venv/bin/python", home, macos=False)
+
+    assert manifests == [home / ".config/chromium/NativeMessagingHosts/com.barbieriht.vagas.json"]
+    manifest = json.loads(manifests[0].read_text(encoding="utf-8"))
+    script = data / "vagas-host.sh"
+    assert manifest["path"] == str(script) and manifest["type"] == "stdio"
+    assert manifest["allowed_origins"] == ["chrome-extension://ebbppobebhjfconpancjbjpijelcnimc/"]
+    assert os.access(script, os.X_OK)
+
+
+def test_without_any_browser_folder_the_host_goes_to_google_chrome(tmp_path):
+    manifests = inst.install_native_host(tmp_path / "data", tmp_path / "python", tmp_path / "home", macos=True)
+
+    assert manifests == [tmp_path / "home/Library/Application Support/Google/Chrome/NativeMessagingHosts"
+                         / "com.barbieriht.vagas.json"]
+
+
+def test_host_uses_the_same_db_as_the_claude_code_registration(tmp_path):
+    inst.install_native_host(tmp_path / "data", tmp_path / "python", tmp_path / "home", macos=False,
+                             registered={"VAGAS_DB": "/outro/vagas.db", "VAGAS_RESUME_OUT": "/pdfs"})
+
+    script = (tmp_path / "data" / "vagas-host.sh").read_text(encoding="utf-8")
+    assert "VAGAS_DB=/outro/vagas.db" in script and "VAGAS_RESUME_OUT" not in script
