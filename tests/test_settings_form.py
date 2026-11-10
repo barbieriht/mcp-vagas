@@ -537,3 +537,79 @@ def test_new_profile_does_not_inherit_the_example_languages(db_path, skill):
     save({"profile": {"Contato e identificação/Nome": "Maria"}}, db_path)
 
     assert "- Idiomas: <PREENCHER>" in (skill / "perfil.md").read_text(encoding="utf-8")
+
+
+# --- documentos do cofre -----------------------------------------------------------------------
+
+import json as _json  # noqa: E402
+
+from test_sensitive import FakeBackend  # noqa: E402
+from vagas.sensitive import NoVaultBackend, Vault  # noqa: E402
+
+
+@pytest.fixture
+def vault(tmp_path, monkeypatch, skill):
+    shutil.copy(EXAMPLES / "perfil.example.md", skill / "perfil.md")
+    path = tmp_path / "cofre.json"
+    monkeypatch.setenv("VAGAS_SENSITIVE_FILE", str(path))
+    monkeypatch.setattr("vagas.settings_files._vault_backend", FakeBackend)
+    return Vault(path, FakeBackend())
+
+
+def vault_fields(data):
+    return {f["id"]: f for g in data["sections"]["vault"]["groups"] for f in g["fields"]}
+
+
+def test_vault_lists_every_document_and_only_says_which_are_stored(db_path, vault):
+    vault.set("rg", "12.345.678-9")
+
+    data = load(db_path)
+    fields = vault_fields(data)
+
+    assert set(fields) == {"cpf", "rg", "rg_orgao_emissor", "cnh", "pis", "ctps", "titulo_eleitor", "passaporte",
+                           "nome_mae"}
+    assert fields["rg"]["stored"] and not fields["cpf"]["stored"] and fields["cpf"]["kind"] == "secret"
+    assert "12.345.678-9" not in _json.dumps(data) and "12345678" not in _json.dumps(data)
+
+
+def test_storing_a_document_never_echoes_it_and_marks_the_profile(db_path, vault, skill):
+    result = save({"vault": {"set": {"cpf": "529.982.247-25"}}}, db_path)
+
+    assert result["saved"], result["errors"]
+    assert vault.get("cpf") == "52998224725"
+    assert "52998224725" not in _json.dumps(result) and "529.982" not in _json.dumps(result)
+    assert "- CPF: no cofre" in (skill / "perfil.md").read_text(encoding="utf-8")
+
+
+def test_invalid_cpf_stores_nothing(db_path, vault):
+    result = save({"vault": {"set": {"cpf": "111.111.111-11", "rg": "12.345.678-9"}}}, db_path)
+
+    assert result["errors"] == {"vault.cpf": "CPF inválido: os dígitos verificadores não conferem."}
+    assert vault.list() == []
+
+
+def test_removing_a_document_clears_it_and_the_profile_mark(db_path, vault, skill):
+    save({"vault": {"set": {"cpf": "529.982.247-25"}}}, db_path)
+
+    result = save({"vault": {"remove": ["cpf"]}}, db_path)
+
+    assert result["saved"] and vault.list() == []
+    assert "- CPF: informar manualmente" in (skill / "perfil.md").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("bad", [{"set": {"senha": "x"}}, {"set": {"cpf": ""}}, {"remove": ["banco"]},
+                                 {"set": {"rg": "1\n2"}}, "texto"])
+def test_vault_refuses_anything_outside_the_allowed_documents(db_path, vault, bad):
+    result = save({"vault": bad}, db_path)
+
+    assert not result["saved"] and result["errors"] and vault.list() == []
+
+
+def test_without_a_keyring_the_vault_explains_and_refuses(db_path, vault, monkeypatch):
+    monkeypatch.setattr("vagas.settings_files._vault_backend", NoVaultBackend)
+
+    section = load(db_path)["sections"]["vault"]
+    result = save({"vault": {"set": {"rg": "12.345.678-9"}}}, db_path)
+
+    assert "secret-tool" in section["unavailable"]
+    assert not result["saved"] and "secret-tool" in result["errors"]["vault"]

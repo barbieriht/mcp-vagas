@@ -139,3 +139,8 @@ button.adicionar { margin-top: 12px; }
 .idioma .remover { margin-bottom: 4px; }
 .idioma select + input { margin-top: 8px; }
 @media (max-width: 720px) { .idioma { grid-template-columns: 1fr; } }
+
+
+.selo.ok { background: transparent; border: 1px solid var(--ok); color: var(--ok); }
+.a-remover input { text-decoration: line-through; }
+.campo input[type=password] + .remover { margin-top: 8px; }

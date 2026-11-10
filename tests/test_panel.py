@@ -339,6 +339,63 @@ def test_languages_are_edited_as_rows(skill, db_path):
     from playwright.sync_api import sync_playwright
 
     shutil.copy(Path(__file__).resolve().parents[1] / "skill" / "candidaturas" / "perfil.example.md", skill / "perfil.md")
+
+
+def test_resume_sources_are_configured_in_the_panel(running, db_path, tmp_path):
+    from playwright.sync_api import sync_playwright
+
+    pdf = tmp_path / "Curriculo.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        page.goto(f"http://127.0.0.1:{running.server_address[1]}/?t=t0k3n")
+        page.get_by_label("PDF do currículo (fonte do currículo geral)").fill(str(tmp_path / "nao-existe.pdf"))
+        page.get_by_label("Perfil do LinkedIn (fonte do currículo geral)").fill("https://github.com/fulano")
+        page.get_by_role("button", name="Salvar tudo").click()
+        page.get_by_text("Nada foi salvo").wait_for()
+        assert page.locator(".campo.com-erro").count() == 2
+
+        page.get_by_label("PDF do currículo (fonte do currículo geral)").fill(str(pdf))
+        page.get_by_label("Perfil do LinkedIn (fonte do currículo geral)").fill("linkedin.com/in/fulano/")
+        page.get_by_role("button", name="Salvar tudo").click()
+        page.get_by_text("Tudo salvo").wait_for()
+        browser.close()
+
+    assert resolve("resume_pdf", db_path) == (pdf, "config")
+    assert resolve("linkedin_url", db_path) == ("https://www.linkedin.com/in/fulano", "config")
+
+
+@pytest.fixture
+def fake_vault(tmp_path, monkeypatch, skill):
+    import shutil
+    from pathlib import Path
+
+    from test_sensitive import FakeBackend
+
+    shutil.copy(Path(__file__).resolve().parents[1] / "skill" / "candidaturas" / "perfil.example.md",
+                skill / "perfil.md")
+    monkeypatch.setenv("VAGAS_SENSITIVE_FILE", str(tmp_path / "cofre.json"))
+    monkeypatch.setattr("vagas.settings_files._vault_backend", FakeBackend)
+    return tmp_path / "cofre.json"
+
+
+def test_the_api_never_sends_a_vault_value_back(running, fake_vault):
+    status, body = request(running, "POST", "/api/settings", {"vault": {"set": {"cpf": "529.982.247-25"}}}, TOKEN)
+    _, page_data = request(running, "GET", "/api/settings", headers=TOKEN)
+
+    assert status == 200 and json.loads(body)["saved"]
+    for text in (body, page_data, fake_vault.read_text(encoding="utf-8")):
+        assert "52998224725" not in text and "529.982.247-25" not in text
+
+
+@pytest.mark.skipif(not _chromium(), reason="Playwright com Chromium não instalado")
+def test_documents_are_stored_and_removed_without_showing_them(skill, db_path, fake_vault):
+    from playwright.sync_api import sync_playwright
+
+    from test_sensitive import FakeBackend
+    from vagas.sensitive import Vault
+
     server = panel.make_server(db_path, token="t0k3n")
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
@@ -361,6 +418,26 @@ def test_languages_are_edited_as_rows(skill, db_path):
             new.get_by_label("Nível: outro").fill("básico (curso livre)")
             page.get_by_role("button", name="Salvar tudo").click()
             page.get_by_text("Tudo salvo").wait_for()
+
+
+            cpf = page.get_by_label("CPF", exact=True)
+            cpf.wait_for()
+            assert cpf.get_attribute("type") == "password"
+            cpf.fill("111.111.111-11")
+            page.get_by_role("button", name="Salvar tudo").click()
+            page.get_by_text("CPF inválido").wait_for()
+
+            page.get_by_label("CPF", exact=True).fill("529.982.247-25")
+            page.get_by_role("button", name="Salvar tudo").click()
+            page.get_by_text("Tudo salvo").wait_for()
+            assert page.get_by_label("CPF", exact=True).input_value() == ""
+            assert page.get_by_text("Guardado no cofre").count() == 1
+            assert "52998224725" not in page.content()
+
+            page.get_by_role("button", name="Remover do cofre").click()
+            page.get_by_role("button", name="Salvar tudo").click()
+            page.get_by_text("Tudo salvo").wait_for()
+            assert page.get_by_text("Guardado no cofre").count() == 0
             browser.close()
     finally:
         server.shutdown()
@@ -368,3 +445,7 @@ def test_languages_are_edited_as_rows(skill, db_path):
 
     assert ("- Idiomas: português (nativo), inglês intermediário-avançado (B2, certificado), libras (básico (curso livre))\n"
             in (skill / "perfil.md").read_text(encoding="utf-8"))
+
+
+    assert Vault(fake_vault, FakeBackend()).list() == []
+    assert "- CPF: informar manualmente" in (skill / "perfil.md").read_text(encoding="utf-8")

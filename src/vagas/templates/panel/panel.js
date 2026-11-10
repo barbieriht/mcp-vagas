@@ -51,6 +51,8 @@ function input(field, id) {
   const attrs = { id, name: id, value: field.value, autocomplete: "off", spellcheck: "false" };
   if (field.kind === "int") Object.assign(attrs, { type: "number", inputmode: "numeric", min: field.bounds[0], max: field.bounds[1], placeholder: field.default });
   else if (field.key === "login_email") Object.assign(attrs, { type: "email", placeholder: "nome@gmail.com" });
+  else if (field.kind === "pdf") Object.assign(attrs, { type: "text", placeholder: "Ex.: C:\\Users\\você\\Downloads\\Curriculo.pdf" });
+  else if (field.key === "linkedin_url") Object.assign(attrs, { type: "url", placeholder: "https://www.linkedin.com/in/seu-nome" });
   else Object.assign(attrs, { type: "text", placeholder: field.default || (field.kind === "dir" ? "Caminho da pasta" : "") });
   return el("input", attrs);
 }
@@ -128,6 +130,7 @@ function renderFileField(section, field, isNew) {
   if (field.kind === "choice_other") return renderChoiceOther(section, field, name, id, classes, help, notes);
   if (field.kind === "bands") return renderBands(section, field, name, help);
   if (field.kind === "languages") return renderLanguages(section, field, name, help, notes);
+  if (field.kind === "secret") return renderSecret(section, field, name, id);
   let control;
   if (field.kind === "choice") {
     control = el("select", { id });
@@ -245,6 +248,25 @@ function renderLanguages(section, field, name, help, notes) {
   return box;
 }
 
+// Documento do cofre: campo de senha que nunca mostra o valor guardado; em branco, não muda nada.
+function renderSecret(section, field, name, id) {
+  const input = el("input", { type: "password", id, autocomplete: "new-password", spellcheck: "false",
+    placeholder: field.stored ? "Guardado. Digite só para trocar" : "Não guardado", disabled: Boolean(section.unavailable) });
+  let removing = false;
+  const remove = field.stored ? el("button", { type: "button", class: "remover", text: "Remover do cofre", onclick: () => {
+    removing = !removing;
+    remove.textContent = removing ? "Desfazer remoção" : "Remover do cofre";
+    input.disabled = removing;
+    box.classList.toggle("a-remover", removing);
+  } }) : null;
+  const badge = field.stored ? el("span", { class: "selo ok", text: "Guardado no cofre" }) : null;
+  const box = el("div", { class: "campo", "data-campo": name },
+    el("div", { class: "cabeca" }, el("label", { for: id, text: field.title }), badge), input, remove);
+  controls.push({ section: "vault", key: field.id, before: "", node: input,
+    read: () => (removing ? { remove: true } : input.value.trim()) });
+  return box;
+}
+
 const plain = (text) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 
 // Tabela de faixas da política salarial: uma linha por faixa, com "usar a faixa de" outra linha.
@@ -355,6 +377,8 @@ function render(data) {
     } else if (key === "config") {
       for (const field of section.fields) box.append(renderConfigField(field, (section.needs_setup || []).includes(field.key)));
     } else {
+      if (section.help) box.append(el("p", { class: "ajuda", text: section.help }));
+      if (section.unavailable) box.append(el("p", { class: "nota aviso", text: section.unavailable }));
       if (section.new) box.append(el("p", { class: "nota aviso", text: "Este arquivo ainda não existe: ele é criado quando você salvar. Os textos em cinza são só exemplos." }));
       for (const group of section.groups) {
         if (group.name) box.append(el("h3", { class: "grupo-titulo", text: group.name }));
@@ -369,6 +393,11 @@ function changes() {
   const form = {};
   for (const control of controls) {
     const value = control.read();
+    if (control.section === "vault") {  // {set: {doc: valor}, remove: [doc]}
+      if (value && value.remove) ((form.vault ||= {}).remove ||= []).push(control.key);
+      else if (value) ((form.vault ||= {}).set ||= {})[control.key] = value;
+      continue;
+    }
     if (JSON.stringify(value) === control.before) continue;
     (form[control.section] ||= {})[control.key] = value;
   }
