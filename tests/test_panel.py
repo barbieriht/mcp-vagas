@@ -494,3 +494,100 @@ def test_master_resume_is_edited_by_section(db_path):
     analyst = next(e for e in draft["experience"] if e["id"] == "exp-acme-analyst")
     assert analyst["company"] == "Acme Analytics Ltd"
     assert analyst["paragraphs"][-1] == {"id": "exp-acme-analyst-p2", "text": "Automated monthly reports."}
+
+
+def test_approving_through_the_panel_needs_token_origin_and_the_current_draft(running, db_path):
+    from resume_fixture import fictitious_resume
+    from vagas.db import connect
+    from vagas.resume_repo import ResumeStore, default_draft_path
+
+    conn = connect(db_path)
+    store = ResumeStore(conn, default_draft_path(db_path))
+    store.save_master_draft(fictitious_resume())
+    _, body = request(running, "GET", "/api/settings", headers=TOKEN)
+    fingerprint = json.loads(body)["sections"]["resume"]["hash"]
+    port = running.server_address[1]
+
+    no_token, _ = request(running, "POST", "/api/resume/approve", {"hash": fingerprint})
+    other_site, _ = request(running, "POST", "/api/resume/approve", {"hash": fingerprint},
+                            {**TOKEN, "Origin": "https://ataque.example.com"})
+    stale, stale_body = request(running, "POST", "/api/resume/approve", {"hash": "antigo"}, TOKEN)
+    ok, ok_body = request(running, "POST", "/api/resume/approve", {"hash": fingerprint},
+                         {**TOKEN, "Origin": f"http://127.0.0.1:{port}"})
+
+    assert (no_token, other_site, stale, ok) == (403, 403, 409, 200)
+    assert "Recarregue" in json.loads(stale_body)["error"] and json.loads(ok_body)["created"]
+    assert store.get_master_resume()["resume"]["basics"]["name"] == "Fulana de Tal"
+    conn.close()
+
+
+@pytest.mark.skipif(not _chromium(), reason="Playwright com Chromium não instalado")
+def test_master_resume_is_approved_from_the_panel_after_a_confirmation(db_path):
+    from playwright.sync_api import sync_playwright
+
+    from resume_fixture import fictitious_resume
+    from vagas.db import connect
+    from vagas.resume_repo import ResumeStore, default_draft_path
+
+    conn = connect(db_path)
+    store = ResumeStore(conn, default_draft_path(db_path))
+    store.save_master_draft(fictitious_resume())
+    store.approve_master()
+    changed = fictitious_resume()
+    changed["experience"][0]["title"] = "AI Engineering Coordinator"
+    store.save_master_draft(changed, overwrite=True)
+    server = panel.make_server(db_path, token="t0k3n")
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            page.goto(server.url)
+            area = page.locator(".aprovacao")
+            area.wait_for()
+            assert "AI Engineering Coordinator" in area.inner_text() and "alterado (Cargo)" in area.inner_text()
+
+            page.get_by_role("button", name="Aprovar o rascunho").click()
+            page.get_by_role("button", name="Cancelar").click()
+            assert store.get_master_resume()["resume"]["experience"][0]["title"] != "AI Engineering Coordinator"
+
+            page.get_by_role("button", name="Aprovar o rascunho").click()
+            page.get_by_role("button", name="Confirmar aprovação").click()
+            page.get_by_text("Currículo geral aprovado").wait_for()
+            assert page.get_by_role("button", name="Aprovar o rascunho").is_disabled()
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert store.get_master_resume()["resume"]["experience"][0]["title"] == "AI Engineering Coordinator"
+    conn.close()
+
+
+@pytest.mark.skipif(not _chromium(), reason="Playwright com Chromium não instalado")
+def test_unsaved_resume_edits_block_the_approval(db_path):
+    from playwright.sync_api import sync_playwright
+
+    from resume_fixture import fictitious_resume
+    from vagas.db import connect
+    from vagas.resume_repo import ResumeStore, default_draft_path
+
+    conn = connect(db_path)
+    store = ResumeStore(conn, default_draft_path(db_path))
+    store.save_master_draft(fictitious_resume())
+    conn.close()
+    server = panel.make_server(db_path, token="t0k3n")
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            page.goto(server.url)
+            page.get_by_label("Headline").fill("Mudança não salva")
+            page.get_by_role("button", name="Aprovar o rascunho").click()
+            page.get_by_text("alterações não salvas no currículo").wait_for()
+            assert page.get_by_role("button", name="Confirmar aprovação").is_hidden()
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()

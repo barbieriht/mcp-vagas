@@ -159,3 +159,10 @@ details.cv-item > summary { cursor: pointer; font-weight: 600; overflow-wrap: an
 .cv-acoes { display: flex; gap: 8px; justify-content: flex-end; padding-top: 8px; }
 .cv-lista-campo { border-top: none; }
 @media (max-width: 720px) { .cv-objeto, .cv-item-corpo { grid-template-columns: minmax(0, 1fr); } }
+
+.aprovacao { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--borda); }
+.aprovacao h3 { margin: 0 0 8px; font-size: 18px; }
+ul.mudancas { margin: 4px 0 12px; padding-left: 20px; font-size: 14px; overflow-wrap: anywhere; }
+button.aprovar { font: 600 15px/1 inherit; padding: 10px 16px; border: none; border-radius: 8px; background: var(--botao); color: var(--botao-texto); cursor: pointer; }
+button.aprovar:disabled { opacity: 0.5; cursor: not-allowed; }
+.confirmacao { margin-top: 8px; padding: 12px 16px; border: 1px solid var(--destaque-forte); border-radius: 10px; background: var(--aviso-fundo); }

@@ -114,3 +114,74 @@ def test_notes_about_the_sources_are_refused_like_in_the_chat(db_path, store):
     result = save({"resume": {"data": value, "hash": fingerprint}}, db_path)
 
     assert not result["saved"] and "fontes" in result["errors"]["resume"]
+
+
+# --- diferenças e aprovação ------------------------------------------------------------------------
+
+from vagas.settings_resume import approve, draft_changes  # noqa: E402
+
+
+def approved_then_draft(store, db_path, edit):
+    store.save_master_draft(fictitious_resume())
+    store.approve_master()
+    changed = fictitious_resume()
+    edit(changed)
+    store.save_master_draft(changed, overwrite=True)
+
+
+def test_changes_list_what_the_draft_adds_removes_and_edits(db_path, store):
+    def edit(resume):
+        resume["experience"][0]["title"] = "AI Engineering Coordinator"
+        resume["experience"].append({"id": "exp-nova", "company": "Nova", "title": "Data Scientist",
+                                     "start": "Oct 2025", "paragraphs": [{"id": "exp-nova-p1", "text": "Built models."}]})
+        del resume["education"][0]
+        resume["basics"]["headline"] = "Data Scientist"
+
+    approved_then_draft(store, db_path, edit)
+    changes = {(c["section"], c["kind"], c.get("id")): c for c in draft_changes(store)}
+
+    assert changes[("experience", "changed", "exp-acme-tech-lead")]["fields"] == ["title"]
+    assert ("experience", "added", "exp-nova") in changes and ("education", "removed", "edu-uni-phd") in changes
+    assert changes[("basics", "changed", None)]["fields"] == ["headline"]
+    assert len(changes) == 4
+
+
+def test_section_shows_changes_review_and_whether_it_can_be_approved(db_path, store):
+    store.save_resume_source("pdf", "Curriculo.pdf", text="Fulana de Tal. Acme Analytics.")
+    approved_then_draft(store, db_path, lambda r: r["basics"].update(headline="Data Scientist"))
+
+    data = section(db_path)
+
+    assert data["approval"]["can_approve"] and data["approval"]["changes"]
+    assert any("Data Scientist" in item.get("value", "") or item.get("where") for item in data["approval"]["review"])
+
+
+def test_draft_equal_to_the_approved_version_cannot_be_approved_again(db_path, store):
+    store.save_master_draft(fictitious_resume())
+    store.approve_master()
+
+    approval = section(db_path)["approval"]
+
+    assert not approval["can_approve"] and "nenhuma diferença" in approval["reason"].lower()
+
+
+def test_approving_creates_the_version_and_the_draft_has_no_more_changes(db_path, store):
+    approved_then_draft(store, db_path, lambda r: r["basics"].update(headline="Data Scientist"))
+    fingerprint = section(db_path)["hash"]
+
+    result = approve(db_path, fingerprint)
+
+    assert result["created"] and store.get_master_resume()["resume"]["basics"]["headline"] == "Data Scientist"
+    assert not section(db_path)["approval"]["can_approve"]
+
+
+def test_approving_a_draft_changed_after_opening_the_panel_is_refused(db_path, store):
+    approved_then_draft(store, db_path, lambda r: r["basics"].update(headline="Data Scientist"))
+    fingerprint = section(db_path)["hash"]
+    other = fictitious_resume()
+    other["basics"]["headline"] = "Outra versão"
+    store.save_master_draft(other, overwrite=True)
+
+    with pytest.raises(Exception, match="(?i)recarregue"):
+        approve(db_path, fingerprint)
+    assert store.get_master_resume()["resume"]["basics"]["headline"] != "Outra versão"

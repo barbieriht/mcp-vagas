@@ -467,6 +467,14 @@ class ResumeStore:
         resume["windows_path"] = windows_path(resume["pdf_path"])
         return resume
 
+    def draft_review(self) -> list[dict[str, str]] | None:
+        """Itens do rascunho que não aparecem nas fontes registradas (PDF, LinkedIn); None sem fontes."""
+        data = _validate(self._read_draft()).as_data()
+        sources = self._latest_sources()
+        if not sources:
+            return None
+        return review_draft(data, "\n".join(_source_text(json.loads(s["content"])) for s in sources))
+
     def _read_draft(self) -> Any:
         if not self.draft_path.exists():
             raise VagasError(f"Não há rascunho em {self.draft_path}. Gere um com save_master_draft.")
