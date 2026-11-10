@@ -139,7 +139,8 @@ function renderFileField(section, field, isNew) {
   }
   register(section.key, field.id, field.value, () => control.value.trim(), control);
   return el("div", { class: classes, "data-campo": name },
-    el("div", { class: "cabeca" }, el("label", { for: id, text: field.title }), badgeFor(control, pending, "Falta preencher")),
+    el("div", { class: "cabeca" }, el("label", { for: id, text: field.title }),
+      badgeFor(control, pending, field.missing ? "Campo novo" : "Falta preencher")),
     help, control, loadError, ...notes);
 }
 

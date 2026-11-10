@@ -318,3 +318,30 @@ def test_pcd_terms_are_not_a_user_setting_anymore(db_path, skill):
 
     assert not any("PcD" in fid for fid in criteria)
     assert "Termos de vaga exclusiva PcD" not in (EXAMPLES / "criterios-triagem.example.md").read_text(encoding="utf-8")
+
+
+# --- campos novos do exemplo num perfil que já existe ------------------------------------------
+
+def test_the_example_has_a_portfolio_for_people_outside_tech():
+    lines = (EXAMPLES / "perfil.example.md").read_text(encoding="utf-8").splitlines()
+
+    assert any(line.startswith("- Portfólio:") for line in lines)
+    assert lines.index(next(l for l in lines if l.startswith("- Portfólio:"))) == \
+        lines.index(next(l for l in lines if l.startswith("- GitHub:"))) + 1
+
+
+def test_fields_of_the_example_missing_from_the_profile_show_up_and_are_added_only_when_filled(db_path, skill):
+    original = "## Contato e identificação\n- Nome: Maria Teste\n- GitHub: https://github.com/maria\n\n## Respostas padrão\n- Parentes na empresa: não\n"
+    (skill / "perfil.md").write_text(original, encoding="utf-8")
+
+    portfolio = section_fields(load(db_path), "profile")["Contato e identificação/Portfólio"]
+    untouched = save({"profile": {"Contato e identificação/Nome": "Maria Souza"}}, db_path)
+    after_name = (skill / "perfil.md").read_text(encoding="utf-8")
+    filled = save({"profile": {"Contato e identificação/Portfólio": "https://behance.net/maria"}}, db_path)
+
+    assert portfolio["value"] == "" and portfolio["missing"]
+    assert untouched["saved"] and "Portfólio" not in after_name
+    assert filled["saved"], filled["errors"]
+    assert (skill / "perfil.md").read_text(encoding="utf-8") == (
+        "## Contato e identificação\n- Nome: Maria Souza\n- GitHub: https://github.com/maria\n"
+        "- Portfólio: https://behance.net/maria\n\n## Respostas padrão\n- Parentes na empresa: não\n")
