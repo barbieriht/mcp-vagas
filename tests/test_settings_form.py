@@ -613,3 +613,45 @@ def test_without_a_keyring_the_vault_explains_and_refuses(db_path, vault, monkey
 
     assert "secret-tool" in section["unavailable"]
     assert not result["saved"] and "secret-tool" in result["errors"]["vault"]
+
+
+# --- anos de experiência no perfil ------------------------------------------------------------------
+
+def test_example_declares_years_as_calculated_and_has_no_free_text_experience():
+    text = (EXAMPLES / "perfil.example.md").read_text(encoding="utf-8")
+
+    assert "- Anos de experiência a declarar: calculado\n" in text
+    assert "- Experiência: <" not in text and "Se o campo pedir anos de experiência" not in text
+
+
+def test_years_field_shows_the_computed_value_and_takes_a_number_or_nothing(db_path, skill):
+    from resume_fixture import fictitious_resume
+    from vagas.db import connect
+    from vagas.resume_repo import ResumeStore, default_draft_path
+
+    conn = connect(db_path)
+    store = ResumeStore(conn, default_draft_path(db_path))
+    store.save_master_draft(fictitious_resume())
+    store.approve_master()
+    conn.close()
+    shutil.copy(EXAMPLES / "perfil.example.md", skill / "perfil.md")
+
+    fields = section_fields(load(db_path), "profile")
+    years = fields["Respostas padrão/Anos de experiência a declarar"]
+    periods = next(f for f in fields.values() if f["kind"] == "periods")
+
+    assert years["kind"] == "years" and years["value"] == "" and "calculado" in years["hint"].lower()
+    assert periods["value"][0]["company"] and periods["years_computed"] is not None
+    bad = save({"profile": {"Respostas padrão/Anos de experiência a declarar": "muitos"}}, db_path)
+    assert bad["errors"] == {"profile.Respostas padrão/Anos de experiência a declarar":
+                             "Informe um número de anos, ou deixe em branco para usar o calculado."}
+    save({"profile": {"Respostas padrão/Anos de experiência a declarar": "7"}}, db_path)
+    assert "- Anos de experiência a declarar: 7\n" in (skill / "perfil.md").read_text(encoding="utf-8")
+    save({"profile": {"Respostas padrão/Anos de experiência a declarar": ""}}, db_path)
+    assert "- Anos de experiência a declarar: calculado\n" in (skill / "perfil.md").read_text(encoding="utf-8")
+
+
+def test_skill_uses_the_years_given_by_get_profile():
+    text = (EXAMPLES / "candidatar.md").read_text(encoding="utf-8")
+
+    assert "`years_to_inform`" in text

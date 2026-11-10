@@ -14,6 +14,7 @@ from typing import Any
 from vagas import affirmative, md_fields
 from vagas.models import ROLE_KEYS, ROLE_NAMES, SENIORITIES, SENIORITY_LABELS
 from vagas.normalize import normalize_text
+from vagas.experience import DECLARED_LABEL
 from vagas.profile_fields import MANUAL, TALENT_POOL, default_skill_dir, is_sensitive
 from vagas.repo import VagasError
 
@@ -185,6 +186,8 @@ def _profile_kind(item: md_fields.Item, items: list[md_fields.Item]) -> str:
         return "locked"
     if _norm(item.label) == "idiomas" and item.parent is None:
         return "languages"
+    if _norm(item.label) == _norm(DECLARED_LABEL) and item.parent is None:
+        return "years"
     if not item.value.strip() and any(other.parent == item.label and other.section == item.section for other in items):
         return "group"
     if any(_norm(note).startswith("valores aceitos: sim ou nao") for note in item.notes) \
@@ -236,6 +239,9 @@ def load_profile(db_path: Path | str | None) -> dict[str, Any]:
             hint, value = value, ""  # o exemplo é dica, nunca valor de outra pessoa
         if kind == "yesno":
             value = _yes_no(value)
+        if kind == "years":
+            value = "" if _norm(item.value) in ("", "calculado") or placeholder else item.value.strip()
+            hint = "Em branco: calculado pelo currículo geral"
         if kind == "languages":
             rows = parse_languages(item.value) if not placeholder else []
             value, hint = ([], "") if from_example else (rows, "")
@@ -248,7 +254,7 @@ def load_profile(db_path: Path | str | None) -> dict[str, Any]:
             pending.append(item.id)
         if not groups or groups[-1]["name"] != (item.section or ""):
             groups.append({"name": item.section or "", "fields": []})
-        groups[-1]["fields"].append(field)
+        groups[-1]["fields"].extend(_with_periods(field, db_path) if kind == "years" else [field])
     if not from_example:
         for item, kind in _missing_from_example(items, example):
             field = {"id": item.id, "title": item.label, "kind": kind, "value": "", "missing": True,
@@ -259,9 +265,52 @@ def load_profile(db_path: Path | str | None) -> dict[str, Any]:
             if group is None:
                 group = {"name": item.section or "", "fields": []}
                 groups.append(group)
-            group["fields"].append(field)
+            group["fields"].extend(_with_periods(field, db_path) if kind == "years" else [field])
     return {"key": "profile", "title": PROFILE_TITLE, "file": str(path), "new": from_example,
             "groups": groups, "pending": pending}
+
+
+def _periods_field(db_path: Path | str | None) -> dict[str, Any]:
+    """Experiências do currículo geral aprovado (só leitura no perfil) e os anos somados."""
+    from datetime import date
+
+    from vagas.db import connect
+    from vagas.experience import experience_years
+    from vagas.resume_repo import ResumeStore, default_draft_path
+
+    conn = connect(db_path) if db_path is not None else connect()
+    try:
+        master = ResumeStore(conn, default_draft_path(db_path)).get_master_resume()["resume"]
+    except VagasError:
+        master = None
+    finally:
+        conn.close()
+    exact = experience_years(master, date.today()) if master else None
+    return {"id": "__periods__", "title": "Experiências do currículo geral", "kind": "periods",
+            "value": [{k: item.get(k, "") for k in ("company", "title", "start", "end")}
+                      for item in (master or {}).get("experience", [])],
+            "years_exact": exact, "years_computed": int(exact + 0.5) if exact is not None else None,
+            "hint": "", "parent": None, "status": None,
+            "notes": ["Edite as experiências na seção Currículo geral." if master
+                      else "Ainda não há currículo geral aprovado: os anos não podem ser calculados."]}
+
+
+def _with_periods(field: dict[str, Any], db_path: Path | str | None) -> list[dict[str, Any]]:
+    periods = _periods_field(db_path)
+    if periods["years_computed"] is not None:
+        field["hint"] = f"Em branco: {periods['years_computed']} anos, calculados pelo currículo geral"
+    return [periods, field]
+
+
+def _years_value(raw: str) -> str | None:
+    """Vazio -> "calculado"; número -> o número; outro texto -> None (inválido)."""
+    text = raw.strip()
+    if not text or _norm(text) == "calculado":
+        return "calculado"
+    return text if re.fullmatch(r"\d{1,2}(?:[.,]\d)?", text) else None
+
+
+YEARS_ERROR = "Informe um número de anos, ou deixe em branco para usar o calculado."
 
 
 def _missing_from_example(items: list[md_fields.Item], example: Path) -> list[tuple[md_fields.Item, str]]:
@@ -279,7 +328,7 @@ def _missing_from_example(items: list[md_fields.Item], example: Path) -> list[tu
         if md_fields._key(item.id) in have or _norm(item.label) in have_labels:
             continue
         kind = _profile_kind(item, example_items)
-        if kind in ("text", "yesno"):
+        if kind in ("text", "yesno", "years"):
             missing.append((item, kind))
     return missing
 
@@ -338,6 +387,10 @@ def plan_profile(values: Any, db_path: Path | str | None) -> tuple[Pending | Non
                 errors[name] = "Informe o valor numa linha só (sem começar com '<')."
             elif new_kind == "yesno" and raw.strip() and not _yes_no(raw):
                 errors[name] = "Responda sim ou não."
+            elif new_kind == "years" and _years_value(raw) is None:
+                errors[name] = YEARS_ERROR
+            elif new_kind == "years":
+                inserts.append((new_item.section, f"- {new_item.label}: {_years_value(raw)}"))
             elif raw.strip():  # vazio: o campo continua fora do arquivo
                 value = _yes_no(raw) if new_kind == "yesno" else raw.strip()
                 inserts.append((new_item.section, f"- {new_item.label}: {value}"))
@@ -347,6 +400,13 @@ def plan_profile(values: Any, db_path: Path | str | None) -> tuple[Pending | Non
             errors[name] = "Campo desconhecido no perfil."
             continue
         kind = _profile_kind(item, items)
+        if kind == "years":
+            stored = _years_value(raw) if isinstance(raw, str) else None
+            if stored is None:
+                errors[name] = YEARS_ERROR
+            else:
+                updates[item.id] = stored
+            continue
         if kind == "languages":
             line, row_errors = _check_languages(raw, name)
             errors.update(row_errors)
