@@ -424,6 +424,11 @@ def test_documents_are_stored_and_removed_without_showing_them(skill, db_path, f
             cpf.wait_for()
             assert cpf.get_attribute("type") == "password"
             cpf.fill("111.111.111-11")
+            show = page.get_by_role("button", name="Mostrar o que foi digitado em CPF")
+            show.click()  # conferir o que foi digitado antes de salvar
+            assert cpf.get_attribute("type") == "text" and cpf.input_value() == "111.111.111-11"
+            page.get_by_role("button", name="Ocultar o que foi digitado em CPF").click()
+            assert cpf.get_attribute("type") == "password"
             page.get_by_role("button", name="Salvar tudo").click()
             page.get_by_text("CPF inválido").wait_for()
 
