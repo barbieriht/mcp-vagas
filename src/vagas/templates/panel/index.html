@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Configuração do mcp-vagas</title>
+<link rel="stylesheet" href="/panel.css">
+<script src="/panel.js" defer></script>
+</head>
+<body>
+<header class="topo">
+  <div class="topo-dentro">
+    <p class="marca">mcp-vagas</p>
+    <h1>Configuração</h1>
+    <p class="intro">Preencha o que quiser e salve tudo de uma vez. Os valores ficam nos arquivos do seu computador, e você pode editá-los à mão quando quiser.</p>
+  </div>
+</header>
+<main class="conteudo">
+  <nav class="secoes" aria-label="Seções">
+    <ol id="indice"></ol>
+  </nav>
+  <form id="formulario" novalidate>
+    <div id="secoes"><p class="carregando">Carregando…</p></div>
+    <div class="rodape-form">
+      <p id="status" role="status" aria-live="polite"></p>
+      <button type="submit" id="salvar">Salvar tudo</button>
+    </div>
+  </form>
+</main>
+</body>
+</html>
