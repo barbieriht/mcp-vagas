@@ -134,6 +134,13 @@ button.adicionar { margin-top: 12px; }
   .faixa-grade { grid-template-columns: 1fr 1fr; }
   .celula-name, .celula-alias, .celula-clt { grid-column: 1 / -1; }
 }
+.idiomas { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
+.idioma { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 12px; align-items: end; }
+.idioma .remover { margin-bottom: 4px; }
+.idioma select + input { margin-top: 8px; }
+@media (max-width: 720px) { .idioma { grid-template-columns: 1fr; } }
+
+
 .selo.ok { background: transparent; border: 1px solid var(--ok); color: var(--ok); }
 .a-remover input { text-decoration: line-through; }
 .campo input[type=password] + .remover { margin-top: 8px; }
