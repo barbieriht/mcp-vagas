@@ -56,18 +56,20 @@ python3 scripts/instalar_desktop.py --sem-skill     # Claude Desktop (Windows) e
 python3 scripts/instalar_claude_code.py             # opcional: Claude Code no WSL
 ```
 
-**O que os instaladores fazem:** instalam uma cópia estável do servidor, registram o MCP "vagas" no Claude Desktop e/ou no Claude Code, instalam a Skill "candidaturas" e os comandos, e registram a extensão do Chrome. Podem ser rodados de novo a qualquer momento. O `--sem-skill` deixa o zip da Skill do Desktop para depois da configuração (passo 2).
+**O que os instaladores fazem:** instalam uma cópia estável do servidor, registram o MCP "vagas" no Claude Desktop e/ou no Claude Code, instalam a Skill "candidaturas" e os comandos e registram a extensão do Chrome. No fim, criam o atalho **Painel do mcp-vagas** e abrem o painel de configuração no navegador. Podem ser rodados de novo a qualquer momento. O `--sem-skill` deixa o zip da Skill do Desktop para depois da configuração (passo 2), e o `--sem-painel` não abre o painel.
 
 ## 2. Configurar (painel no navegador)
 
-Abra o painel:
+O instalador já abre o painel. Para voltar a ele depois, use o atalho **Painel do mcp-vagas** ou peça ao Claude *"abra o painel de configuração"* (ele manda o link). Também dá para abrir pelo terminal:
 
-| Sistema | Comando |
-|---|---|
-| Windows (sem WSL) | `& "$env:LOCALAPPDATA\vagas\venv\Scripts\python.exe" -m vagas.panel` |
-| Linux, macOS ou WSL | `~/.local/share/vagas/venv/bin/python -m vagas.panel` |
+| Sistema | Atalho | Comando |
+|---|---|---|
+| Windows (com ou sem WSL) | Área de Trabalho | `& "$env:LOCALAPPDATA\vagas\venv\Scripts\python.exe" -m vagas.panel` (sem WSL) |
+| Linux | menu de aplicativos | `~/.local/share/vagas/venv/bin/python -m vagas.panel` |
+| macOS | Mesa (arquivo `.command`) | `~/.local/share/vagas/venv/bin/python -m vagas.panel` |
+| WSL (só Claude Code) | o do `instalar_desktop.py` | `~/.local/share/vagas/venv/bin/python -m vagas.panel` |
 
-Ele abre uma página no navegador. Preencha e clique em **Salvar tudo**. Nada é gravado enquanto houver um campo com erro, e o erro aparece ao lado do campo.
+O painel é uma página no navegador. Preencha e clique em **Salvar tudo**. Nada é gravado enquanto houver um campo com erro, e o erro aparece ao lado do campo.
 
 | Seção | O que preencher |
 |---|---|
@@ -77,7 +79,7 @@ Ele abre uma página no navegador. Preencha e clique em **Salvar tudo**. Nada é
 | **Política salarial** | o mínimo (e, se quiser, o máximo) por faixa: remoto, híbrido em uma cidade, internacional... |
 | **Documentos do cofre** | CPF, RG e outros documentos, cifrados no seu computador. A extensão do Chrome os preenche nos formulários, e o Claude nunca vê os valores |
 
-O painel só aceita conexões do seu computador e só abre pelo link que o comando mostra. Para voltar a ele, rode o comando de novo. Preferir editar os arquivos à mão também funciona: veja [Arquivos pessoais à mão](docs/referencia.md#arquivos-pessoais-à-mão).
+O painel só aceita conexões do seu computador e só abre pelo link com o código de acesso (o atalho, o comando e o Claude dão esse link). Ele fecha sozinho depois de uma hora sem uso; o atalho abre de novo. Preferir editar os arquivos à mão também funciona: veja [Arquivos pessoais à mão](docs/referencia.md#arquivos-pessoais-à-mão).
 
 **Claude Desktop:** depois de salvar, gere o zip da Skill, rodando o instalador de novo sem o `--sem-skill`. Em seguida, envie `Downloads\candidaturas.zip` em **Configurações → Skills** e reinicie o Desktop (feche também pelo ícone perto do relógio).
 
@@ -136,7 +138,7 @@ Depois, rode de novo os instaladores do passo 1 e abra uma conversa nova. No Cla
 
 | Problema | O que fazer |
 |---|---|
-| O painel diz "Acesso negado" | Abra pelo link que o comando `vagas.panel` mostra (ele tem um código de acesso). Rodar o comando de novo mostra o link |
+| O painel diz "Acesso negado" | Abra pelo atalho, ou peça o link ao Claude: o link tem um código de acesso, e uma aba antiga pode ser de um painel que já fechou |
 | O instalador parou ao gerar o zip da Skill | Os arquivos pessoais ainda não estão preenchidos: preencha no painel (passo 2) e rode o instalador de novo |
 | O Claude Desktop não mostra o "vagas" | Feche o Desktop por completo (inclusive pelo ícone perto do relógio) e abra de novo. Se continuar, veja o log em **Configurações → Desenvolvedor** e rode o instalador de novo |
 | O LinkedIn pediu login ou verificação | Rode o comando de login do passo 3 e tente de novo |

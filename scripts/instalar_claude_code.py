@@ -17,6 +17,9 @@ para a Skill, no lugar dos symlinks ao lado do banco.
 Linux e macOS (fora do WSL): registra também o host de native messaging da extensão do Chrome nos
 navegadores instalados (Chrome, Chromium, Edge, Brave). Carregar a extensão continua manual. No WSL
 e no Windows, a extensão vai pelo instalar_desktop.py.
+
+No fim, cria o atalho do painel de configuração (.desktop no menu de aplicativos do Linux, .command na
+Mesa do macOS, .lnk na Área de Trabalho do Windows) e abre o painel no navegador (--sem-painel evita).
 """
 
 import argparse
@@ -30,7 +33,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from instalar_desktop import HOST_ENV_KEYS, HOST_NAME, _registered_env, extension_id, host_manifest  # noqa: E402
+from instalar_desktop import (  # noqa: E402
+    HOST_ENV_KEYS, HOST_NAME, _registered_env, extension_id, host_manifest, panel_bat_native, shortcut_script,
+)
 
 NATIVE_WINDOWS = os.name == "nt"
 IN_WSL = not NATIVE_WINDOWS and "microsoft" in platform.uname().release.lower()
@@ -155,6 +160,45 @@ def install_native_host(data: Path, python: Path, home: Path, macos: bool = MACO
     return paths
 
 
+PANEL_NAME = "Painel do mcp-vagas"
+
+
+def panel_env(data: Path, registered: dict[str, str]) -> dict[str, str]:
+    """Variáveis do painel: as do registro do MCP no Claude Code (mesmo banco e mesmas pastas)."""
+    return {"VAGAS_DB": str(data / "vagas.db"), **registered}
+
+
+def _desktop_quote(arg: str) -> str:
+    """Aspas da especificação Desktop Entry: dentro de aspas duplas, escapar " ` $ \\; e % vira %%."""
+    escaped = "".join("\\" + ch if ch in '"`$\\' else ch for ch in arg).replace("%", "%%")
+    return f'"{escaped}"'
+
+
+def panel_shortcut_path(home: Path, macos: bool = MACOS) -> Path:
+    if macos:
+        return home / "Desktop" / f"{PANEL_NAME}.command"
+    return home / ".local/share/applications/mcp-vagas-painel.desktop"
+
+
+def panel_shortcut(python: Path, env: dict[str, str], macos: bool = MACOS) -> str:
+    """Atalho do painel: .command na Mesa do macOS; no Linux, entrada no menu de aplicativos."""
+    if macos:
+        variables = " ".join(shlex.quote(f"{key}={value}") for key, value in env.items())
+        return f"#!/bin/sh\nexec env {variables} {shlex.quote(str(python))} -m vagas.panel\n"
+    command = " ".join(_desktop_quote(part) for part in [*(f"{k}={v}" for k, v in env.items()), str(python)])
+    return ("[Desktop Entry]\nType=Application\nName=Painel do mcp-vagas\n"
+            "Comment=Configuração, vagas e buscas do mcp-vagas no navegador\n"
+            f"Exec=env {command} -m vagas.panel\nTerminal=false\nCategories=Office;\n")
+
+
+def install_panel_shortcut(python: Path, env: dict[str, str], home: Path, macos: bool = MACOS) -> Path:
+    path = panel_shortcut_path(home, macos)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(panel_shortcut(python, env, macos), encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
 def mcp_registered(claude_json: Path) -> bool:
     try:
         return "vagas" in json.loads(claude_json.read_text(encoding="utf-8")).get("mcpServers", {})
@@ -165,6 +209,7 @@ def mcp_registered(claude_json: Path) -> bool:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--sem-extensao", action="store_true", help="não registra o host da extensão do Chrome")
+    parser.add_argument("--sem-painel", action="store_true", help="não abre o painel de configuração no fim")
     args = parser.parse_args(argv)
     sys.stdout.reconfigure(line_buffering=True)
     print("==> Skill e comandos em", SKILLS_HOME)
@@ -225,7 +270,31 @@ def main(argv: list[str] | None = None) -> None:
         print(f"    na primeira vez, abra chrome://extensions, ligue o Modo do desenvolvedor, clique em Carregar sem"
               f" compactação e escolha {REPO / 'extension'}. Nas atualizações, clique em recarregar na extensão.")
 
+    print("\n==> Atalho do painel de configuração")
+    registered = _registered_env(Path.home() / ".claude.json")
+    env = panel_env(DATA_DIR, registered)
+    if NATIVE_WINDOWS:
+        skill = REPO / "skill" / "candidaturas"
+        env = {"VAGAS_SKILL_DIR": str(skill), "VAGAS_SALARY_POLICY": str(skill / "politica-salarial.md"),
+               "VAGAS_TRIAGE_CRITERIA": str(skill / "criterios-triagem.md"), **env}
+        bat = DATA_DIR / "painel.bat"
+        bat.write_text(panel_bat_native(str(STABLE_PYTHON), env), encoding="utf-8", newline="")
+        result = subprocess.run(["powershell.exe", "-NoProfile", "-Command", shortcut_script(str(bat))],
+                                capture_output=True, text=True)
+        print(f"    {result.stdout.strip() or bat}")
+    elif IN_WSL:
+        print("    no WSL, o atalho na Área de Trabalho do Windows vem do instalar_desktop.py; aqui, abra com:"
+              f" {STABLE_PYTHON} -m vagas.panel")
+    else:
+        print(f"    {install_panel_shortcut(STABLE_PYTHON, env, Path.home())}")
+    if not args.sem_painel:
+        print("\n==> Abrindo o painel de configuração no navegador")
+        subprocess.run([str(STABLE_PYTHON), "-m", "vagas.panel", "--em-segundo-plano"], env={**os.environ, **env},
+                       check=False)
+
     print("\n==> Pronto. Abra uma sessão nova do Claude Code; os comandos aparecem ao digitar /")
+    print("    Para configurar pastas, perfil, critérios e currículo depois, use o painel (atalho acima) ou peça ao"
+          " Claude o link dele.")
 
 
 if __name__ == "__main__":

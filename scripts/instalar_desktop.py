@@ -6,12 +6,14 @@ Uso, na raiz do repositório (no WSL com python3; no Windows sem WSL, com py scr
     python3 scripts/instalar_desktop.py --sem-skill      # só servidor e configuração
     python3 scripts/instalar_desktop.py --fechar-desktop # fecha o Desktop no fim, para recarregar
     python3 scripts/instalar_desktop.py --sem-extensao   # sem a extensão do Chrome
+    python3 scripts/instalar_desktop.py --sem-painel     # não abre o painel de configuração no fim
 
 Passos: atualiza a cópia estável do servidor, registra o servidor no claude_desktop_config.json
 (com backup), testa o servidor pelo wsl.exe, instala a extensão do Chrome (cópia em
-%LOCALAPPDATA%\\vagas\\extensao e host de native messaging registrado no HKCU), gera o zip da Skill na pasta Downloads do Windows
+%LOCALAPPDATA%\\vagas\\extensao e host de native messaging registrado no HKCU), cria o atalho
+"Painel do mcp-vagas" na Área de Trabalho e abre o painel de configuração, gera o zip da Skill na pasta Downloads do Windows
 e, opcionalmente, fecha o Desktop. O envio do zip (Configurações → Skills) continua manual.
-Variáveis já registradas no Claude Code (VAGAS_DB, VAGAS_RESUME_OUT, VAGAS_EXPORT_DIR, VAGAS_CONFIG) são repassadas; as pastas, quando não há variável, o Claude pergunta no primeiro uso (config.toml).
+Variáveis já registradas no Claude Code (VAGAS_DB, VAGAS_RESUME_OUT, VAGAS_EXPORT_DIR, VAGAS_CONFIG) são repassadas; as pastas, quando não há variável, ficam no config.toml (escolhidas no painel ou no primeiro uso).
 No Windows nativo, o Desktop chama o python.exe da cópia estável (%LOCALAPPDATA%\\vagas\\venv) direto, o banco
 fica em %LOCALAPPDATA%\\vagas e o servidor acha a Skill por VAGAS_SKILL_DIR, VAGAS_SALARY_POLICY e
 VAGAS_TRIAGE_CRITERIA (no lugar dos symlinks ao lado do banco).
@@ -21,6 +23,7 @@ import argparse
 import base64
 import hashlib
 import json
+import ntpath
 import os
 import shutil
 import subprocess
@@ -172,6 +175,40 @@ def host_bat_native(python: str, env: dict[str, str]) -> str:
     return f'@echo off\r\n{variables}"{python}" -m vagas.autofill_host\r\n'
 
 
+SHORTCUT_NAME = "Painel do mcp-vagas"
+
+
+def panel_bat(distro: str, python: str, env: dict[str, str]) -> str:
+    """.bat do atalho do painel: roda o painel no WSL com as mesmas variáveis do servidor (ele abre o navegador)."""
+    variables = " ".join(f'"{key}={value}"' for key, value in env.items())
+    return f'@echo off\r\nwsl.exe -d {distro} -e env {variables} "{python}" -m vagas.panel\r\n'
+
+
+def panel_bat_native(python: str, env: dict[str, str]) -> str:
+    """.bat do atalho do painel no Windows nativo: o python.exe da cópia estável, com as variáveis do servidor."""
+    variables = "".join(f'set "{key}={value}"\r\n' for key, value in env.items())
+    return f'@echo off\r\n{variables}"{python}" -m vagas.panel\r\n'
+
+
+def _ps_quote(text: str) -> str:
+    return "'" + text.replace("'", "''") + "'"
+
+
+def shortcut_script(bat_windows_path: str, folder: str | None = None) -> str:
+    """PowerShell que cria o atalho na Área de Trabalho (a do OneDrive, se for ela) e escreve o caminho dele.
+
+    folder: outra pasta (Windows) no lugar da Área de Trabalho; usado nos testes."""
+    where = _ps_quote(folder) if folder else "[Environment]::GetFolderPath('Desktop')"
+    return (f"$desktop = {where}; "
+            f"$path = Join-Path $desktop {_ps_quote(SHORTCUT_NAME + '.lnk')}; "
+            "$link = (New-Object -ComObject WScript.Shell).CreateShortcut($path); "
+            f"$link.TargetPath = {_ps_quote(bat_windows_path)}; "
+            f"$link.WorkingDirectory = {_ps_quote(ntpath.dirname(bat_windows_path))}; "
+            "$link.WindowStyle = 7; "  # janela do console minimizada: o que importa é o navegador
+            "$link.Description = 'Abre o painel de configuração do mcp-vagas no navegador'; "
+            "$link.Save(); Write-Output $path")
+
+
 def registry_command(manifest_windows_path: str) -> list[str]:
     return ["reg.exe", "add", f"HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\{HOST_NAME}",
             "/ve", "/t", "REG_SZ", "/d", manifest_windows_path, "/f"]
@@ -268,6 +305,19 @@ def install_extension(localappdata: Path, distro: str | None, python: Path, env:
     return target
 
 
+def create_panel_shortcut(data_dir: Path, distro: str | None, python: Path, env: dict[str, str]) -> str:
+    """Grava o painel.bat ao lado da extensão e cria o atalho para ele; devolve o caminho do atalho."""
+    data_dir.mkdir(parents=True, exist_ok=True)
+    bat = data_dir / "painel.bat"
+    content = panel_bat_native(str(python), env) if NATIVE_WINDOWS else panel_bat(distro, str(python), env)
+    bat.write_text(content, encoding="utf-8", newline="")
+    result = subprocess.run(["powershell.exe", "-NoProfile", "-Command", shortcut_script(_windows_path(bat))],
+                            capture_output=True, text=True, cwd=None if NATIVE_WINDOWS else "/mnt/c")
+    if result.returncode != 0:
+        return f"não foi possível criar o atalho ({result.stderr.strip()[-300:]}); abra {_windows_path(bat)}"
+    return result.stdout.strip().splitlines()[-1] if result.stdout.strip() else _windows_path(bat)
+
+
 def close_desktop() -> None:
     # Só processos do Claude Desktop (Microsoft Store ou instalador), nunca o Claude Code nativo.
     script = ("Get-Process claude -ErrorAction SilentlyContinue | "
@@ -282,6 +332,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--sem-skill", action="store_true", help="não gera o zip da Skill")
     parser.add_argument("--fechar-desktop", action="store_true", help="fecha o Claude Desktop no fim")
     parser.add_argument("--sem-extensao", action="store_true", help="não instala a extensão do Chrome")
+    parser.add_argument("--sem-painel", action="store_true", help="não abre o painel de configuração no fim")
     args = parser.parse_args(argv)
     sys.stdout.reconfigure(line_buffering=True)  # mantém a ordem com o stderr quando a saída vai para um pipe
 
@@ -334,12 +385,21 @@ def main(argv: list[str] | None = None) -> None:
         extension = install_extension(Path(win["localappdata"]), distro, python, env)
         print(f"    {extension}\n    host registrado: {HOST_NAME}")
 
+    step("Criando o atalho do painel de configuração na Área de Trabalho")
+    print(f"    {create_panel_shortcut(data_dir, distro, python, env)}")
+
+    if not args.sem_painel:
+        step("Abrindo o painel de configuração no navegador")
+        subprocess.run([str(python), "-m", "vagas.panel", "--em-segundo-plano"], env={**os.environ, **env},
+                       check=False)
+
     zip_path = None
     if not args.sem_skill:
         step("Gerando o zip da Skill")
         problems = unfilled(SKILL_DIR)
         if problems:
-            fail("preencha os arquivos pessoais da Skill antes de gerar o zip:\n  "
+            fail("preencha os arquivos pessoais da Skill antes de gerar o zip (no painel, pelo atalho "
+                 f"\"{SHORTCUT_NAME}\" na Área de Trabalho, ou à mão) e rode de novo:\n  "
                  + "\n  ".join(problems) + f"\n(pasta: {SKILL_DIR})")
         zip_path = Path(win["profile"]) / "Downloads" / "candidaturas.zip"
         build_zip(SKILL_DIR, zip_path)
@@ -359,6 +419,8 @@ def main(argv: list[str] | None = None) -> None:
         print(f"    2. Em Configurações → Skills, enviar {windows_zip} (substituindo a versão anterior)")
         print("    3. Opcional: enviar também os zips de Downloads\\vagas-comandos (comandos /apply, /search-jobs...),"
               " se o Desktop oferecer comandos de Skills")
+    print(f"    Configuração (pastas, perfil, critérios, cofre, currículo): atalho \"{SHORTCUT_NAME}\" na Área de"
+          " Trabalho, ou peça ao Claude o link do painel.")
     if extension:
         print(f"    Extensão do Chrome: na primeira vez, abra chrome://extensions, ligue o Modo do desenvolvedor,"
               f" clique em Carregar sem compactação e escolha {_windows_path(extension)}. Nas próximas, só clique"
