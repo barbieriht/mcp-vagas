@@ -274,32 +274,54 @@ def _validated(key: str, value: str | None, db_path: Path | str | None) -> Path:
     return path
 
 
-def set_value(key: str, value: str | None, db_path: Path | str | None = None) -> dict[str, Any]:
-    """Grava a configuração (cria a pasta e confere que dá para escrever). Sem value, confirma o padrão."""
+def clean(key: str, value: str | None, db_path: Path | str | None = None) -> str | None:
+    """Valida um valor sem gravar nada; devolve a forma guardada no config.toml, ou None se vazio.
+
+    Vazio volta ao padrão (ou deixa sem valor). VagasError com a mensagem de correção se inválido."""
     if key not in SETTINGS:
         raise VagasError(f"Configuração desconhecida: {key!r}. Use uma destas: {', '.join(SETTINGS)}.")
+    if value is None or not str(value).strip():
+        return None
     if SETTINGS[key].kind in PATH_KINDS:
-        path = _validated(key, value, db_path)
-        folder = path if SETTINGS[key].kind == "dir" else path.parent
-        try:
-            folder.mkdir(parents=True, exist_ok=True)
-            if not os.access(folder, os.W_OK):
-                raise OSError("sem permissão de escrita")
-        except OSError as exc:
-            raise VagasError(f"Não consegui usar {folder} ({exc}). Escolha outra pasta.") from exc
-        stored = str(path)
-    elif SETTINGS[key].kind == "int":
-        if value is None or not str(value).strip():
-            raise VagasError(f"Informe 'value' para {key}: {SETTINGS[key].label.lower()}.")
-        stored = str(_as_int(key, str(value)))
-    else:
-        stored = _validated_text(key, value)
+        return str(_validated(key, value, db_path))
+    if SETTINGS[key].kind == "int":
+        return str(_as_int(key, str(value)))
+    return _validated_text(key, value)
 
+
+def prepare_folder(key: str, stored: str) -> None:
+    """Cria a pasta de uma configuração de caminho e confere que dá para escrever nela."""
+    if SETTINGS[key].kind not in PATH_KINDS:
+        return
+    path = Path(stored)
+    folder = path if SETTINGS[key].kind == "dir" else path.parent
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        if not os.access(folder, os.W_OK):
+            raise OSError("sem permissão de escrita")
+    except OSError as exc:
+        raise VagasError(f"Não consegui usar {folder} ({exc}). Escolha outra pasta.") from exc
+
+
+def env_warning(key: str, db_path: Path | str | None = None) -> str | None:
+    effective, source = resolve(key, db_path)
+    if source != "env":
+        return None
+    return (f"A variável {SETTINGS[key].env} está definida no ambiente do servidor e continua valendo "
+            f"({effective}). O valor foi salvo em {config_path(db_path)}, mas só passa a valer sem a variável.")
+
+
+def write(updates: dict[str, str | None], db_path: Path | str | None = None) -> Path:
+    """Grava no config.toml, mantendo as outras chaves; None remove a chave (volta ao padrão)."""
     current = load(db_path)
-    current[key] = stored
+    for key, stored in updates.items():
+        if stored is None:
+            current.pop(key, None)
+        else:
+            current[key] = stored
     target = config_path(db_path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    lines = ["# Configuração do mcp-vagas: um caminho por tarefa e o login padrão. Edite à mão ou peça ao Claude (set_config).",
+    lines = ["# Configuração do mcp-vagas: um caminho por tarefa e o login padrão. Edite à mão, pelo painel (python -m vagas.panel) ou peça ao Claude (set_config).",
              "# login_method = primeira opção de login, \"linkedin\" (padrão) ou \"google\"; login_email = conta Google (segunda opção).",
              "# Variáveis de ambiente (VAGAS_RESUME_OUT, VAGAS_EXPORT_DIR, VAGAS_MASTER_RESUME, VAGAS_LOGIN_METHOD, VAGAS_AUTOFILL_DOMAINS, VAGAS_AUTOFILL_PLATFORMS,",
              "# VAGAS_AUTO_SUBMIT, VAGAS_LOGIN_EMAIL, VAGAS_MAX_OPEN_TABS, VAGAS_SALARY_RULE) têm prioridade. max_open_tabs = número de abas",
@@ -309,14 +331,31 @@ def set_value(key: str, value: str | None, db_path: Path | str | None = None) ->
              "# autofill_platforms = plataformas (ex.: gupy.io) em que um \"Permitir sempre\" vale para todas as empresas."]
     lines += [f"{name} = {current[name] if SETTINGS[name].kind == 'int' else _quote(current[name])}"
               for name in SETTINGS if name in current]
-    target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    tmp = target.with_name(target.name + ".tmp")
+    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.replace(tmp, target)  # nunca deixa o arquivo pela metade
+    return target
 
+
+def set_value(key: str, value: str | None, db_path: Path | str | None = None) -> dict[str, Any]:
+    """Grava a configuração (cria a pasta e confere que dá para escrever). Sem value, confirma o padrão."""
+    if key not in SETTINGS:
+        raise VagasError(f"Configuração desconhecida: {key!r}. Use uma destas: {', '.join(SETTINGS)}.")
+    if SETTINGS[key].kind in PATH_KINDS:
+        stored = str(_validated(key, value, db_path))
+        prepare_folder(key, stored)
+    elif SETTINGS[key].kind == "int":
+        if value is None or not str(value).strip():
+            raise VagasError(f"Informe 'value' para {key}: {SETTINGS[key].label.lower()}.")
+        stored = str(_as_int(key, str(value)))
+    else:
+        stored = _validated_text(key, value)
+
+    target = write({key: stored}, db_path)
     effective, source = resolve(key, db_path)
-    warnings = []
-    if source == "env":
-        warnings.append(f"A variável {SETTINGS[key].env} está definida no ambiente do servidor e continua valendo "
-                        f"({effective}). O valor foi salvo em {target}, mas só passa a valer sem a variável.")
-    return {"key": key, "value": str(effective), "source": source, "config_file": str(target), "warnings": warnings}
+    warning = env_warning(key, db_path)
+    return {"key": key, "value": str(effective), "source": source, "config_file": str(target),
+            "warnings": [warning] if warning else []}
 
 
 def _quote(text: str) -> str:

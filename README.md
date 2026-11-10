@@ -150,6 +150,8 @@ uv pip install --reinstall-package vagas --python ~/.local/share/vagas/venv/bin/
 
 ### Configuração
 
+**Painel no navegador.** Para configurar sem editar arquivos, rode `~/.local/share/vagas/venv/bin/python -m vagas.panel` (no Windows sem WSL, com o Python da cópia estável em `%LOCALAPPDATA%\vagas\venv`). O comando abre uma página local com as pastas e as opções abaixo, valida tudo antes de gravar e salva de uma vez. A página só aceita conexões do seu computador e exige o link com o token que o comando mostra. Rodar o comando de novo reaproveita o painel aberto, e ele fecha sozinho depois de uma hora sem uso. As outras seções (perfil, política salarial, critérios e cofre) estão a caminho ([#177](https://github.com/barbieriht/mcp-vagas/issues/177)).
+
 **Pastas e arquivos de cada tarefa: `config.toml`.** É o lugar único para dizer onde ficam as coisas. Fica ao lado do banco (`~/.local/share/vagas/config.toml`) ou no caminho de `VAGAS_CONFIG`:
 
 ```toml
