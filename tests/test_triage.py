@@ -409,3 +409,14 @@ def test_pcd_allowed_when_the_user_lists_it(triage, fetcher, files):
     result = triage.triage_job(fetcher.add(gupy(54, name="Cientista de Dados - Exclusiva para PcD")))
 
     assert result["decision"] == "a_aplicar"
+
+
+def test_exclusive_pcd_jobs_are_caught_without_any_line_in_the_criteria(triage, fetcher, files):
+    # Os termos de vaga exclusiva PcD são conhecimento da ferramenta, não configuração do usuário.
+    text = "\n".join(line for line in CRITERIA.splitlines() if "Termos de vaga exclusiva PcD" not in line) + "\n"
+    (files / "criterios-triagem.md").write_text(text, encoding="utf-8")
+
+    for number, name, company in ((55, "Cientista de Dados - Exclusiva PcD", "Acme"),
+                                  (56, "Cientista de Dados - vaga exclusiva para pessoas com deficiência", "Outra")):
+        result = triage.triage_job(fetcher.add(gupy(number, name=name, company=company)))
+        assert result["decision"] == "descartada" and "PcD" in result["application"]["discard_reason"]

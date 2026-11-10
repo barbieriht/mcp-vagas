@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from vagas.md_fields import apply, parse, write_atomic
+from vagas.md_fields import apply, parse, replace_children, write_atomic
 
 TEXT = """# Título
 
@@ -95,3 +95,11 @@ def test_write_preserves_crlf_free_utf8(tmp_path):
 
     assert path.read_bytes() == "- Nome: Ção\n".encode("utf-8")
     assert os.listdir(tmp_path) == ["perfil.md"]
+
+
+def test_replace_children_swaps_the_indented_block_of_a_field():
+    text = "- Diversidade:\n  - Sexo Masculino\n  - Branco\n- Outro: x\n"
+
+    changed = replace_children(text, "Diversidade", ["  - Sexo: Masculino", "  - Raça/etnia: Branca"])
+
+    assert changed == "- Diversidade:\n  - Sexo: Masculino\n  - Raça/etnia: Branca\n- Outro: x\n"

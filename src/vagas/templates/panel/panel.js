@@ -125,6 +125,7 @@ function renderFileField(section, field, isNew) {
       () => [...group.querySelectorAll("input:checked")].map((box) => box.value), group);
     return group;
   }
+  if (field.kind === "choice_other") return renderChoiceOther(section, field, name, id, classes, help, notes);
   let control;
   if (field.kind === "yesno") {
     control = el("select", { id });
@@ -140,6 +141,38 @@ function renderFileField(section, field, isNew) {
   return el("div", { class: classes, "data-campo": name },
     el("div", { class: "cabeca" }, el("label", { for: id, text: field.title }), badgeFor(control, pending, "Falta preencher")),
     help, control, loadError, ...notes);
+}
+
+const OTHER = "__outra__";
+
+// Lista de opções com "Outra…": escolher "Outra…" mostra um campo de texto livre.
+function renderChoiceOther(section, field, name, id, classes, help, notes) {
+  const select = el("select", { id });
+  select.append(el("option", { value: "", text: "Escolha…" }));
+  for (const choice of field.choices) select.append(el("option", { value: choice, text: choice }));
+  select.append(el("option", { value: OTHER, text: "Outra…" }));
+  const custom = el("input", { type: "text", id: `${id}-outra`, autocomplete: "off", "aria-label": `${field.title}: outra resposta`, placeholder: "Escreva a resposta" });
+  const known = field.choices.includes(field.value);
+  select.value = !field.value ? "" : known ? field.value : OTHER;
+  custom.value = known ? "" : field.value;
+  const showCustom = () => { custom.hidden = select.value !== OTHER; };
+  select.addEventListener("change", () => { showCustom(); if (!custom.hidden) custom.focus(); });
+  showCustom();
+  register(section.key, field.id, field.value, () => (select.value === OTHER ? custom.value.trim() : select.value), select);
+  return el("div", { class: classes, "data-campo": name },
+    el("div", { class: "cabeca" }, el("label", { for: id, text: field.title }), badgeFor(select, !field.value, "Falta preencher")),
+    help, select, custom, ...notes);
+}
+
+// Enter não envia o formulário: passa para o próximo campo. Só o botão "Salvar tudo" grava.
+function nextFieldOnEnter(event) {
+  const target = event.target;
+  if (event.key !== "Enter" || event.isComposing || !(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
+  event.preventDefault();
+  const fields = [...document.querySelectorAll("#formulario input, #formulario select, #formulario button")]
+    .filter((node) => !node.disabled && !node.hidden && node.offsetParent !== null);
+  const next = fields[fields.indexOf(target) + 1];
+  if (next) next.focus();
 }
 
 function sectionPending(key, section) {
@@ -238,7 +271,9 @@ async function submit(event) {
 }
 
 async function start() {
-  document.getElementById("formulario").addEventListener("submit", submit);
+  const form = document.getElementById("formulario");
+  form.addEventListener("submit", submit);
+  form.addEventListener("keydown", nextFieldOnEnter);
   try {
     render(await api("GET"));
   } catch (error) {

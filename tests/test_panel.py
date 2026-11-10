@@ -240,3 +240,43 @@ def test_profile_and_criteria_are_filled_in_one_go(skill, db_path):
     saved = parse_criteria((skill / "criterios-triagem.md").read_text(encoding="utf-8"))
     assert saved.target_roles == ("data_scientist", "ml_engineer") and saved.search_seniorities == ("pleno",)
     assert saved.min_match == 60
+
+
+@pytest.mark.skipif(not _chromium(), reason="Playwright com Chromium não instalado")
+def test_enter_moves_to_the_next_field_and_diversity_offers_other(skill, db_path):
+    from playwright.sync_api import sync_playwright
+
+    server = panel.make_server(db_path, token="t0k3n")
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            requests = []
+            page.on("request", lambda r: requests.append(r.method) if "/api/settings" in r.url else None)
+            page.goto(server.url)
+            page.get_by_role("heading", name="Perfil para formulários").wait_for()
+
+            name = page.get_by_label("Nome", exact=True)
+            name.fill("Maria Teste")
+            name.press("Enter")
+            assert page.evaluate("document.activeElement.id") == page.get_by_label("Telefone").get_attribute("id")
+            page.wait_for_timeout(300)
+            assert requests == ["GET"] and not (skill / "perfil.md").exists()  # Enter não salva
+
+            page.get_by_label("Sexo", exact=True).select_option("Masculino")
+            race = page.get_by_label("Raça/etnia", exact=True)
+            race.select_option("__outra__")
+            other = page.get_by_label("Raça/etnia: outra resposta")
+            assert other.is_visible() and page.evaluate("document.activeElement.placeholder") == "Escreva a resposta"
+            other.fill("Branco/Latino")
+            page.get_by_role("button", name="Salvar tudo").click()
+            page.get_by_text("Tudo salvo").wait_for()
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    profile = (skill / "perfil.md").read_text(encoding="utf-8")
+    assert "  - Sexo: Masculino\n" in profile and "  - Raça/etnia: Branco/Latino\n" in profile
+    assert "  - Identidade de gênero: <...>\n" in profile and "- Nome: Maria Teste" in profile

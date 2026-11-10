@@ -78,6 +78,21 @@ def apply(text: str, values: dict[str, str]) -> str:
     return "".join(lines)
 
 
+def replace_children(text: str, parent_id: str, new_lines: list[str]) -> str:
+    """Troca o bloco indentado logo abaixo de um campo (subitens e observações) por new_lines.
+    KeyError se o campo não existir."""
+    item = next((i for i in parse(text) if _key(i.id) == _key(parent_id) and i.parent is None), None)
+    if item is None:
+        raise KeyError(parent_id)
+    lines = text.splitlines(keepends=True)
+    ending = lines[item.line][len(lines[item.line].rstrip("\r\n")):] or "\n"
+    end = item.line + 1
+    while end < len(lines) and lines[end].strip() and lines[end][:1] in (" ", "\t"):
+        end += 1
+    lines[item.line + 1:end] = [line + ending for line in new_lines]
+    return "".join(lines)
+
+
 def write_atomic(path: Path | str, text: str) -> None:
     """Grava sem deixar o arquivo pela metade. Um symlink (o instalador liga os arquivos da Skill ao
     lado do banco) continua symlink: grava no arquivo para onde ele aponta."""

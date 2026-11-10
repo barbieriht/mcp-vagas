@@ -52,6 +52,65 @@ _YES = {"sim", "s", "yes"}
 _NO = {"nao", "n", "no"}
 
 
+# Diversidade: uma pergunta por campo, com as opções mais comuns nos formulários (IBGE para raça/cor),
+# "Prefiro não responder" e texto livre ("Outra") para qualquer resposta fora da lista.
+NOT_SAY = "Prefiro não responder"
+DIVERSITY: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
+    # (rótulo, opções, prefixos e palavras que identificam a pergunta numa linha solta)
+    ("Sexo", ("Masculino", "Feminino", "Intersexo"), ("sexo", "masc", "femin", "intersex")),
+    ("Identidade de gênero", ("Homem cisgênero", "Mulher cisgênera", "Homem transgênero", "Mulher transgênera",
+                              "Não binário", "Travesti"),
+     ("identidade de genero", "genero", "cis", "trans", "binari", "travesti")),
+    ("Orientação sexual", ("Heterossexual", "Gay", "Lésbica", "Bissexual", "Pansexual", "Assexual"),
+     ("orientacao sexual", "orientacao", "hetero", "homo", "gay", "lesbic", "bissex", "pansex", "assex")),
+    ("Raça/etnia", ("Branca", "Preta", "Parda", "Amarela", "Indígena"),
+     ("raca/etnia", "raca", "etnia", "cor", "branc", "pret", "negr", "pard", "amarel", "indigen", "latin")),
+)
+
+
+def _is_diversity(item: md_fields.Item) -> bool:
+    return item.parent is None and _norm(item.label).startswith("diversidade")
+
+
+def _strip_question(text: str, words: tuple[str, ...]) -> str:
+    """"Sexo Masculino" -> "Masculino"; "Raça: Parda" -> "Parda"."""
+    norm = _norm(text)
+    for word in words[:3]:
+        if norm.startswith(word + " ") or norm.startswith(word + ":"):
+            return text.strip()[len(word) + 1:].strip(" :")
+    return text.strip()
+
+
+def _diversity_answers(parent: md_fields.Item, items: list[md_fields.Item]) -> tuple[dict[str, str], list[str]]:
+    """Respostas atuais por pergunta, lidas dos subcampos ("Sexo: Masculino") ou de linhas soltas
+    ("Sexo Masculino", "Homem cisgênero"). Linhas que não identificam a pergunta voltam em `extra`."""
+    answers = {label: "" for label, _, _ in DIVERSITY}
+    for child in items:
+        if child.parent == parent.label and child.section == parent.section:
+            label = next((lb for lb, _, words in DIVERSITY if _norm(child.label).startswith(words[0].split("/")[0])
+                          or _norm(child.label) in words[:3]), None)
+            value = child.value.strip()
+            if label and not value.startswith("<"):
+                answers[label] = value
+    extra = []
+    for note in parent.notes:
+        placed = False
+        for label, options, words in DIVERSITY:
+            answer = _strip_question(note, words)
+            exact = next((o for o in (*options, NOT_SAY) if _norm(o) == _norm(answer)), None)
+            if exact and not answers[label]:
+                answers[label], placed = exact, True
+                break
+        if not placed:
+            for label, _, words in DIVERSITY:
+                if not answers[label] and any(word in _norm(note) for word in words):
+                    answers[label], placed = _strip_question(note, words), True
+                    break
+        if not placed:
+            extra.append(note)
+    return answers, extra
+
+
 def _profile_paths(db_path: Path | str | None) -> tuple[Path, Path]:
     skill = default_skill_dir(db_path)
     return skill / "perfil.md", skill / "perfil.example.md"
@@ -99,9 +158,27 @@ def load_profile(db_path: Path | str | None) -> dict[str, Any]:
     items = md_fields.parse(text)
     groups: list[dict[str, Any]] = []
     pending: list[str] = []
+    diversity_parents = {(i.section, i.label) for i in items if _is_diversity(i)}
     for item in items:
         if item.label.startswith("<"):
             continue  # linha-modelo do exemplo ("<Rótulo do campo ...>"), não é campo
+        if (item.section, item.parent) in diversity_parents:
+            continue  # subcampos da diversidade: viram os campos de escolha abaixo
+        if _is_diversity(item):
+            answers, _ = _diversity_answers(item, items)
+            if not groups or groups[-1]["name"] != (item.section or ""):
+                groups.append({"name": item.section or "", "fields": []})
+            groups[-1]["fields"].append({"id": item.id, "title": "Diversidade", "kind": "group", "value": "", "hint": "",
+                                         "notes": ["Respostas usadas nos formulários. \"Prefiro não responder\" "
+                                                   "vale em todas."], "parent": None, "status": None})
+            for label, options, _ in DIVERSITY:
+                field_id = f"{item.id}/{label}"
+                groups[-1]["fields"].append({"id": field_id, "title": label, "kind": "choice_other",
+                                             "choices": [*options, NOT_SAY], "value": answers[label], "hint": "",
+                                             "notes": [], "parent": item.label, "status": None})
+                if not answers[label]:
+                    pending.append(field_id)
+            continue
         kind = _profile_kind(item, items)
         placeholder = item.value.strip().startswith("<")
         value = "" if placeholder else item.value.strip()
@@ -132,10 +209,19 @@ def plan_profile(values: Any, db_path: Path | str | None) -> tuple[Pending | Non
         return None, {"profile": str(exc)}
     items = md_fields.parse(text)
     by_key = {md_fields._key(item.id): item for item in items}
+    diversity_keys = {md_fields._key(f"{i.id}/{label}"): (i, label) for i in items if _is_diversity(i)
+                      for label, _, _ in DIVERSITY}
     updates: dict[str, str] = {}
+    diversity_updates: dict[str, dict[str, str]] = {}
     errors: dict[str, str] = {}
     for field_id, raw in values.items():
         name = f"profile.{field_id}"
+        if (target := diversity_keys.get(md_fields._key(str(field_id)))) is not None:
+            if not isinstance(raw, str) or "\n" in raw or "\r" in raw or raw.strip().startswith("<"):
+                errors[name] = "Escolha uma opção ou escreva a resposta numa linha só."
+            else:
+                diversity_updates.setdefault(target[0].id, {})[target[1]] = raw.strip()
+            continue
         item = by_key.get(md_fields._key(str(field_id)))
         if item is None:
             errors[name] = "Campo desconhecido no perfil."
@@ -164,9 +250,16 @@ def plan_profile(values: Any, db_path: Path | str | None) -> tuple[Pending | Non
             if item.id not in updates and _profile_kind(item, items) in ("text", "yesno") \
                     and not item.value.strip().startswith("<"):
                 updates[item.id] = PENDING
-    if not updates:
+    if not updates and not diversity_updates:
         return None, {}
-    return Pending(path, md_fields.apply(text, updates)), {}
+    new_text = md_fields.apply(text, updates)
+    for parent_id, changed in diversity_updates.items():
+        parent = next(i for i in md_fields.parse(new_text) if i.id == parent_id)
+        answers, extra = _diversity_answers(parent, md_fields.parse(new_text))
+        answers.update(changed)
+        lines = [f"  - {label}: {answers[label] or '<...>'}" for label, _, _ in DIVERSITY]
+        new_text = md_fields.replace_children(new_text, parent_id, lines + [f"  - {note}" for note in extra])
+    return Pending(path, new_text), {}
 
 
 # --- critérios de triagem --------------------------------------------------------------------
@@ -197,6 +290,10 @@ def _affirmative_label(key: str) -> str:
     return affirmative.GROUPS[key].label[0].upper() + affirmative.GROUPS[key].label[1:]
 
 
+# Campos dos critérios que o painel não mostra: os termos de vaga exclusiva PcD são conhecimento da
+# ferramenta (triage.DEFAULT_PCD_TERMS); uma linha antiga no arquivo continua valendo.
+HIDDEN_CRITERIA = {"pcd_terms"}
+
 _MULTI = {
     "target_roles": lambda: [{"value": k, "label": ROLE_NAMES[k][0].capitalize()} for k in ROLE_KEYS if k in ROLE_NAMES],
     "conditional_roles": lambda: [{"value": k, "label": ROLE_NAMES[k][0].capitalize()} for k in ROLE_KEYS
@@ -209,7 +306,6 @@ _HELP = {
     "conditional_roles": "Cargos que só seguem com aderência igual ou maior que a mínima.",
     "min_match": "De 0 a 100: quanto da vaga precisa bater com o seu currículo geral.",
     "ignored_companies": "Separadas por vírgula. Maiúsculas, acentos, Ltda e S.A. são ignorados.",
-    "pcd_terms": "Textos que marcam vaga exclusiva para PcD, separados por vírgula.",
     "affirmative_ok": "Grupos cujas vagas afirmativas você quer disputar. Nenhum marcado: nenhuma.",
     "accepted_locations": "Cidades aceitas para vagas híbridas e presenciais, separadas por vírgula. Remotas são "
                           "sempre aceitas.",
@@ -253,7 +349,7 @@ def load_criteria(db_path: Path | str | None) -> dict[str, Any]:
     fields = []
     for item in md_fields.parse(text):
         name = _criteria_field(item.label)
-        if name is None or item.parent:
+        if name is None or item.parent or name in HIDDEN_CRITERIA:
             continue
         raw = item.value.strip()
         field: dict[str, Any] = {"id": item.id, "title": item.label, "help": _HELP.get(name, ""), "kind": "text",

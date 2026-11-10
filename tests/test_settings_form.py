@@ -255,3 +255,66 @@ def test_talent_pool_is_yes_or_no_even_without_the_note(db_path, skill):
     field = section_fields(load(db_path), "profile")["Respostas padrão/Incluir em bancos de talentos"]
 
     assert field["kind"] == "yesno" and field["value"] == "sim"
+
+
+# --- diversidade: um campo de escolha para cada pergunta -------------------------------------
+
+LEGACY_DIVERSITY = """## Respostas padrão
+- Diversidade:
+  - Sexo Masculino
+  - Homem cisgênero
+  - Heterossexual
+  - Branco/Latino
+- Parentes na empresa: não
+"""
+
+
+def diversity(data):
+    fields = section_fields(data, "profile")
+    return {f["title"]: f for f in fields.values() if (f["parent"] or "").startswith("Diversidade")}
+
+
+def test_diversity_has_one_choice_per_question_with_prefer_not_and_other(db_path, skill):
+    fields = diversity(load(db_path))
+
+    assert set(fields) == {"Sexo", "Identidade de gênero", "Orientação sexual", "Raça/etnia"}
+    for field in fields.values():
+        assert field["kind"] == "choice_other"
+        assert "Prefiro não responder" in field["choices"] and len(field["choices"]) >= 4
+    assert "Mulher transgênera" in fields["Identidade de gênero"]["choices"]
+    assert {"Branca", "Preta", "Parda", "Amarela", "Indígena"} <= set(fields["Raça/etnia"]["choices"])
+
+
+def test_answers_written_as_loose_lines_are_recognized(db_path, skill):
+    (skill / "perfil.md").write_text(LEGACY_DIVERSITY, encoding="utf-8")
+
+    fields = diversity(load(db_path))
+
+    assert fields["Sexo"]["value"] == "Masculino"
+    assert fields["Identidade de gênero"]["value"] == "Homem cisgênero"
+    assert fields["Orientação sexual"]["value"] == "Heterossexual"
+    assert fields["Raça/etnia"]["value"] == "Branco/Latino"  # fora das opções: vira "Outra", sem perder o texto
+
+
+def test_changing_one_answer_rewrites_the_block_as_one_field_per_question(db_path, skill):
+    (skill / "perfil.md").write_text(LEGACY_DIVERSITY, encoding="utf-8")
+    fid = diversity(load(db_path))["Sexo"]["id"]
+
+    result = save({"profile": {fid: "Prefiro não responder"}}, db_path)
+
+    assert result["saved"], result["errors"]
+    assert (skill / "perfil.md").read_text(encoding="utf-8") == """## Respostas padrão
+- Diversidade:
+  - Sexo: Prefiro não responder
+  - Identidade de gênero: Homem cisgênero
+  - Orientação sexual: Heterossexual
+  - Raça/etnia: Branco/Latino
+- Parentes na empresa: não
+"""
+
+
+def test_pcd_terms_are_not_a_user_setting_anymore(db_path, skill):
+    criteria = section_fields(load(db_path), "criteria")
+
+    assert not any("PcD" in fid for fid in criteria)
+    assert "Termos de vaga exclusiva PcD" not in (EXAMPLES / "criterios-triagem.example.md").read_text(encoding="utf-8")

@@ -70,7 +70,7 @@ section.secao h2 { margin: 0 0 4px; font-size: 22px; }
 .campo:first-of-type { border-top: none; }
 .campo label { display: block; font-weight: 600; }
 .ajuda { margin: 2px 0 8px; color: var(--texto-suave); font-size: 14px; }
-.campo input, .campo select {
+.campo input:not([type=checkbox]), .campo select {
   width: 100%; max-width: 560px; padding: 8px 10px; font: inherit; color: var(--texto);
   background: var(--fundo); border: 1px solid var(--borda); border-radius: 8px;
 }
@@ -114,3 +114,4 @@ fieldset.campo legend + * { clear: both; }
 .campo .opcao { display: inline-flex; align-items: center; gap: 8px; font-weight: 400; cursor: pointer; }
 .opcao input { width: 18px; height: 18px; margin: 0; accent-color: var(--destaque); }
 fieldset.com-erro .opcoes { outline: 2px solid var(--erro); outline-offset: 6px; border-radius: 4px; }
+.campo select + input { margin-top: 8px; }
