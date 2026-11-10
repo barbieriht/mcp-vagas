@@ -704,3 +704,88 @@ def _replace_bands(text: str, band_lines: list[str]) -> str:
     kept = [line for number, line in enumerate(lines) if number not in old]
     position = anchor - sum(1 for number in old if number < anchor)
     return "".join(kept[:position] + [line + "\n" for line in band_lines] + kept[position:])
+
+
+# --- documentos do cofre -------------------------------------------------------------------------
+
+VAULT_TITLE = "Documentos do cofre"
+
+
+@dataclass
+class VaultChange:
+    """Gravação no cofre preparada (valores só em memória, nunca em resposta ou log)."""
+    db_path: Path | str | None
+    store: dict[str, str]
+    remove: list[str]
+
+    def run(self) -> None:
+        from vagas.sensitive import Vault, _mark_profile, default_vault_path
+
+        vault = Vault(default_vault_path(self.db_path), _vault_backend())
+        for field, value in self.store.items():
+            vault.set(field, value)
+            _mark_profile(field, stored=True)
+        for field in self.remove:
+            if vault.remove(field):
+                _mark_profile(field, stored=False)
+
+
+def _vault_backend():
+    from vagas.sensitive import default_backend
+
+    return default_backend()
+
+
+def load_vault(db_path: Path | str | None) -> dict[str, Any]:
+    from vagas.sensitive import ALLOWED_FIELDS, NoVaultBackend, Vault, default_vault_path
+
+    backend = _vault_backend()
+    path = default_vault_path(db_path)
+    try:
+        stored = set(Vault(path, backend).list())
+    except (OSError, ValueError):
+        stored = set()
+    fields = [{"id": field, "title": label, "kind": "secret", "stored": field in stored, "value": "", "hint": "",
+               "notes": [], "parent": None, "status": None} for field, label in ALLOWED_FIELDS.items()]
+    return {"key": "vault", "title": VAULT_TITLE, "file": str(path), "groups": [{"name": "", "fields": fields}],
+            "pending": [], "unavailable": NoVaultBackend.MESSAGE if isinstance(backend, NoVaultBackend) else None,
+            "help": "A extensão do Chrome preenche estes documentos nos sites de vagas, com a sua confirmação por "
+                    "empresa. Os valores nunca aparecem aqui de novo, nem passam pelo Claude. Senhas, dados "
+                    "bancários e cartões não entram no cofre."}
+
+
+def plan_vault(values: Any, db_path: Path | str | None) -> tuple[VaultChange | None, dict[str, str]]:
+    from vagas.sensitive import ALLOWED_FIELDS, NoVaultBackend, valid_cpf
+
+    if not isinstance(values, dict) or set(values) - {"set", "remove"}:
+        return None, {"vault": "Envie {set: {documento: valor}, remove: [documentos]}."}
+    to_set, to_remove = values.get("set", {}), values.get("remove", [])
+    if not isinstance(to_set, dict) or not isinstance(to_remove, list):
+        return None, {"vault": "Envie {set: {documento: valor}, remove: [documentos]}."}
+    errors: dict[str, str] = {}
+    store: dict[str, str] = {}
+    for field, value in to_set.items():
+        name = f"vault.{field}"
+        if field not in ALLOWED_FIELDS:
+            errors[name] = "Este dado não pode ir para o cofre."  # nunca ecoa o valor
+        elif not isinstance(value, str) or not value.strip():
+            errors[name] = "Digite o valor (ou deixe o campo em branco para não mudar)."
+        elif "\n" in value or "\r" in value:
+            errors[name] = "Use uma linha só."
+        elif field == "cpf" and not valid_cpf(value):
+            errors[name] = "CPF inválido: os dígitos verificadores não conferem."
+        else:
+            store[field] = value.strip()
+    remove = []
+    for field in to_remove:
+        if not isinstance(field, str) or field not in ALLOWED_FIELDS:
+            errors[f"vault.{field}"] = "Documento desconhecido."
+        else:
+            remove.append(field)
+    if (store or remove) and isinstance(_vault_backend(), NoVaultBackend):
+        errors["vault"] = NoVaultBackend.MESSAGE
+    if errors:
+        return None, errors
+    if not store and not remove:
+        return None, {}
+    return VaultChange(db_path, store, remove), {}
