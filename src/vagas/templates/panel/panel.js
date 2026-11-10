@@ -267,8 +267,18 @@ function renderSecret(section, field, name, id) {
     box.classList.toggle("a-remover", removing);
   } }) : null;
   const badge = field.stored ? el("span", { class: "selo ok", text: "Guardado no cofre" }) : null;
+  // Mostrar o que foi digitado agora, para conferir antes de salvar. O valor já guardado nunca vem do servidor.
+  const show = el("button", { type: "button", class: "mostrar", text: "Mostrar", "aria-pressed": "false",
+    "aria-label": `Mostrar o que foi digitado em ${field.title}`, onclick: () => {
+      const visible = input.type === "password";
+      input.type = visible ? "text" : "password";
+      show.textContent = visible ? "Ocultar" : "Mostrar";
+      show.setAttribute("aria-pressed", String(visible));
+      show.setAttribute("aria-label", `${visible ? "Ocultar" : "Mostrar"} o que foi digitado em ${field.title}`);
+    } });
+  const line = el("div", { class: "segredo" }, input, show);
   const box = el("div", { class: "campo", "data-campo": name },
-    el("div", { class: "cabeca" }, el("label", { for: id, text: field.title }), badge), input, remove);
+    el("div", { class: "cabeca" }, el("label", { for: id, text: field.title }), badge), line, remove);
   controls.push({ section: "vault", key: field.id, before: "", node: input,
     read: () => (removing ? { remove: true } : input.value.trim()) });
   return box;

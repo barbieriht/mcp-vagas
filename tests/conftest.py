@@ -28,6 +28,13 @@ def anyio_backend():
 
 
 @pytest.fixture(autouse=True)
+def isolated_data_dir(monkeypatch, tmp_path_factory):
+    """Nenhum teste chega à pasta de dados real (~/.local/share/vagas): lá estão o banco, o cofre e os
+    symlinks para os arquivos pessoais da Skill. Quem precisa do caminho padrão o define no teste."""
+    monkeypatch.setenv("VAGAS_DB", str(tmp_path_factory.mktemp("dados") / "vagas.db"))
+
+
+@pytest.fixture(autouse=True)
 def clean_path_settings(monkeypatch):
     """O ambiente do desenvolvedor não pode vazar para os testes de configuração de caminhos."""
     for name in ("VAGAS_CONFIG", "VAGAS_RESUME_OUT", "VAGAS_EXPORT_DIR", "VAGAS_MASTER_RESUME",
