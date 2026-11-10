@@ -9,6 +9,7 @@ Este arquivo guarda só o que não está no currículo ou respostas padrão de f
 - E-mail / login Google: fulano@example.com
 - LinkedIn: https://linkedin.com/in/fulano
 - GitHub: https://github.com/fulano
+- Portfólio: <link do portfólio (Behance, site pessoal, itch.io...), ou "não tenho">
 - Endereço: Rua Exemplo, 100, CEP 00000-000, Cidade - UF
 - Naturalidade: Cidade - UF
 - Data de nascimento: <PREENCHER: DD/MM/AAAA>

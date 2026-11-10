@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from vagas.md_fields import apply, parse, replace_children, write_atomic
+from vagas.md_fields import apply, insert_item, parse, replace_children, write_atomic
 
 TEXT = """# Título
 
@@ -103,3 +103,15 @@ def test_replace_children_swaps_the_indented_block_of_a_field():
     changed = replace_children(text, "Diversidade", ["  - Sexo: Masculino", "  - Raça/etnia: Branca"])
 
     assert changed == "- Diversidade:\n  - Sexo: Masculino\n  - Raça/etnia: Branca\n- Outro: x\n"
+
+
+def test_insert_item_goes_after_the_last_item_of_the_section_and_its_sub_items():
+    text = "## A\n- Um: 1\n  - nota\n\n## B\n- Dois: 2\n"
+
+    assert insert_item(text, "A", "- Novo: x") == "## A\n- Um: 1\n  - nota\n- Novo: x\n\n## B\n- Dois: 2\n"
+
+
+def test_insert_item_creates_the_section_before_the_accepted_values():
+    text = "## A\n- Um: 1\n\n## Valores aceitos\n- Um: texto\n"
+
+    assert insert_item(text, "C", "- Novo: x") == "## A\n- Um: 1\n\n## C\n- Novo: x\n\n## Valores aceitos\n- Um: texto\n"

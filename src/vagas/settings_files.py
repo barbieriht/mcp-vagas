@@ -195,8 +195,39 @@ def load_profile(db_path: Path | str | None) -> dict[str, Any]:
         if not groups or groups[-1]["name"] != (item.section or ""):
             groups.append({"name": item.section or "", "fields": []})
         groups[-1]["fields"].append(field)
+    if not from_example:
+        for item, kind in _missing_from_example(items, example):
+            field = {"id": item.id, "title": item.label, "kind": kind, "value": "", "missing": True,
+                     "hint": _hint(item.value) if item.value.strip().startswith("<") else item.value.strip(),
+                     "notes": [n for n in item.notes if not _norm(n).startswith("valores aceitos")],
+                     "parent": None, "status": None}
+            group = next((g for g in groups if g["name"] == (item.section or "")), None)
+            if group is None:
+                group = {"name": item.section or "", "fields": []}
+                groups.append(group)
+            group["fields"].append(field)
     return {"key": "profile", "title": PROFILE_TITLE, "file": str(path), "new": from_example,
             "groups": groups, "pending": pending}
+
+
+def _missing_from_example(items: list[md_fields.Item], example: Path) -> list[tuple[md_fields.Item, str]]:
+    """Campos de primeiro nível do exemplo que o perfil ainda não tem (ex.: um campo novo numa versão
+    nova). Aparecem vazios no painel e só entram no arquivo quando preenchidos."""
+    if not example.exists():
+        return []
+    have = {md_fields._key(item.id) for item in items}
+    have_labels = {_norm(item.label) for item in items}
+    example_items = md_fields.parse(example.read_text(encoding="utf-8"))
+    missing = []
+    for item in example_items:
+        if item.parent or item.label.startswith("<") or _is_diversity(item):
+            continue
+        if md_fields._key(item.id) in have or _norm(item.label) in have_labels:
+            continue
+        kind = _profile_kind(item, example_items)
+        if kind in ("text", "yesno"):
+            missing.append((item, kind))
+    return missing
 
 
 def plan_profile(values: Any, db_path: Path | str | None) -> tuple[Pending | None, dict[str, str]]:
@@ -209,6 +240,8 @@ def plan_profile(values: Any, db_path: Path | str | None) -> tuple[Pending | Non
         return None, {"profile": str(exc)}
     items = md_fields.parse(text)
     by_key = {md_fields._key(item.id): item for item in items}
+    missing = {} if from_example else {md_fields._key(i.id): (i, kind) for i, kind in _missing_from_example(items, example)}
+    inserts: list[tuple[str | None, str]] = []
     diversity_keys = {md_fields._key(f"{i.id}/{label}"): (i, label) for i in items if _is_diversity(i)
                       for label, _, _ in DIVERSITY}
     updates: dict[str, str] = {}
@@ -221,6 +254,16 @@ def plan_profile(values: Any, db_path: Path | str | None) -> tuple[Pending | Non
                 errors[name] = "Escolha uma opção ou escreva a resposta numa linha só."
             else:
                 diversity_updates.setdefault(target[0].id, {})[target[1]] = raw.strip()
+            continue
+        if (new := missing.get(md_fields._key(str(field_id)))) is not None:
+            new_item, new_kind = new
+            if not isinstance(raw, str) or "\n" in raw or "\r" in raw or raw.strip().startswith("<"):
+                errors[name] = "Informe o valor numa linha só (sem começar com '<')."
+            elif new_kind == "yesno" and raw.strip() and not _yes_no(raw):
+                errors[name] = "Responda sim ou não."
+            elif raw.strip():  # vazio: o campo continua fora do arquivo
+                value = _yes_no(raw) if new_kind == "yesno" else raw.strip()
+                inserts.append((new_item.section, f"- {new_item.label}: {value}"))
             continue
         item = by_key.get(md_fields._key(str(field_id)))
         if item is None:
@@ -250,9 +293,11 @@ def plan_profile(values: Any, db_path: Path | str | None) -> tuple[Pending | Non
             if item.id not in updates and _profile_kind(item, items) in ("text", "yesno") \
                     and not item.value.strip().startswith("<"):
                 updates[item.id] = PENDING
-    if not updates and not diversity_updates:
+    if not updates and not diversity_updates and not inserts:
         return None, {}
     new_text = md_fields.apply(text, updates)
+    for section, line in inserts:
+        new_text = md_fields.insert_item(new_text, section, line)
     for parent_id, changed in diversity_updates.items():
         parent = next(i for i in md_fields.parse(new_text) if i.id == parent_id)
         answers, extra = _diversity_answers(parent, md_fields.parse(new_text))

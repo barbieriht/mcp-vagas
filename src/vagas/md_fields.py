@@ -93,6 +93,27 @@ def replace_children(text: str, parent_id: str, new_lines: list[str]) -> str:
     return "".join(lines)
 
 
+def insert_item(text: str, section: str | None, line: str) -> str:
+    """Acrescenta a linha no fim da seção "## <section>" (depois do último item e dos subitens dele);
+    sem a seção, cria a seção no fim do arquivo (antes de "## Valores aceitos", se houver)."""
+    lines = text.splitlines(keepends=True)
+    if lines and not lines[-1].endswith(("\n", "\r")):
+        lines[-1] += "\n"
+    headers = [i for i, current in enumerate(lines) if current.startswith("## ")]
+    start = next((i for i in headers if section and _key(lines[i][3:].strip()) == _key(section)), None)
+    if start is None:
+        end = next((i for i in headers if normalize_text(lines[i][3:]).startswith("valores aceitos")), len(lines))
+        block = ["\n", f"## {section}\n", line + "\n"] if section else [line + "\n"]
+        while end > 0 and not lines[end - 1].strip():
+            end -= 1
+        gap = ["\n"] if end < len(lines) and lines[end].strip() else []  # as linhas em branco de antes ficam
+        return "".join(lines[:end] + block + gap + lines[end:])
+    end = next((i for i in headers if i > start), len(lines))
+    last = max((i for i in range(start, end) if lines[i].strip()), default=start)
+    lines.insert(last + 1, line + "\n")
+    return "".join(lines)
+
+
 def write_atomic(path: Path | str, text: str) -> None:
     """Grava sem deixar o arquivo pela metade. Um symlink (o instalador liga os arquivos da Skill ao
     lado do banco) continua symlink: grava no arquivo para onde ele aponta."""
