@@ -3,6 +3,7 @@
 import logging
 import os
 import sqlite3
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -235,10 +236,24 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout = 5000")
-    conn.execute("PRAGMA journal_mode = WAL")
+    _enable_wal(conn)
     conn.execute("PRAGMA foreign_keys = ON")
     _migrate(conn, path)
     return conn
+
+
+def _enable_wal(conn: sqlite3.Connection, seconds: float = 5.0) -> None:
+    """Liga o modo WAL. Com vários processos abrindo um banco novo ao mesmo tempo, a troca do modo de
+    journal pode voltar "database is locked" na hora, sem esperar o busy_timeout: tenta de novo."""
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            conn.execute("PRAGMA journal_mode = WAL")
+            return
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc) or time.monotonic() >= deadline:
+                raise
+            time.sleep(0.05)
 
 
 def _statements(script: str) -> list[str]:
