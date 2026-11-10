@@ -77,6 +77,9 @@ def list_jobs(conn: sqlite3.Connection, filters: dict[str, Any]) -> dict[str, An
                                        for w in words)]
     if min_score is not None:
         rows = [r for r in rows if r.get("match_score") is not None and r["match_score"] >= min_score]
+    if filters.get("search_id"):
+        search_id = _int(filters["search_id"], "busca", 1, 10**9)
+        rows = [r for r in rows if r.get("search_id") == search_id]
     order = filters.get("order") or ("aderencia" if status == "a_aplicar" else "recentes")
     if order == "aderencia":
         rows = sorted(rows, key=lambda r: (r.get("match_score") is None, -(r.get("match_score") or 0)))
@@ -164,3 +167,39 @@ def reopen_job(conn: sqlite3.Connection, application_id: int, reason: str) -> di
         raise VagasError("Dá para reabrir só vagas descartadas.")
     note = f"Reaberta: {reason.strip()}" if (reason or "").strip() else "Reaberta"
     return _light(repo.update_application(application_id, status="a_aplicar", note=note))
+
+
+# --- buscas feitas (só leitura) ----------------------------------------------------------------------
+
+RUN_LABELS = {"running": "Em andamento", "done": "Concluída", "error": "Erro", "interrompida": "Interrompida"}
+
+
+def list_searches(conn: sqlite3.Connection, filters: dict[str, Any]) -> dict[str, Any]:
+    """Buscas registradas (mais recentes primeiro, com quantas vagas cada uma registrou) e as buscas em lote."""
+    import json
+
+    from vagas.search_run import SearchRunStore
+
+    source = filters.get("source") or None
+    if source and source not in SOURCES:
+        raise VagasError(f"site desconhecido: {source!r}. Use um de: {', '.join(SOURCES)}.")
+    limit = _int(filters.get("limit") or 200, "limite", 1, 1000)
+    rows = conn.execute(
+        """
+        SELECT s.*, (SELECT COUNT(*) FROM applications a WHERE a.search_id = s.id) AS jobs_count
+        FROM job_searches s WHERE ? IS NULL OR s.source = ? ORDER BY s.searched_at DESC, s.id DESC LIMIT ?
+        """, (source, source, limit)).fetchall()
+    searches = []
+    for row in rows:
+        item = dict(row)
+        item["filters"] = json.loads(item["filters"]) if item.get("filters") else None
+        item["source_label"] = SOURCE_LABELS.get(item["source"], item["source"])
+        searches.append(item)
+    store = SearchRunStore(conn)
+    runs = []
+    for (run_id,) in conn.execute("SELECT id FROM search_runs ORDER BY id DESC LIMIT 20").fetchall():
+        run = store.get(run_id)  # atualiza "running" de processo que morreu para "interrompida"
+        run["status_label"] = RUN_LABELS.get(run["status"], run["status"])
+        runs.append(run)
+    return {"searches": searches, "runs": runs,
+            "sources": [{"value": s, "label": SOURCE_LABELS[s]} for s in SOURCES]}

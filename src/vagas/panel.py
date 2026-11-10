@@ -128,6 +128,8 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._json(500, {"error": str(exc)})
         if parts.path == "/api/jobs" or parts.path.startswith("/api/jobs/"):
             return self._jobs(parts)
+        if parts.path == "/api/searches":
+            return self._searches(parts)
         return self._send(404, b"", "text/plain")
 
     def do_POST(self) -> None:
@@ -179,6 +181,20 @@ class _Handler(BaseHTTPRequestHandler):
             return self._json(200, jobs_view.job_detail(conn, int(tail)))
         except VagasError as exc:
             return self._json(400 if parts.path == "/api/jobs" else 404, {"error": str(exc)})
+        finally:
+            conn.close()
+
+    def _searches(self, parts: Any) -> None:
+        """Buscas feitas e buscas em lote: GET /api/searches?source=. Só leitura."""
+        from vagas import jobs_view
+        from vagas.db import connect
+
+        conn = connect(self.server.db_path)
+        try:
+            filters = {k: v[-1] for k, v in parse_qs(parts.query).items()}
+            return self._json(200, jobs_view.list_searches(conn, filters))
+        except VagasError as exc:
+            return self._json(400, {"error": str(exc)})
         finally:
             conn.close()
 

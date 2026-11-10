@@ -780,3 +780,46 @@ def test_jobs_are_updated_discarded_and_reopened_from_the_panel(db_path):
     assert repo.get_history(ids["Acme"])["events"][-1]["note"] == "Entrevista na sexta"
     assert repo.get(ids["Beta"])["status"] == "descartada" and repo.get(ids["Gama"])["status"] == "a_aplicar"
     conn.close()
+
+
+@pytest.mark.skipif(not _chromium(), reason="Playwright com Chromium não instalado")
+def test_searches_tab_shows_runs_and_leads_to_the_jobs_of_each_search(db_path):
+    from playwright.sync_api import expect, sync_playwright
+
+    from vagas.db import connect
+    from vagas.job_search import JobSearchStore
+    from vagas.repo import Repo
+    from vagas.search_run import SearchRunStore
+
+    conn = connect(db_path)
+    search = JobSearchStore(conn).save_job_search("data scientist pleno", "gupy", 12, location="São Paulo")["search_id"]
+    repo = Repo(conn)
+    repo.add_application(company="Acme", role="Data Scientist", source="gupy", status="a_aplicar",
+                         url="https://example.com/vagas/1", search_id=search)
+    repo.add_application(company="Beta", role="ML Engineer", source="linkedin", status="a_aplicar",
+                         url="https://example.com/vagas/2")
+    runs = SearchRunStore(conn)
+    run = runs.create({"sources": ["gupy"]})
+    runs.finish(run, {"searches": {"run": 1, "skipped": 0, "errors": 0},
+                      "jobs": {"found": 3, "already_registered": 2, "triaged": 1}, "errors": []})
+    conn.close()
+    server = panel.make_server(db_path, token="t0k3n")
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            page.goto(server.url)
+            page.get_by_role("link", name="Buscas").click()
+            page.get_by_text("Concluída").wait_for()
+            assert "vagas novas: 1" in page.locator(".busca-lote").inner_text()
+
+            page.get_by_role("button", name="Ver as vagas da busca data scientist pleno").click()
+            page.get_by_text('Mostrando só as vagas da busca "data scientist pleno" (Gupy).').wait_for()
+            expect(page.locator("#vagas .tabela-vagas tbody tr")).to_have_count(1)
+            page.get_by_role("button", name="Limpar este filtro").click()
+            expect(page.locator("#vagas .tabela-vagas tbody tr")).to_have_count(2)
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()

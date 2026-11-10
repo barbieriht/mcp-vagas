@@ -145,3 +145,52 @@ def test_reopening_brings_a_discarded_job_back_to_the_work_list(repo, jobs):
     assert repo.get_history(jobs["Épsilon"])["events"][-1]["note"] == "Reaberta: descartada por engano"
     with pytest.raises(VagasError, match="só vagas descartadas"):
         reopen_job(repo.conn, jobs["Acme"], "x")
+
+
+# --- buscas feitas -----------------------------------------------------------------------------------
+
+from vagas.job_search import JobSearchStore  # noqa: E402
+from vagas.jobs_view import list_searches  # noqa: E402
+from vagas.search_run import SearchRunStore  # noqa: E402
+
+
+@pytest.fixture
+def searches(repo):
+    store = JobSearchStore(repo.conn)
+    first = store.save_job_search("data scientist pleno", "gupy", 12, location="São Paulo")["search_id"]
+    second = store.save_job_search("machine learning engineer", "linkedin", 25, filters={"posted": "week"})["search_id"]
+    app = repo.add_application(company="Acme", role="Data Scientist", source="gupy", status="a_aplicar",
+                               url="https://example.com/vagas/1", search_id=first)["application"]
+    runs = SearchRunStore(repo.conn)
+    done = runs.create({"sources": ["gupy"]})
+    runs.progress(done, {"searches_done": 3, "searches_total": 3, "jobs_done": 5, "jobs_total": 5})
+    runs.finish(done, {"searches": {"run": 3, "skipped": 0, "errors": 0},
+                       "jobs": {"found": 9, "already_registered": 4, "triaged": 5}, "errors": []})
+    return {"first": first, "second": second, "app": app["id"], "run": done}
+
+
+def test_searches_are_listed_newest_first_with_how_many_jobs_each_brought(repo, searches):
+    result = list_searches(repo.conn, {})
+
+    assert [s["query"] for s in result["searches"]] == ["machine learning engineer", "data scientist pleno"]
+    gupy = result["searches"][1]
+    assert gupy["source_label"] == "Gupy" and gupy["results_count"] == 12 and gupy["jobs_count"] == 1
+    assert result["searches"][0]["filters"] == {"posted": "week"}
+
+
+def test_searches_filter_by_site(repo, searches):
+    assert [s["source"] for s in list_searches(repo.conn, {"source": "gupy"})["searches"]] == ["gupy"]
+
+
+def test_batch_runs_show_status_progress_and_summary(repo, searches):
+    run = list_searches(repo.conn, {})["runs"][0]
+
+    assert run["status_label"] == "Concluída" and run["progress"]["jobs_done"] == 5
+    assert run["summary"]["jobs"]["triaged"] == 5
+
+
+def test_jobs_can_be_filtered_by_the_search_that_found_them(repo, searches):
+    result = list_jobs(repo.conn, {"search_id": str(searches["first"])})
+
+    assert [item["id"] for item in result["items"]] == [searches["app"]]
+    assert list_jobs(repo.conn, {"search_id": str(searches["second"])})["items"] == []
