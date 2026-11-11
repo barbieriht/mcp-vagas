@@ -11,6 +11,11 @@
   const MAYBE_RESUME = /curr[ií]culo|curriculum|\bcv\b|resum[eé]/i;
   const TEXT_TYPES = new Set(["", "text", "tel", "number", "search"]);
   const seen = new WeakSet();
+  const waiting = new WeakMap(); // campo de currículo ainda sem PDF -> { first, delay, next }
+  const RETRY_FIRST = 3000;
+  const RETRY_MAX = 30000;
+  const RETRY_FOR = 20 * 60 * 1000;
+  let retryTimer = null;
   const byId = new Map();
   let nextId = 0;
   let timer = null;
@@ -105,14 +110,17 @@
       byId.set(id, box);
       fields.push({ id, kind: "checkbox", text });
     }
+    const files = [];
     for (const input of document.querySelectorAll("input[type=file]")) {
       if (seen.has(input) || input.disabled || input.files?.length) continue;
       const text = labelOf(input);
       const attrs = attrsOf(input);
       if (!MAYBE_RESUME.test(`${text} ${attrs}`) || !shownNear(input)) continue;
-      seen.add(input);
+      const retry = waiting.get(input);
+      if (retry && Date.now() < retry.next) continue;
       const id = String(nextId++);
       byId.set(id, input);
+      files.push([id, input]);
       fields.push({ id, kind: "file", text, attrs, accept: input.getAttribute("accept") || "" });
     }
     if (!fields.length) return;
@@ -121,6 +129,26 @@
       response = await chrome.runtime.sendMessage({ type: "fill", fields });
     } catch (error) {
       return; // extensão recarregada ou service worker indisponível: nada a fazer nesta página
+    }
+    // O currículo personalizado só é gerado depois que o campo de upload aparece: sem PDF ainda, o campo
+    // volta a ser consultado, com intervalo crescente, até receber o arquivo ou o preenchimento ser recusado.
+    for (const [id, input] of files) {
+      const got = response?.values?.[id];
+      if (got || response?.status === "declined") {
+        seen.add(input);
+        waiting.delete(input);
+        continue;
+      }
+      const before = waiting.get(input) || { first: Date.now(), delay: RETRY_FIRST / 2 };
+      if (Date.now() - before.first > RETRY_FOR) {
+        seen.add(input);
+        waiting.delete(input);
+        continue;
+      }
+      const delay = Math.min(before.delay * 2, RETRY_MAX);
+      waiting.set(input, { first: before.first, delay, next: Date.now() + delay });
+      clearTimeout(retryTimer);
+      retryTimer = setTimeout(scan, delay);
     }
     for (const [id, value] of Object.entries(response?.values || {})) {
       const el = byId.get(id);
