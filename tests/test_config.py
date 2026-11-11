@@ -189,6 +189,14 @@ async def test_server_instructions_leave_identity_documents_to_the_browser_exten
     assert "anexo do currículo" in instructions and "windows_path" in instructions
 
 
+async def test_server_instructions_generate_the_resume_only_when_the_form_asks_for_one(db_path):
+    async with Client(build_server(db_path)) as client:
+        instructions = client.instructions
+
+    assert "antes de abrir o formulário" not in instructions
+    assert "campo para enviar o currículo" in instructions
+
+
 async def test_server_instructions_ask_for_job_names_as_markdown_links(db_path):
     async with Client(build_server(db_path)) as client:
         instructions = client.instructions

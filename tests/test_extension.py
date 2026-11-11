@@ -254,6 +254,35 @@ def test_with_several_applications_the_window_asks_which_resume(browser):
     assert page.evaluate("window.uploaded")[0][0] == pdfs["Engenheiro"].name
 
 
+def test_the_resume_generated_after_the_form_opened_still_goes_in(browser):
+    # O currículo personalizado só é gerado depois de confirmar que a vaga tem campo de upload.
+    context, tmp_path, _ = browser
+    from vagas.db import connect
+    from vagas.repo import Repo
+    from vagas.resume_repo import ResumeStore
+
+    conn = connect(tmp_path / "vagas.db")
+    app = Repo(conn).add_application(company="Nova", role="Cientista", source="outro",
+                                     url="https://nova.gupy.io/jobs/9", status="a_aplicar")["application"]
+    page = _open_and_confirm(context, "https://nova.gupy.io/candidates/jobs/9/apply", "Permitir sempre para nova")
+    page.wait_for_function("document.getElementById('cpf').value !== ''", timeout=15000)
+    page.wait_for_timeout(1000)
+    assert page.evaluate("window.uploaded") == []
+
+    created = ResumeStore(conn, tmp_path / "curriculo.yaml").create_tailored_resume(
+        {"label": "Nova", "sections": [{"section": "experience"}]}, tmp_path / "out", application_id=app["id"])
+    conn.close()
+    with context.expect_page(timeout=20000) as popup:
+        pass
+    confirm = popup.value
+    confirm.wait_for_load_state()
+    assert Path(created["path"]).name in confirm.inner_text("body")
+    confirm.get_by_role("button", name="Permitir sempre para nova").click()
+
+    page.wait_for_function("window.uploaded.length > 0", timeout=15000)
+    assert page.evaluate("window.uploaded")[0][0] == Path(created["path"]).name
+
+
 def test_declining_leaves_the_fields_empty(browser):
     context, _, _ = browser
 
