@@ -80,6 +80,21 @@ def _reevaluate_salaries(db_path: Path | str | None) -> dict[str, Any]:
         conn.close()
 
 
+def _recheck_criteria(db_path: Path | str | None) -> dict[str, Any] | None:
+    """Critérios gravados: as vagas abertas que eles reprovam saem da lista na hora (a mesma conferência da triagem)."""
+    from vagas.db import connect, default_db_path
+    from vagas.resume_repo import default_draft_path
+    from vagas.triage import Triage, default_criteria_path
+
+    db = Path(db_path) if db_path is not None else default_db_path()
+    conn = connect(db)
+    try:
+        return Triage(conn, criteria_path=default_criteria_path(db), draft_path=default_draft_path(db)
+                      ).apply_criteria_changes()
+    finally:
+        conn.close()
+
+
 def _validate_config(values: Any, db_path: Path | str | None) -> tuple[dict[str, str | None], dict[str, str]]:
     cleaned: dict[str, str | None] = {}
     errors: dict[str, str] = {}
@@ -103,7 +118,8 @@ def save(data: Any, db_path: Path | str | None = None) -> dict[str, Any]:
     """Valida todas as seções e só grava se não houver erro. Campos ausentes ficam como estão.
 
     Retorna {saved, errors: {campo: mensagem}, warnings, settings (o load() depois de gravar),
-    reevaluated (só quando a regra da pretensão mudou)}."""
+    reevaluated (só quando a regra da pretensão mudou), rechecked (só quando os critérios de triagem mudaram:
+    {checked, discarded}, as vagas abertas descartadas por eles)}."""
     result: dict[str, Any] = {"saved": False, "errors": {}, "warnings": []}
     if not isinstance(data, dict):
         result["errors"]["form"] = "Formulário inválido: envie um objeto com as seções."
@@ -153,5 +169,7 @@ def save(data: Any, db_path: Path | str | None = None) -> dict[str, Any]:
     policy_changed = any(key == "policy" for key, _ in pending_files)
     if config.resolve("salary_rule", db_path)[0] != rule_before or policy_changed:
         result["reevaluated"] = _reevaluate_salaries(db_path)  # pretensões das vagas abertas com a regra nova
+    if any(key == "criteria" for key, _ in pending_files):
+        result["rechecked"] = _recheck_criteria(db_path)
     result["settings"] = load(db_path)
     return result

@@ -202,6 +202,8 @@ class SearchRunner:
             summary["errors"].append({"step": "triage", "url": url, "error": str(exc)})
             return
         summary["jobs"]["triaged"] += 1
+        if result.get("criteria_recheck"):
+            summary["criteria_recheck"] = result["criteria_recheck"]
         decision = result["decision"]
         summary["decisions"][decision] = summary["decisions"].get(decision, 0) + 1
         app = result["application"] or {}

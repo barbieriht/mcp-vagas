@@ -300,6 +300,15 @@ class Repo:
         applications = [_application(row) for row in rows]
         return {"applications": applications, "count": len(applications)}
 
+    def get_state(self, key: str) -> str | None:
+        row = self.conn.execute("SELECT value FROM app_state WHERE key = ?", (key,)).fetchone()
+        return row[0] if row else None
+
+    def set_state(self, key: str, value: str) -> None:
+        self.conn.execute("INSERT INTO app_state (key, value) VALUES (?, ?) "
+                          "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, value))
+        self.conn.commit()
+
     def get(self, application_id: int) -> dict[str, Any]:
         row = self.conn.execute("SELECT * FROM applications WHERE id = ?", (application_id,)).fetchone()
         if row is None:

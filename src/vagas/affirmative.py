@@ -42,7 +42,10 @@ _MARKER = (r"(?:exclusiv\w*|afirmativ\w*|destinad\w*|direcionad\w*|dedicad\w*|re
            r"so para|only|affirmative)")
 # "Vaga para mulheres", "Oportunidade é para pessoas negras": dizem menos que "exclusiva", então o grupo tem de vir logo
 # depois ("vaga para trabalhar com dados num time com muitas mulheres" não conta).
-_WEAK_MARKER = r"(?:vagas?|oportunidades?|posic(?:ao|oes)|processos?)\s+(?:\w+\s+){0,2}?para\b"
+# Entre o substantivo e o "para" só cabem ser/estar: "vagas estão abertas para PcD" e "vaga também para PcD" incluem,
+# não reservam.
+_WEAK_MARKER = (r"(?:vagas?|oportunidades?|posic(?:ao|oes)|processos?)(?:\s+seletivos?)?"
+                r"(?:\s+(?:e|sao|esta|estao|eh))?\s+para\b")
 _NEAR, _WEAK_NEAR = 8, 3  # palavras entre a marca e o grupo
 # "Women only", "PcD only": a palavra de exclusividade depois do grupo.
 _ONLY_AFTER = r"\W+(?:\w+\W+)?only\b"

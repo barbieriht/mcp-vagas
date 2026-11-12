@@ -92,3 +92,12 @@ def test_company_wide_diversity_statements_are_not_an_affirmative_job(text):
 
 def test_weak_markers_need_the_group_right_after():
     assert detect("Vaga para trabalhar com dados num time com muitas mulheres").groups == []
+
+
+@pytest.mark.parametrize("text", [
+    "Todas as nossas vagas estão abertas para Pessoas com Deficiência (PCD)",
+    "Vaga também para PcD",
+    "Oportunidade aberta para mulheres e homens",
+])
+def test_jobs_open_to_a_group_are_not_exclusive(text):
+    assert detect(text).groups == []
