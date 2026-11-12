@@ -1,9 +1,10 @@
 """Vagas afirmativas: detecta para qual grupo a vaga é direcionada e lê os grupos que o usuário pode disputar.
 
 Não depende de MCP. A detecção é conservadora: exige uma palavra de exclusividade ("exclusiva", "afirmativa",
-"destinada a", "vaga para", "only") perto do grupo, na mesma frase, e ignora negações. Frases de inclusão
-("incentivamos candidaturas de mulheres...") não contam. "Vaga afirmativa" sem grupo reconhecido vira
-`generic`, para o usuário julgar.
+"destinada a", "only") perto do grupo, ou "vaga/oportunidade/processo para" logo antes dele, na mesma frase, e
+ignora negações. Frases de inclusão ("incentivamos candidaturas de mulheres...") não contam. "Vaga afirmativa" sem
+grupo reconhecido vira `generic`, para o usuário julgar; declarações da empresa inteira ("todas as nossas vagas são
+afirmativas", "affirmative action employer") não.
 """
 
 import re
@@ -21,7 +22,7 @@ class Group:
 
 
 GROUPS: dict[str, Group] = {
-    "women": Group("mulheres", r"\b(?:mulher(?:es)?|women|woman|female)\b", ("mulheres", "mulher", "women")),
+    "women": Group("mulheres", r"\b(?:mulher(?:es)?|feminin[ao]s?|women|woman|female)\b", ("mulheres", "mulher", "women")),
     "black": Group("pessoas negras",
                    r"\b(?:pessoas? (?:negr[ao]s?|pret[ao]s?)|negr[ao]s?|pret[ao]s?|pard[ao]s?|black|"
                    r"afrodescendentes?)\b",
@@ -38,7 +39,17 @@ GROUPS: dict[str, Group] = {
 _NONE = {"nenhuma", "nenhum", "nao", "nada"}
 
 _MARKER = (r"(?:exclusiv\w*|afirmativ\w*|destinad\w*|direcionad\w*|dedicad\w*|reservad\w*|somente|apenas|"
-           r"so para|only|affirmative|vagas?\s+(?:\w+\s+){0,2}?para)")
+           r"so para|only|affirmative)")
+# "Vaga para mulheres", "Oportunidade é para pessoas negras": dizem menos que "exclusiva", então o grupo tem de vir logo
+# depois ("vaga para trabalhar com dados num time com muitas mulheres" não conta).
+_WEAK_MARKER = r"(?:vagas?|oportunidades?|posic(?:ao|oes)|processos?)\s+(?:\w+\s+){0,2}?para\b"
+_NEAR, _WEAK_NEAR = 8, 3  # palavras entre a marca e o grupo
+# "Women only", "PcD only": a palavra de exclusividade depois do grupo.
+_ONLY_AFTER = r"\W+(?:\w+\W+)?only\b"
+# Declarações da empresa inteira ("todas as nossas vagas são afirmativas", "affirmative action employer") não dizem
+# que esta vaga é de um grupo: não viram `generic`.
+_COMPANY_WIDE = re.compile(r"\btodas as (?:nossas )?(?:vagas|oportunidades)\b|\baffirmative action\W+employer|"
+                           r"\bequal (?:employment )?opportunit")
 _NEGATION = re.compile(r"\b(?:nao|nem|not|sem)\b(?:\W+\w+){0,3}\W*$")
 _GENERIC = re.compile(r"\b(?:vagas?|oportunidades?|processos? seletivos?|programas?)\s+afirmativ\w*|"
                       r"\bafirmativ[ao]s?\b|affirmative")
@@ -60,22 +71,29 @@ def detect(text: str | None) -> Detection:
         sentence = normalize_text(raw)
         if not sentence:
             continue
-        saw_generic = saw_generic or bool(_GENERIC.search(sentence))
+        saw_generic = saw_generic or bool(_GENERIC.search(sentence)) and not _COMPANY_WIDE.search(sentence)
         for key, group in GROUPS.items():
             if key in result.groups:
                 continue
-            for marker in re.finditer(_MARKER, sentence):
-                before = sentence[:marker.start()]
-                if _NEGATION.search(before):
-                    continue
-                window = sentence[marker.start():]
-                near = re.search(group.nouns, window)
-                if near and len(re.findall(r"\w+", window[:near.start()])) <= 8:
-                    result.groups.append(key)
-                    result.snippets[key] = " ".join(raw.split())[:120]
-                    break
+            if _names_group(sentence, group):
+                result.groups.append(key)
+                result.snippets[key] = " ".join(raw.split())[:120]
     result.generic = saw_generic and not result.groups
     return result
+
+
+def _names_group(sentence: str, group: Group) -> bool:
+    """A frase diz que a vaga é do grupo: palavra de exclusividade perto dele, sem negação antes."""
+    for pattern, limit in ((_MARKER, _NEAR), (_WEAK_MARKER, _WEAK_NEAR)):
+        for marker in re.finditer(pattern, sentence):
+            if _NEGATION.search(sentence[:marker.start()]):
+                continue
+            window = sentence[marker.end():]
+            near = re.search(group.nouns, window)
+            if near and len(re.findall(r"\w+", window[:near.start()])) <= limit:
+                return True
+    after = re.search(group.nouns + _ONLY_AFTER, sentence)
+    return bool(after) and not _NEGATION.search(sentence[:after.start()])
 
 
 def parse_groups(items: list[str], where: str) -> tuple[str, ...]:

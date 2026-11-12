@@ -63,3 +63,32 @@ def test_unknown_group_lists_the_accepted_values():
 
 def test_groups_have_labels():
     assert set(GROUPS) == {"women", "black", "lgbt", "pcd", "50plus", "indigenous"}
+
+
+@pytest.mark.parametrize("text, group", [
+    ("Esta vaga é exclusiva para pessoas que se identificam com o gênero feminino", "women"),
+    ("Vaga destinada ao público feminino", "women"),
+    ("Vaga para pessoas do gênero feminino", "women"),
+    ("Oportunidade para mulheres na área de dados", "women"),
+    ("Esta oportunidade é para mulheres cis e trans", "women"),
+    ("Data Scientist - Women only", "women"),
+    ("Processo seletivo para pessoas negras", "black"),
+    ("Posição para pessoas com deficiência", "pcd"),
+])
+def test_other_ways_of_saying_the_job_is_for_a_group(text, group):
+    assert detect(text).groups == [group]
+
+
+@pytest.mark.parametrize("text", [
+    "Diversidade, todas as nossas vagas são afirmativas: sua singularidade é nosso diferencial",
+    "Experian is also proud to be an equal opportunity employer and an affirmative action employer",
+    "We are an Equal Opportunity / Affirmative Action employer.",
+    "Incentivamos o público feminino a se candidatar.",
+])
+def test_company_wide_diversity_statements_are_not_an_affirmative_job(text):
+    result = detect(text)
+    assert result.groups == [] and result.generic is False
+
+
+def test_weak_markers_need_the_group_right_after():
+    assert detect("Vaga para trabalhar com dados num time com muitas mulheres").groups == []
