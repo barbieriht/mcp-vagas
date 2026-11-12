@@ -155,7 +155,7 @@ async def test_update_and_history_via_mcp(server):
         missing = await client.call_tool("get_history", {"id": 999})
         tools = await tools_by_name(client)
 
-    assert (updated["status"], updated["pending"]) == ("aplicada", None)
+    assert (updated["status"], updated.get("pending")) == ("aplicada", None)  # pendência limpa sai do retorno
     assert same.is_error and "já está" in same.content[0].text
     assert [e["to_status"] for e in history["events"]] == ["pendente_usuario", "aplicada"]
     assert history["events"][-1]["note"] == "CPF enviado"

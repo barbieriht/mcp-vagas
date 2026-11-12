@@ -1,5 +1,6 @@
 """Tools MCP finas sobre o repo. Nunca escrever no stdout: no stdio ele é o canal do protocolo."""
 
+import inspect
 import logging
 import os
 import sqlite3
@@ -39,6 +40,9 @@ from vagas.sensitive import Vault, default_backend, default_vault_path
 from vagas.salary_policy import default_policy_path
 from vagas.triage import Triage, default_criteria_path
 from vagas.work_list import build_work_list
+from vagas.tool_output import (
+    application_record, application_summary, compact_result, config_view, optional_not_nullable, without_empty,
+)
 from vagas.resume_repo import ResumeStore, default_draft_path
 
 
@@ -160,20 +164,21 @@ def build_server(
         """Mostra onde o MCP guarda os arquivos de cada tarefa e o que ainda falta configurar.
 
         Chame no PRIMEIRO USO (e sempre que uma tool reclamar de pasta não configurada), antes de gerar
-        currículo ou exportar. Retorna {config_file, settings, needs_setup}. Em settings, cada chave
-        (resume_out = pasta dos PDFs de currículo, export_dir = pasta dos CSVs, master_resume = arquivo
-        YAML do currículo geral, login_method = primeira opção para entrar nos sites de vagas, padrão
-        "linkedin", nunca perguntado; login_email = conta Google, a segunda opção quando o site não oferece
-        a primeira (com "google" como primeira, o LinkedIn vira a segunda), max_open_tabs = limite de abas de
-        candidatura abertas esperando o usuário, padrão 12, nunca perguntado; salary_rule = regra da
-        pretensão salarial, padrão "teto", perguntada só depois da primeira busca de vagas) traz {value, source
-        (env/config/default/unset), description, kind, default, suggestions, choices, env}.
+        currículo ou exportar. Retorna {config_file, settings: {chave: {value, source
+        (env/config/default/unset), kind, default, suggestions, choices}}, needs_setup}; campos vazios são
+        omitidos, description vem só nas chaves de needs_setup e env só quando a variável define o valor.
+        Chaves: resume_out (pasta dos PDFs de currículo), export_dir (pasta dos CSVs), master_resume (YAML
+        do currículo geral), login_method (primeira opção de login nos sites, padrão "linkedin"),
+        login_email (conta Google, a segunda opção de login), max_open_tabs (padrão 12), auto_submit,
+        salary_rule (regra da pretensão, padrão "teto"), autofill_domains, autofill_platforms, resume_pdf,
+        linkedin_url. login_method e max_open_tabs nunca são perguntados; salary_rule, só depois da
+        primeira busca de vagas.
         needs_setup lista as chaves que o usuário nunca definiu: pergunte uma por vez (para pastas,
-        ofereça a sugestão mais adequada: suggestions, ou o default quando houver; para login_email, o
-        e-mail da conta Google, que pode estar no perfil como "E-mail / login Google") e grave com set_config.
+        ofereça a melhor das suggestions, ou o default; para login_email, o e-mail da conta Google, que
+        pode estar no perfil como "E-mail / login Google") e grave com set_config.
         """
         try:
-            return paths_config.describe(db_path)
+            return config_view(paths_config.describe(db_path))
         except VagasError as exc:
             raise ToolError(str(exc)) from exc
 
@@ -230,10 +235,12 @@ def build_server(
         ("Itaú Unibanco S.A." = "itau unibanco") e devolve TODAS as vagas daquela empresa: decida
         se alguma é a mesma vaga publicada em outra plataforma (mesmo cargo e senioridade) e, na
         dúvida, pergunte ao usuário.
-        Retorna {"matches": [candidaturas]}, mais recentes primeiro; lista vazia se não houver.
+        Retorna {"matches": [candidaturas]}, mais recentes primeiro; lista vazia se não houver. Cada
+        candidatura vem resumida (sem a descrição da vaga e sem campos vazios); o registro completo
+        está em get_history.
         """
         with repo() as r:
-            return {"matches": r.find_application(url=url, company=company)}
+            return {"matches": [application_summary(a) for a in r.find_application(url=url, company=company)]}
 
     @server.tool()
     def add_application(
@@ -268,7 +275,8 @@ def build_server(
 
         Se a URL já estiver registrada, NÃO cria outro registro: retorna
         {"created": false, "application": <registro existente>} sem erro.
-        Caso contrário retorna {"created": true, "application": <novo registro>}.
+        Caso contrário retorna {"created": true, "application": <novo registro>}. O registro volta
+        sem a descrição e sem campos vazios (completo em get_history).
 
         description: texto da vaga (requisitos, responsabilidades), para consulta futura.
         salary_expectation: pretensão informada no formulário, em texto livre.
@@ -278,7 +286,7 @@ def build_server(
         contract: regime da vaga (clt, pj ou desconhecido), como lido em read_job_posting.
         """
         with repo() as r:
-            return r.add_application(
+            result = r.add_application(
                 company=company, role=role, source=source, url=url, seniority=seniority,
                 work_mode=work_mode, location=location,
                 salary_expectation=salary_expectation, description=description,
@@ -287,6 +295,7 @@ def build_server(
                 match_terms=match_terms.model_dump() if match_terms is not None else None,
                 contract=contract,
             )
+        return {**result, "application": application_record(result["application"])}
 
     @server.tool()
     def update_application(
@@ -324,7 +333,7 @@ def build_server(
           Registre ao enviar a candidatura; fica separada da pretensão calculada (salary_ask).
 
         Mudança de status e nota ficam registradas como eventos (ver get_history).
-        Retorna a candidatura atualizada.
+        Retorna a candidatura atualizada, sem a descrição e sem campos vazios.
         """
         with repo() as r:
             updated = r.update_application(
@@ -333,15 +342,15 @@ def build_server(
                 work_mode=work_mode, location=location,
             )
         if contract is None and work_mode is None and location is None:
-            return updated
+            return application_record(updated)
         with salaries() as s:
             result = s.reevaluate_applications(ids=(id,))
         if result["errors"]:
-            return {**updated, "salary_error": result["errors"][0]["error"]}
+            return {**application_record(updated), "salary_error": result["errors"][0]["error"]}
         if not result["reevaluated"]:
-            return updated
+            return application_record(updated)
         with repo() as r:
-            return r.get(id)
+            return application_record(r.get(id))
 
     @server.tool()
     def list_applications(
@@ -350,6 +359,8 @@ def build_server(
         source: Source | None = None,
         since: str | None = None,
         stale_days: int | None = None,
+        limit: Annotated[int, Field(ge=1, le=200)] = 50,
+        offset: Annotated[int, Field(ge=0)] = 0,
     ) -> dict[str, Any]:
         """Lista candidaturas, mais recentes primeiro; os filtros se combinam.
 
@@ -359,12 +370,19 @@ def build_server(
         - source: plataforma;
         - since: criadas a partir desta data ISO (ex.: "2026-10-01");
         - stale_days: só "aplicada" sem nenhum evento há mais de N dias (candidaturas sem resposta).
-        Cada item traz last_event_at (data do último evento). Retorna {"applications", "count"}.
+        - limit/offset: página (padrão as 50 primeiras); next_offset vem quando há mais.
+        Cada item é um resumo (id, company, role, url, status, pending, match_score, salary_ask,
+        last_event_at...), sem a descrição da vaga e sem campos vazios; o registro completo está em
+        get_history. Retorna {"applications", "count" (total com os filtros), "next_offset"?}.
         """
         with repo() as r:
-            return r.list_applications(
+            found = r.list_applications(
                 status=status, only_pending=only_pending, source=source, since=since, stale_days=stale_days,
-            )
+            )["applications"]
+        page = {"applications": [application_summary(a) for a in found[offset:offset + limit]], "count": len(found)}
+        if offset + limit < len(found):
+            page["next_offset"] = offset + limit
+        return page
 
     @server.tool()
     def export_csv() -> dict[str, Any]:
@@ -380,7 +398,8 @@ def build_server(
 
     @server.tool()
     def get_history(id: int) -> dict[str, Any]:
-        """Retorna a candidatura e a linha do tempo completa, em ordem cronológica.
+        """Retorna a candidatura completa (com a descrição da vaga e salary_evaluation) e a linha do
+        tempo, em ordem cronológica.
 
         Formato: {"application": {...}, "events": [{at, from_status, to_status, note}, ...]}.
         O primeiro evento é a criação (from_status nulo). Eventos com from_status igual a
@@ -706,11 +725,14 @@ def build_server(
         somados do currículo geral), your_level, job_level, job_years (faixa do nível da vaga), within
         (o usuário está na faixa), listed (nível entre as "Senioridades buscadas")}. Vaga de nível fora
         da lista: descartada; da lista, segue mesmo fora do enquadramento (o motivo fica em reasons).
-        Retorna {decision, level, application, posting (sem a descrição), match ({score, matched, missing,
+        Retorna {decision, level, application (sem a descrição), posting (sem a descrição), match ({score, matched, missing,
         related, optional}, como em score_job_match), salary, reasons, needs}.
         """
         with triages() as t:
-            return t.triage_job(url, search_id=search_id, not_duplicate=not_duplicate)
+            result = t.triage_job(url, search_id=search_id, not_duplicate=not_duplicate)
+        if result.get("application"):
+            result["application"] = application_record(result["application"])
+        return result
 
     @server.tool()
     def score_job_match(description: str, company: str | None = None, title: str | None = None,
@@ -893,6 +915,7 @@ def build_server(
         mediana da vaga, da empresa ou do mercado), salary_rule (regra da pretensão), salary_basis
         (vaga, empresa, mercado ou sem_dados), url, pending (lista:
         "modalidade", "senioridade", "salário não avaliado", "pesquisa salarial" ou o pending registrado)}.
+        Campos vazios (missing, related, pending sem itens, valores nulos) são omitidos.
         Retorna {ready, pending, counts, salary_rule: {value, chosen}}. Mostre as linhas como estão, sem
         recalcular. salary_rule.chosen=false: o usuário ainda não escolheu a regra da pretensão;
         pergunte (ver a skill) e grave com set_config.
@@ -903,7 +926,8 @@ def build_server(
                 rule, source = paths_config.resolve("salary_rule", db_path)
             except VagasError as exc:
                 raise ToolError(str(exc)) from exc
-            return {**result, "salary_rule": {"value": rule, "chosen": source in ("env", "config")}}
+            rows = {key: [without_empty(row) for row in result[key]] for key in ("ready", "pending")}
+            return {**result, **rows, "salary_rule": {"value": rule, "chosen": source in ("env", "config")}}
 
     @server.tool()
     def start_search_run(
@@ -1006,8 +1030,13 @@ def build_server(
         with job_searches() as s:
             return s.save_job_search(query, source, results_count, location=location, filters=filters, note=note)
 
-    for tool in server._tool_manager.list_tools():  # os schemas vão ao modelo em toda conversa: sem rótulos redundantes
-        tool.parameters = _without_titles(tool.parameters)
+    # Definições e respostas vão ao contexto do modelo: sem rótulos redundantes, recuo de docstring,
+    # `null` em parâmetro opcional nem JSON indentado (ver tool_output).
+    for tool in server._tool_manager.list_tools():
+        tool.parameters = optional_not_nullable(_without_titles(tool.parameters))
+        tool.description = inspect.cleandoc(tool.description)
+        if tool.fn_metadata.output_schema is not None and not tool.fn_metadata.wrap_output:
+            tool.fn = compact_result(tool.fn)
     return server
 
 

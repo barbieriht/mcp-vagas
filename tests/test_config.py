@@ -71,7 +71,7 @@ async def test_first_use_lists_everything_to_configure(db_path):
     assert result["needs_setup"] == ["resume_out", "export_dir", "master_resume", "login_email"]
     assert result["config_file"] == str(config_path(db_path))
     resume_out = result["settings"]["resume_out"]
-    assert resume_out["source"] == "unset" and resume_out["value"] is None and resume_out["suggestions"]
+    assert resume_out["source"] == "unset" and resume_out.get("value") is None and resume_out["suggestions"]
     assert result["settings"]["export_dir"]["default"] == str(db_path.parent / "exports")
     assert result["settings"]["master_resume"]["default"] == str(db_path.parent / "curriculo.yaml")
 
