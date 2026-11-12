@@ -420,3 +420,13 @@ def test_exclusive_pcd_jobs_are_caught_without_any_line_in_the_criteria(triage, 
                                   (56, "Cientista de Dados - vaga exclusiva para pessoas com deficiência", "Outra")):
         result = triage.triage_job(fetcher.add(gupy(number, name=name, company=company)))
         assert result["decision"] == "descartada" and "PcD" in result["application"]["discard_reason"]
+
+
+def test_women_only_job_is_discarded_when_the_group_is_not_checked(triage, fetcher, files):
+    criteria = files / "criterios-triagem.md"
+    criteria.write_text(CRITERIA.replace("disputar: mulheres", "disputar: nenhuma"), encoding="utf-8")
+    url = fetcher.add(gupy(31, description="Vaga destinada ao público feminino. Python e SQL."))
+
+    result = triage.triage_job(url)
+
+    assert result["decision"] == "descartada" and "mulheres" in result["application"]["discard_reason"]
