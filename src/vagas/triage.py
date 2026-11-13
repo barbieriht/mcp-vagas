@@ -13,6 +13,7 @@ Não depende de MCP. Os critérios fixos vêm de um arquivo pessoal (criterios-t
 O que as regras não decidem vira um item em "needs", para a LLM julgar ou pesquisar.
 """
 
+import hashlib
 import os
 import re
 import sqlite3
@@ -99,6 +100,11 @@ class TriageCriteria:
     search_seniorities: tuple[str, ...] = ()  # buscas e níveis a que o usuário se candidata (vazio = todos)
     years_by_level: tuple[Level, ...] = DEFAULT_LEVELS  # anos de experiência -> nível
     accepted_states: tuple[str, ...] = ()  # UFs aceitas para híbrido e presencial (vazio = não filtra)
+
+
+_CRITERIA_STATE = "triage_criteria_sha256"
+_OPEN = ("a_aplicar", "pendente_usuario")
+RECHECK_NOTE = "Descartada porque os critérios de triagem mudaram."
 
 
 def default_criteria_path(db_path: Path | str | None = None) -> Path:
@@ -291,6 +297,49 @@ class Triage:
         self.criteria_path = Path(criteria_path) if criteria_path is not None else default_criteria_path()
 
     def triage_job(self, url: str, search_id: int | None = None, not_duplicate: bool = False) -> dict[str, Any]:
+        recheck = self.apply_criteria_changes()
+        result = self._triage_job(url, search_id, not_duplicate)
+        if recheck and recheck["discarded"]:
+            result["criteria_recheck"] = recheck
+        return result
+
+    def apply_criteria_changes(self) -> dict[str, Any] | None:
+        """Se o criterios-triagem.md mudou desde a última conferência (pelo painel ou à mão), confere de novo as
+        vagas abertas (a_aplicar, pendente_usuario) pelas regras que não pedem julgamento: empresas ignoradas,
+        vagas PcD e afirmativas fora dos grupos, senioridades buscadas e estados aceitos. As reprovadas viram
+        descartadas, com o motivo da triagem. Critérios iguais: None, e uma vaga reaberta à mão continua aberta.
+        Sem arquivo de critérios: None. Retorna {checked, discarded: [{id, company, role, url, reason}]}."""
+        try:
+            text = self.criteria_path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return None
+        fingerprint = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        if self.repo.get_state(_CRITERIA_STATE) == fingerprint:
+            return None
+        criteria = parse_criteria(text, source=self.criteria_path.name)
+        open_apps = [app for status in _OPEN for app in self.repo.list_applications(status=status)["applications"]]
+        discarded = []
+        for app in open_apps:
+            reason = self._recheck(criteria, app)
+            if reason:
+                self.repo.update_application(app["id"], status="descartada", discard_reason=reason, note=RECHECK_NOTE)
+                discarded.append({"id": app["id"], "company": app["company"], "role": app["role"], "url": app["url"],
+                                  "reason": reason})
+        self.repo.set_state(_CRITERIA_STATE, fingerprint)
+        return {"checked": len(open_apps), "discarded": discarded}
+
+    def _recheck(self, criteria: TriageCriteria, app: dict[str, Any]) -> str | None:
+        """As mesmas regras fixas da triagem, sobre o que ficou gravado da vaga."""
+        posting = {"company": app["company"], "title": app["role"], "description": app.get("description"),
+                   "work_mode": app.get("work_mode"), "location": app.get("location"), "work_mode_inferred": False}
+        reason = self._fixed_criteria(criteria, posting, [])
+        if reason is None and (level := self._level_fit(criteria, app.get("seniority"))):
+            reason = self._level(criteria, level, [])
+        if reason is None and posting["work_mode"] in ("hibrido", "presencial"):
+            reason = self._location(criteria, posting, [], [])
+        return reason
+
+    def _triage_job(self, url: str, search_id: int | None, not_duplicate: bool) -> dict[str, Any]:
         criteria = load_criteria(self.criteria_path)
         existing = self.repo.find_application(url=url)  # só URL: casa pela forma canônica
         if existing:

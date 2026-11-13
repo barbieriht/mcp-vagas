@@ -725,6 +725,9 @@ def build_server(
         somados do currículo geral), your_level, job_level, job_years (faixa do nível da vaga), within
         (o usuário está na faixa), listed (nível entre as "Senioridades buscadas")}. Vaga de nível fora
         da lista: descartada; da lista, segue mesmo fora do enquadramento (o motivo fica em reasons).
+        Critérios mudados desde a última conferência (painel ou arquivo editado): antes de triar, as vagas abertas
+        que eles reprovam pelas regras fixas (empresas ignoradas, PcD, afirmativas, senioridades, estados) são
+        descartadas e vêm em criteria_recheck {checked, discarded}; conte ao usuário.
         Retorna {decision, level, application (sem a descrição), posting (sem a descrição), match ({score, matched, missing,
         related, optional}, como em score_job_match), salary, reasons, needs}.
         """
@@ -916,10 +919,18 @@ def build_server(
         (vaga, empresa, mercado ou sem_dados), url, pending (lista:
         "modalidade", "senioridade", "salário não avaliado", "pesquisa salarial" ou o pending registrado)}.
         Campos vazios (missing, related, pending sem itens, valores nulos) são omitidos.
-        Retorna {ready, pending, counts, salary_rule: {value, chosen}}. Mostre as linhas como estão, sem
+        Se os critérios de triagem mudaram desde a última conferência, as vagas abertas que eles reprovam são
+        descartadas antes (ver triage_job) e vêm em criteria_recheck {checked, discarded: [{id, company, role,
+        url, reason}]}: conte ao usuário quais saíram e por quê.
+        Retorna {ready, pending, counts, salary_rule: {value, chosen}, criteria_recheck?}. Mostre as linhas como estão, sem
         recalcular. salary_rule.chosen=false: o usuário ainda não escolheu a regra da pretensão;
         pergunte (ver a skill) e grave com set_config.
         """
+        with triages() as t:
+            try:
+                recheck = t.apply_criteria_changes()
+            except VagasError:
+                recheck = None  # critérios inválidos: a triagem mostra o erro; a lista sai assim mesmo
         with store(lambda conn: build_work_list(
                 Repo(conn), ResumeStore(conn, draft_path or default_draft_path(db_path)))) as result:
             try:
@@ -927,7 +938,10 @@ def build_server(
             except VagasError as exc:
                 raise ToolError(str(exc)) from exc
             rows = {key: [without_empty(row) for row in result[key]] for key in ("ready", "pending")}
-            return {**result, **rows, "salary_rule": {"value": rule, "chosen": source in ("env", "config")}}
+            listed = {**result, **rows, "salary_rule": {"value": rule, "chosen": source in ("env", "config")}}
+            if recheck and recheck["discarded"]:
+                listed["criteria_recheck"] = recheck
+            return listed
 
     @server.tool()
     def start_search_run(
@@ -965,7 +979,8 @@ def build_server(
         decisão); a_aplicar [{id, company, role, work_mode, location, match_score, url,
         value_to_inform, needs}]; descartadas [{id, company, role, reason}]; possiveis_duplicatas
         [{company, title, url, location, matches}] (pergunte ao usuário; se não for a mesma vaga, chame
-        triage_job com not_duplicate=true); needs {tipo: [IDs]} (resolva como na triagem); errors.
+        triage_job com not_duplicate=true); needs {tipo: [IDs]} (resolva como na triagem); errors;
+        criteria_recheck (vagas abertas descartadas porque os critérios mudaram, como em triage_job), se houve.
         """
         with store(SearchRunStore) as runs:
             return runs.get(run_id)

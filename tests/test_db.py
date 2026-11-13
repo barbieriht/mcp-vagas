@@ -16,9 +16,11 @@ V14_COLUMNS = {"applications": ("salary_basis", "salary_market", "salary_rule", 
 
 
 def drop_v14(conn):
+    """Desfaz a v14 e as seguintes, para os testes que voltam o banco a uma versão anterior e migram de novo."""
     for table, names in V14_COLUMNS.items():
         for name in names:
             conn.execute(f"ALTER TABLE {table} DROP COLUMN {name}")
+    conn.execute("DROP TABLE app_state")  # v15
 
 
 def test_new_database_gets_latest_schema(db_path):
@@ -119,7 +121,7 @@ def test_salary_columns_are_backfilled_from_the_evaluation(db_path):
                      (i, now, now, json.dumps(evaluation)))
     conn.commit()
     drop_v14(conn)
-    conn.execute(f"PRAGMA user_version = {LATEST_VERSION - 1}")
+    conn.execute("PRAGMA user_version = 13")
     conn.commit()
     conn.close()
 

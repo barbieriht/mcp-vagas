@@ -634,7 +634,10 @@ async function submit(event) {
       return;
     }
     render(result.settings);
-    const extra = (result.warnings || []).join(" ");
+    const gone = result.rechecked?.discarded || [];
+    const recheck = gone.length === 1 ? `1 vaga aberta foi descartada pelos critérios novos: ${gone[0].role} — ${gone[0].company}.`
+      : gone.length ? `${gone.length} vagas abertas foram descartadas pelos critérios novos (veja em Vagas).` : "";
+    const extra = [...(result.warnings || []), recheck].filter(Boolean).join(" ");
     status(`Tudo salvo.${extra ? " " + extra : ""}`, "ok");
   } catch (error) {
     status(error.message, "falha");

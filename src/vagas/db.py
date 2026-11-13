@@ -218,6 +218,10 @@ MIGRATIONS = [
     ALTER TABLE salary_searches ADD COLUMN discarded_at TEXT;
     ALTER TABLE salary_searches ADD COLUMN discard_reason TEXT;
     """,
+    # v15: estado interno do MCP (ex.: impressão digital dos critérios de triagem já aplicados às vagas abertas)
+    """
+    CREATE TABLE app_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    """,
 ]
 LATEST_VERSION = len(MIGRATIONS)
 

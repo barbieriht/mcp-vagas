@@ -205,3 +205,16 @@ async def test_real_background_process_runs_to_the_end(tmp_path, monkeypatch):
     # sem currículo aprovado não há a busca com a skill: 2 línguas x (gupy remoto + SP, linkedin remoto)
     assert run["summary"]["searches"]["skipped"] == 6 and run["summary"]["searches"]["run"] == 0
     assert (db.parent / "search_runs.log").exists()
+
+
+def test_summary_tells_which_open_jobs_the_changed_criteria_discarded(setup):
+    conn, tmp_path = setup
+    old = Repo(conn).add_application(company="CI&T", role="Cientista de Dados", source="gupy", status="a_aplicar",
+                                     url="https://cit.gupy.io/jobs/1")["application"]
+    store = SearchRunStore(conn)
+    run_id = store.create({"sources": ["gupy"], "linkedin_remote_only": True, "max_pages": 1})
+
+    runner(conn, tmp_path, Web()).run(run_id)
+
+    [gone] = store.get(run_id)["summary"]["criteria_recheck"]["discarded"]
+    assert gone["id"] == old["id"] and "ignoradas" in gone["reason"]
