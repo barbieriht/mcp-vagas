@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from vagas.autofill import EXTENSION_VERSION
+
 REPO = Path(__file__).resolve().parents[1]
 _spec = importlib.util.spec_from_file_location("instalar_desktop", REPO / "scripts" / "instalar_desktop.py")
 _inst = importlib.util.module_from_spec(_spec)
@@ -119,7 +121,8 @@ def browser(tmp_path, backend_name):
         apps = Applications({str(tmp_path / 'vagas.db')!r})
         autofill = Autofill(Vault({str(tmp_path / 'cofre.json')!r}, Backend()),
                             Approvals({str(tmp_path / 'aprovacoes.json')!r}), log_path={str(tmp_path / 'autofill.log')!r},
-                            open_sites=apps.sites, extra_domains=lambda: [], resumes=apps.with_resumes)
+                            open_sites=apps.sites, extra_domains=lambda: [], resumes=apps.with_resumes,
+                            status_path={str(tmp_path / 'autofill_status.json')!r})
         serve(sys.stdin.buffer, sys.stdout.buffer, autofill)
     """), encoding="utf-8")
     if os.name == "nt":
@@ -234,6 +237,9 @@ def test_fills_visible_document_fields_after_confirmation_and_remembers_the_comp
     assert "52998224725" not in log and "529.982" not in log
     assert [(e["host"], e["mode"]) for e in entries] == [("acme.gupy.io", "always"), ("acme.gupy.io", "aprovada")]
     assert entries[0]["resume"]["name"] == pdf.name
+    status = json.loads((tmp_path / "autofill_status.json").read_text(encoding="utf-8"))
+    assert status["version"] == EXTENSION_VERSION and status["recent"][0]["host"] == "acme.gupy.io"
+    assert "529" not in (tmp_path / "autofill_status.json").read_text(encoding="utf-8")
 
 
 def test_with_several_applications_the_window_asks_which_resume(browser):

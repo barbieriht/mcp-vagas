@@ -13,7 +13,8 @@ import sys
 from typing import Any, BinaryIO
 
 from vagas import config
-from vagas.autofill import Applications, Approvals, Autofill, default_approvals_path, default_log_path
+from vagas.autofill import (Applications, Approvals, Autofill, default_approvals_path, default_log_path,
+                            default_status_path)
 from vagas.db import default_db_path
 from vagas.profile_fields import ProfileFiles, default_skill_dir
 from vagas.repo import VagasError
@@ -85,7 +86,7 @@ def build_autofill() -> Autofill:
                     log_path=default_log_path(db_path), open_sites=applications.sites, extra_domains=extra_domains,
                     resumes=applications.with_resumes, platforms=platforms,
                     talent_pool=talent_pool, consent_mode=lambda: config.resolve("consent_mode", db_path)[0],
-                    data_consent=data_consent)
+                    data_consent=data_consent, status_path=default_status_path(db_path))
 
 
 def main() -> None:
