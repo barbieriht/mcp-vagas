@@ -37,7 +37,8 @@ function ask(cacheKey, details) {
 
 async function fill(message, sender) {
   const tabId = sender.tab.id;
-  const request = { url: sender.url, fields: message.fields, confirm: null };
+  // A versão vai junto para o MCP saber se a extensão em uso é a instalada (extension_status).
+  const request = { url: sender.url, fields: message.fields, confirm: null, version: chrome.runtime.getManifest().version };
   let response = await chrome.runtime.sendNativeMessage(HOST, request);
   if (response.status === "confirm") {
     const cacheKey = `${tabId}|${response.origin.key}`;

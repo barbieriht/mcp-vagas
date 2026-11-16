@@ -28,7 +28,7 @@ import re
 import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -296,7 +296,8 @@ class Autofill:
                  platforms: Callable[[], list[str]] = lambda: [],
                  talent_pool: Callable[[], bool | None] = lambda: None,
                  consent_mode: Callable[[], str] = lambda: "extensao",
-                 data_consent: Callable[[], bool | None] = lambda: None):
+                 data_consent: Callable[[], bool | None] = lambda: None,
+                 status_path: Path | str | None = None):
         self.vault = vault
         self.resumes = resumes
         self.max_file_bytes = max_file_bytes
@@ -308,8 +309,16 @@ class Autofill:
         self.talent_pool = talent_pool
         self.consent_mode = consent_mode  # "usuario": a extensão não marca caixa nenhuma
         self.data_consent = data_consent  # "não autorizo" no perfil: os termos nunca são marcados
+        self.status = ExtensionStatus(status_path) if status_path is not None else None
 
     def handle(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Atende o pedido (ver _handle) e registra a atividade da extensão, sem valores (ExtensionStatus)."""
+        response = self._handle(request)
+        if self.status is not None:
+            self.status.record(request, response)
+        return response
+
+    def _handle(self, request: dict[str, Any]) -> dict[str, Any]:
         """{url, fields: [{id, kind?, text, attrs?, placeholder?, maxlength?, accept?}], confirm: None | "once" |
         "always", resume_application_id?}.
 
@@ -437,7 +446,7 @@ class Applications:
     def __init__(self, db_path: Path | str):
         self.db_path = Path(db_path)
 
-    def _rows(self, sql: str) -> list[sqlite3.Row]:
+    def _rows(self, sql: str, params: tuple[Any, ...] = OPEN_STATUSES) -> list[sqlite3.Row]:
         """{form_url} no SQL vira a coluna, ou NULL num banco que o servidor ainda não migrou (v16)."""
         if not self.db_path.exists():
             return []
@@ -446,7 +455,7 @@ class Applications:
         try:
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(applications)")}
             form_url = "a.form_url" if "form_url" in columns else "NULL"
-            return conn.execute(sql.format(form_url=form_url), OPEN_STATUSES).fetchall()
+            return conn.execute(sql.format(form_url=form_url), params).fetchall()
         finally:
             conn.close()
 
@@ -472,6 +481,157 @@ class Applications:
             WHERE a.status IN ({_marks()})
             ORDER BY a.updated_at DESC, a.id DESC""")
         return [dict(row) for row in rows]
+
+
+    def recent(self, since: str) -> list[dict[str, Any]]:
+        """Candidaturas mexidas desde `since` (ISO), de qualquer status, com o endereço da vaga e do formulário."""
+        rows = self._rows("SELECT a.id, a.company, a.role, a.url, {form_url} AS form_url, a.status FROM applications a "
+                          "WHERE a.updated_at >= ? ORDER BY a.updated_at DESC", (since,))
+        return [dict(row) for row in rows]
+
+
+# --- situação da extensão --------------------------------------------------------------------------
+
+EXTENSION_VERSION = "1.3.0"  # a de extension/manifest.json; a extensão manda a dela em cada pedido
+_RECENT = 20
+
+
+def default_status_path(db_path: Path | str | None = None) -> Path:
+    return Path(db_path or default_db_path()).parent / "autofill_status.json"
+
+
+def _version_tuple(version: str | None) -> tuple[int, ...]:
+    return tuple(int(p) for p in re.findall(r"\d+", version or ""))
+
+
+class ExtensionStatus:
+    """Última atividade da extensão (autofill_status.json, ao lado do banco): quando falou com o host, a versão e as
+    últimas consultas (site, resultado, quantos campos de cada tipo), nunca os valores. Cada pedido é um processo do
+    host, então a gravação é atômica e a última vence; falha ao gravar nunca atrapalha o preenchimento."""
+
+    def __init__(self, path: Path | str):
+        self.path = Path(path)
+
+    def read(self) -> dict[str, Any] | None:
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return data if isinstance(data, dict) else None
+
+    def write(self, data: dict[str, Any]) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        temp = self.path.with_name(f"{self.path.name}.{os.getpid()}.tmp")
+        temp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        os.replace(temp, self.path)
+
+    def record(self, request: dict[str, Any], response: dict[str, Any]) -> None:
+        fields: dict[str, int] = {}
+        for field in request.get("fields") or []:
+            kind = {"checkbox": "termos", "file": "curriculo"}.get(field.get("kind"), "documentos")
+            fields[kind] = fields.get(kind, 0) + 1
+        entry: dict[str, Any] = {"at": _now(), "host": (urlsplit(request.get("url") or "").hostname or "").lower(),
+                                 "status": response.get("status"), "fields": fields}
+        if fields.get("curriculo"):
+            sent = any(isinstance(v, dict) for v in (response.get("values") or {}).values())
+            entry["resume"] = "anexado" if sent else "a_confirmar" if response.get("resumes") else "nao_encontrado"
+        try:
+            data = self.read() or {}
+            recent = [e for e in data.get("recent") or [] if isinstance(e, dict)]
+            same = ("host", "status", "fields", "resume")
+            if recent and all(recent[0].get(k) == entry.get(k) for k in same):
+                entry["count"] = int(recent[0].get("count") or 1) + 1
+                recent = recent[1:]
+            self.write({"last_seen": entry["at"], "version": request.get("version") or data.get("version"),
+                        "recent": [entry, *recent][:_RECENT]})
+        except OSError:
+            pass
+
+
+def _when(text: str | None) -> datetime | None:
+    try:
+        moment = datetime.fromisoformat(text or "")
+    except ValueError:
+        return None
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+
+
+def _log_entries(path: Path) -> list[dict[str, Any]]:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    entries = []
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(entry, dict) and _when(entry.get("at")):
+            entries.append(entry)
+    return entries
+
+
+def extension_report(status_path: Path | str, log_path: Path | str, db_path: Path | str,
+                     now: datetime | None = None, days: int = 30) -> dict[str, Any]:
+    """Situação da extensão para o Claude: known false sem rastro dela neste computador; senão last_seen,
+    idle_hours, version, outdated, warnings, recent (últimas consultas) e applications (o que ela preencheu em
+    cada candidatura mexida nos últimos `days` dias: currículo, documentos, termos)."""
+    now = now or datetime.now(timezone.utc)
+    status = ExtensionStatus(status_path).read()
+    entries = _log_entries(Path(log_path))
+    if not status and not entries:
+        return {"known": False, "reason": "O MCP não vê nenhum rastro da extensão do Chrome neste computador: ela nunca "
+                                          "falou com o host do mcp-vagas, ou o host usa outra pasta de dados."}
+    seen = [m for m in (_when((status or {}).get("last_seen")), *(_when(e["at"]) for e in entries[-1:])) if m]
+    last = max(seen)
+    version = (status or {}).get("version")
+    outdated = _version_tuple(version) < _version_tuple(EXTENSION_VERSION)
+    idle = int((now - last).total_seconds() // 3600)
+    recent = [e for e in (status or {}).get("recent") or [] if isinstance(e, dict)][:10]
+    warnings = []
+    if outdated:
+        warnings.append(f"A extensão em uso é anterior à {EXTENSION_VERSION}: recarregue-a em chrome://extensions "
+                        "(o instalador já copiou a versão nova).")
+    if idle >= 72:
+        warnings.append(f"Sem atividade da extensão há {idle // 24} dias: ela pode estar desligada ou fora deste "
+                        "perfil do Chrome.")
+    missing = sorted({e["host"] for e in recent if e.get("resume") == "nao_encontrado" and e.get("host")})
+    if missing:
+        warnings.append(f"Em {', '.join(missing)} a extensão viu o campo de currículo e não achou o PDF: gere o currículo "
+                        "com o application_id e o form_url da aba.")
+    return {"known": True, "last_seen": last.isoformat(), "idle_hours": idle, "version": version,
+            "expected_version": EXTENSION_VERSION, "outdated": outdated, "warnings": warnings, "recent": recent,
+            "applications": _filled_by_application(entries, db_path, now - timedelta(days=days))}
+
+
+def _filled_by_application(entries: list[dict[str, Any]], db_path: Path | str,
+                           since: datetime) -> list[dict[str, Any]]:
+    apps = Applications(db_path)
+    sites = apps.sites()
+    rows = apps.recent(since.isoformat())
+    keys = {row["id"]: {k for url in (row["url"], row["form_url"]) if url and (k := _origin_key(url, sites, []))}
+            for row in rows}
+    found: dict[int, dict[str, Any]] = {}
+    for entry in entries:
+        if _when(entry["at"]) < since:
+            continue
+        chosen = (entry.get("resume") or {}).get("application_id")
+        for row in rows:
+            if row["id"] != chosen and entry.get("key") not in keys[row["id"]]:
+                continue
+            item = found.setdefault(row["id"], {"id": row["id"], "company": row["company"], "role": row["role"],
+                                                "url": row["url"], "status": row["status"], "resume": None,
+                                                "documents": set(), "terms": set(), "last_at": entry["at"]})
+            item["documents"].update(entry.get("documents") or [])
+            item["terms"].update(entry.get("terms") or [])
+            if row["id"] == chosen:
+                item["resume"] = entry["resume"].get("name")
+            item["last_at"] = max(item["last_at"], entry["at"])
+    result = []
+    for item in sorted(found.values(), key=lambda i: i["last_at"], reverse=True)[:20]:
+        result.append({**item, "documents": sorted(item["documents"]), "terms": len(item["terms"])})
+    return result
 
 
 def _marks() -> str:

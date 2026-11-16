@@ -8,6 +8,8 @@ A candidatura termina num destes dois estados:
 
 Sugira uma vez, sem insistir, que o usuário reduza os pedidos de permissão do navegador (só ele pode mudar isso; você não tem acesso à extensão): no menu do campo de conversa do Claude in Chrome (Desktop ou painel da extensão), escolher **Automatically approve** (modo Auto) e, no primeiro aviso de cada site de vagas, **Always allow actions on this site**. Não recomende **Skip all approvals**: descrições de vagas e páginas de empresas são conteúdo de terceiros. Downloads, dados sensíveis e autorizações continuam pedindo confirmação, e isso é desejado.
 
+Chame `extension_status` antes de abrir o primeiro formulário (e no começo de cada lote). Com `known` false ou com `warnings` (extensão desatualizada, parada há dias, currículo não encontrado num site), avise o usuário uma vez, com o que ele pode fazer, e siga sem esperar: o que a extensão não preencher vira `pending`. Quando um campo da extensão continuar vazio, consulte de novo: `recent` mostra se ela viu a página e o que respondeu.
+
 Chame `get_profile` uma vez antes de abrir o primeiro formulário. Se ele trouxer `migration`, as respostas de diversidade estão no formato antigo e não valem nos formulários: mostre ao usuário, uma vez só, cada campo proposto com o valor e o texto de origem (`from`), e os que ficam a preencher, e pergunte se confirma. Chame `apply_profile_migration` com a resposta dele (`accept` true ou false) e siga para as vagas. Não grave sem a confirmação dele nem pergunte de novo depois.
 
 ## Passos
