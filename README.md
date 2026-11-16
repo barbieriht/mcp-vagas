@@ -106,6 +106,8 @@ Para atualizar depois (emprego novo, curso novo), peça *"atualize meu currícul
    - Linux e macOS: a pasta `extension/` do repositório
 3. No Windows, use o **Claude Desktop** para as candidaturas (no WSL, o Claude Code não conecta ao navegador). No Linux e no macOS, use o Claude Code com `claude --chrome`. Para o Claude Desktop no macOS, o registro do MCP é manual: veja [Instalação manual nos clientes](docs/referencia.md#instalação-manual-nos-clientes).
 
+4. Para o Claude não pedir permissão a cada passo, no Claude Desktop abra **Configurações → Conectores**, escolha o **vagas** e marque **Sempre permitir** nas tools que preferir (as de só leitura vêm agrupadas; as de escrita, como `update_application`, também podem ficar pré-aprovadas, pois o histórico de cada vaga fica no banco). Faça o mesmo com o **Claude in Chrome** para abrir abas e ler páginas sem perguntar. Na janela de permissão, **Sempre permitir** tem o mesmo efeito para aquela tool. No Claude Code, a regra `"mcp__vagas"` em `permissions.allow` do `~/.claude/settings.json` libera todas as tools do vagas.
+
 Na primeira vez de cada empresa, a extensão mostra o que vai preencher e pede a sua confirmação.
 
 ## 5. Usar no dia a dia
