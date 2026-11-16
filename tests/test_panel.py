@@ -702,6 +702,10 @@ def test_jobs_tab_lists_filters_and_opens_the_detail(db_path):
         app = repo.add_application(company=company, role=role, source="gupy", status=status,
                                    url=f"https://example.com/vagas/{n}", description="<b>Python</b> e SQL")["application"]
         repo.set_match(app["id"], 50 + n * 10, {"matched": ["Python"], "missing": ["Spark"]})
+    waiting = repo.add_application(company="Delta", role="AI Engineer", source="gupy", status="a_aplicar",
+                                   url="https://example.com/vagas/9")["application"]
+    repo.update_application(waiting["id"], status="pendente_usuario",
+                            pending_items=[{"kind": "anexo_curriculo", "field": "Resume_Delta.pdf"}])
     conn.close()
     server = panel.make_server(db_path, token="t0k3n")
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -712,7 +716,13 @@ def test_jobs_tab_lists_filters_and_opens_the_detail(db_path):
             page.goto(server.url)
             page.get_by_role("link", name="Vagas").click()
             page.get_by_role("button", name="A aplicar: 2").wait_for()
-            assert page.locator(".tabela-vagas tbody tr").count() == 3
+            assert page.locator(".tabela-vagas tbody tr").count() == 4
+            assert "Extensão do Chrome:" in page.locator(".panorama").inner_text()  # nenhum rastro dela no teste
+            page.get_by_role("button", name="1 vaga aguarda: anexar currículo").click()
+            expect(page.locator(".tabela-vagas tbody tr")).to_have_count(1)
+            assert "anexo curriculo: Resume_Delta.pdf" in page.locator(".tabela-vagas tbody tr").inner_text()
+            page.get_by_role("button", name="Pendente com você: 1").click()  # volta a todas
+            expect(page.locator(".tabela-vagas tbody tr")).to_have_count(4)
 
             page.get_by_role("button", name="A aplicar: 2").click()
             expect(page.locator(".tabela-vagas tbody tr")).to_have_count(2)  # a CSP bloqueia wait_for_function

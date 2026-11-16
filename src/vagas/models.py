@@ -36,6 +36,9 @@ ROLE_NAMES: dict[str, tuple[str, str]] = {
 SENIORITY_LABELS: dict[str, str] = {"estagio": "estágio", "junior": "júnior", "pleno": "pleno", "senior": "sênior",
                                     "especialista": "especialista", "staff": "staff"}
 
+# Pendências estruturadas de uma candidatura (pending_items)
+PendingKind = Literal["diversidade", "consentimento", "anexo_curriculo", "documento_cofre", "resposta_aberta", "login"]
+
 # Fontes do currículo geral
 ResumeSourceKind = Literal["linkedin", "pdf"]
 LinkedInSection = Literal[
@@ -54,3 +57,4 @@ SALARY_MODES: tuple[str, ...] = get_args(SalaryMode)
 SALARY_RULES: tuple[str, ...] = get_args(SalaryRule)
 RESUME_SOURCE_KINDS: tuple[str, ...] = get_args(ResumeSourceKind)
 LINKEDIN_SECTIONS: tuple[str, ...] = get_args(LinkedInSection)
+PENDING_KINDS: tuple[str, ...] = get_args(PendingKind)

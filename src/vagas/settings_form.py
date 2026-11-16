@@ -82,6 +82,24 @@ def _reevaluate_salaries(db_path: Path | str | None) -> dict[str, Any]:
         conn.close()
 
 
+def _resolve_pending(db_path: Path | str | None) -> list[int]:
+    """Perfil gravado: os itens de pendência que ele passou a responder saem das vagas pendentes."""
+    from vagas.db import connect, default_db_path
+    from vagas.profile_fields import ProfileFiles, default_skill_dir
+    from vagas.repo import Repo
+
+    db = Path(db_path) if db_path is not None else default_db_path()
+    try:
+        profile = ProfileFiles(default_skill_dir(db)).get_profile(vault_fields=[])
+    except VagasError:
+        return []
+    conn = connect(db)
+    try:
+        return Repo(conn).resolve_pending(profile)
+    finally:
+        conn.close()
+
+
 def _recheck_criteria(db_path: Path | str | None) -> dict[str, Any] | None:
     """Critérios gravados: as vagas abertas que eles reprovam saem da lista na hora (a mesma conferência da triagem)."""
     from vagas.db import connect, default_db_path
@@ -175,5 +193,7 @@ def save(data: Any, db_path: Path | str | None = None) -> dict[str, Any]:
         result["reevaluated"] = _reevaluate_salaries(db_path)  # pretensões das vagas abertas com a regra nova
     if any(key in ("criteria", "profile") for key, _ in pending_files):  # "Possui deficiência" também decide PcD
         result["rechecked"] = _recheck_criteria(db_path)
+    if any(key == "profile" for key, _ in pending_files):
+        result["resolved_pending"] = _resolve_pending(db_path)
     result["settings"] = load(db_path)
     return result

@@ -174,7 +174,7 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             if parts.path == "/api/jobs":
                 filters = {k: v[-1] for k, v in parse_qs(parts.query).items()}
-                return self._json(200, jobs_view.list_jobs(conn, filters))
+                return self._json(200, jobs_view.list_jobs(conn, filters, db_path=self.server.db_path))
             tail = parts.path.removeprefix("/api/jobs/")
             if not tail.isdigit():
                 return self._json(404, {"error": "Vaga não encontrada."})

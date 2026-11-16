@@ -227,6 +227,10 @@ MIGRATIONS = [
     """
     ALTER TABLE applications ADD COLUMN form_url TEXT;
     """,
+    # v17: pendências estruturadas ({kind, field, options?} em JSON), ao lado do texto livre de pending
+    """
+    ALTER TABLE applications ADD COLUMN pending_items TEXT;
+    """,
 ]
 LATEST_VERSION = len(MIGRATIONS)
 

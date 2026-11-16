@@ -62,6 +62,29 @@ function filterBar(data) {
     el("label", { class: "filtro opcao" }, pending, el("span", { text: "Só com pendência" }))));
 }
 
+// Avisos da extensão do Chrome e pendências que se repetem entre as vagas ("3 vagas aguardam: anexar currículo").
+function overview(data) {
+  const parts = [];
+  const ext = data.extension;
+  if (ext && !ext.known) parts.push(el("p", { class: "nota aviso", text: `Extensão do Chrome: ${ext.reason}` }));
+  for (const warning of (ext && ext.warnings) || []) parts.push(el("p", { class: "nota aviso", text: `Extensão do Chrome: ${warning}` }));
+  const groups = data.pending_groups || [];
+  if (groups.length) {
+    const items = groups.map((g) => el("li", {}, el("button", {
+      type: "button", class: "remover", text: `${g.count} ${g.count === 1 ? "vaga aguarda" : "vagas aguardam"}: ${g.label}`,
+      onclick: () => setFilter("status", "pendente_usuario"),
+    })));
+    parts.push(el("section", { class: "pendencias", "aria-label": "Pendências entre as vagas" },
+      el("h3", { text: "Pendências entre as vagas" }), el("ul", {}, ...items)));
+  }
+  return el("div", { class: "panorama" }, ...parts);
+}
+
+function pendingText(item) {
+  const items = (item.pending_items || []).map((i) => i.field ? `${i.kind.replace("_", " ")}: ${i.field}` : i.kind);
+  return [item.pending, ...items].filter(Boolean).join("; ");
+}
+
 function counts(data) {
   const chips = data.statuses.filter((s) => data.counts[s.value]).map((s) => el("button", {
     type: "button", class: `chip${jobs.filters.status === s.value ? " ativo" : ""}`, "aria-pressed": String(jobs.filters.status === s.value),
@@ -93,7 +116,7 @@ function list(data) {
     el("td", { "data-rotulo": "Local", text: [item.location, item.work_mode].filter(Boolean).join(" · ") || "—" }),
     el("td", { "data-rotulo": "Aderência", text: item.match_score == null ? "—" : `${item.match_score}%` }),
     el("td", { "data-rotulo": "Pretensão", text: money(item.salary_ask) }),
-    el("td", { "data-rotulo": "Pendência", text: item.pending || item.discard_reason || "—" }),
+    el("td", { "data-rotulo": "Pendência", text: pendingText(item) || item.discard_reason || "—" }),
     el("td", {}, el("button", { type: "button", class: "remover", text: "Detalhes", "aria-label": `Detalhes de ${item.role} — ${item.company}`, onclick: () => openDetail(item.id) }))));
   return el("table", { class: "tabela-vagas" }, el("thead", {}, head), el("tbody", {}, ...rows));
 }
@@ -135,7 +158,7 @@ async function loadJobs() {
   try {
     const data = await jobsApi(`/api/jobs?${query}`);
     jobs.statuses = data.statuses;
-    box.replaceChildren(filterBar(data), counts(data), el("p", { id: "vagas-status", role: "status", "aria-live": "polite" }),
+    box.replaceChildren(overview(data), filterBar(data), counts(data), el("p", { id: "vagas-status", role: "status", "aria-live": "polite" }),
       bulkBar(), list(data), pager(data), el("div", { id: "detalhe-vaga" }));
     refreshBulk();
     jobs.loaded = true;
