@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from vagas import affirmative, diversity, md_fields
+from vagas import affirmative, consents, diversity, md_fields
 from vagas.models import ROLE_KEYS, ROLE_NAMES, SENIORITIES, SENIORITY_LABELS
 from vagas.normalize import normalize_text
 from vagas.experience import DECLARED_LABEL
@@ -61,7 +61,12 @@ DISABILITY_NOTE = 'Também decide a triagem: só com "Sim" as vagas exclusivas p
 
 
 def _question(item: md_fields.Item) -> diversity.Question | None:
-    return diversity.question(item.label) if item.parent is None else None
+    """Pergunta de lista fechada ou com "Outra": as de diversidade e o "autorizo / não autorizo" dos consentimentos."""
+    if item.parent is not None:
+        return None
+    if _norm(item.label) == _norm(consents.DATA):
+        return consents.DATA_QUESTION
+    return diversity.question(item.label)
 
 
 def _old_block(items: list[md_fields.Item]) -> tuple[md_fields.Item, dict[str, dict[str, str | None]]] | None:
@@ -250,7 +255,7 @@ def load_profile(db_path: Path | str | None) -> dict[str, Any]:
 
 
 def _choices(q: diversity.Question) -> dict[str, Any]:
-    options = [*q.options, diversity.NOT_SAY]
+    options = [*q.options, diversity.NOT_SAY] if q.not_say else list(q.options)
     if q.closed:
         return {"choices": [{"value": "", "label": "Escolha…"}, *({"value": o, "label": o} for o in options)]}
     return {"choices": options}
@@ -380,8 +385,10 @@ def plan_profile(values: Any, db_path: Path | str | None) -> tuple[Pending | Non
                 q = _question(new_item)
                 if (chosen := _choice_value(q, raw)) is None:
                     errors[name] = _choice_error(q)
-                else:
+                elif diversity.question(new_item.label) is not None:
                     diversity_answers[new_item.label] = (new_item.section, chosen)
+                elif chosen:  # vazio: o campo continua fora do arquivo
+                    inserts.append((new_item.section, f"- {new_item.label}: {chosen}"))
             elif new_kind == "yesno" and raw.strip() and not _yes_no(raw):
                 errors[name] = "Responda sim ou não."
             elif new_kind == "years" and _years_value(raw) is None:
@@ -444,7 +451,7 @@ def plan_profile(values: Any, db_path: Path | str | None) -> tuple[Pending | Non
         return None, {}
     new_text = md_fields.apply(text, updates)
     for section, line in inserts:
-        new_text = md_fields.insert_item(new_text, section, line)
+        new_text = md_fields.insert_item(new_text, section, line, before=OTHER_SECTION)
     if diversity_answers:
         new_text = _write_diversity(new_text, diversity_answers, old, missing)
     return Pending(path, new_text), {}
@@ -452,7 +459,8 @@ def plan_profile(values: Any, db_path: Path | str | None) -> tuple[Pending | Non
 
 def _choice_error(q: diversity.Question) -> str:
     if q.closed:
-        return f"Escolha uma das opções: {', '.join((*q.options, diversity.NOT_SAY))}."
+        options = [c["value"] for c in _choices(q)["choices"] if c["value"]]
+        return f"Escolha uma das opções: {', '.join(options)}."
     return "Escolha uma opção ou escreva a resposta numa linha só."
 
 
@@ -463,7 +471,7 @@ def _write_diversity(text: str, answers: dict[str, tuple[str | None, str]], old:
     rows = dict(answers)
     if old is not None:
         for item, kind in missing.values():
-            if kind in ("choice", "choice_other") and item.label not in rows:
+            if diversity.question(item.label) is not None and item.label not in rows:
                 proposed = old[1].get(item.label) or {}
                 rows[item.label] = (item.section, proposed.get("value") or "")
         text = md_fields.remove_item(text, old[0].id)

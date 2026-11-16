@@ -185,8 +185,9 @@ async def test_server_instructions_leave_identity_documents_to_the_browser_exten
     async with Client(build_server(db_path)) as client:
         instructions = client.instructions
 
-    assert "extensão do Chrome" in instructions and "CPF" in instructions and "termos de uso" in instructions
+    assert "extensão do Chrome" in instructions and "CPF" in instructions
     assert "anexo do currículo" in instructions and "windows_path" in instructions
+    assert "caixas de consentimento" in instructions and "resolve_form_answer" in instructions
 
 
 async def test_server_instructions_generate_the_resume_only_when_the_form_asks_for_one(db_path):

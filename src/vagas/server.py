@@ -34,6 +34,7 @@ from vagas.job_board import JobBoard
 from vagas.job_search import JobSearchStore
 from vagas.linkedin_import import LinkedInImporter
 from vagas.salary import SalaryPoint, SalaryStore
+from vagas.consents import resolve_checkbox
 from vagas.form_answers import resolve
 from vagas.profile_fields import ProfileFiles, default_skill_dir, disability_answer
 from vagas.search_run import SearchRunStore
@@ -95,10 +96,11 @@ def build_server(
         "só depois de abrir o formulário e ver nele um campo para enviar o currículo; vaga que usa o perfil do site "
         "(como algumas da Gupy) e não pede arquivo fica sem currículo personalizado. Se a geração falhar por pasta "
         "não configurada, chame get_config. Documentos "
-        "de identidade (CPF, RG e os demais com status cofre no get_profile), as caixas de termos de uso e política "
-        "de privacidade e o anexo do currículo quem preenche é a extensão do Chrome do usuário, que lê o PDF de onde "
-        "create_tailored_resume o salvou: deixe-os vazios, não os digite, marque nem anexe; se continuarem vazios "
-        "na revisão, liste-os no pending (o currículo com o windows_path)."))
+        "de identidade (CPF, RG e os demais com status cofre no get_profile) e o anexo do currículo quem preenche é a "
+        "extensão do Chrome do usuário, que lê o PDF de onde create_tailored_resume o salvou: deixe-os vazios, não os "
+        "digite nem anexe; se continuarem vazios na revisão, liste-os no pending (o currículo com o windows_path). "
+        "Perguntas do formulário e caixas de consentimento (termos, privacidade, banco de talentos, marketing) "
+        "responda com resolve_form_answer (checkbox true nas caixas), nunca por conta própria."))
 
     @contextmanager
     def store(factory: Callable[[sqlite3.Connection], Any]) -> Iterator[Any]:
@@ -547,7 +549,7 @@ def build_server(
 
     @server.tool()
     def resolve_form_answer(question: str, options: list[str] | None = None,
-                            application_id: int | None = None) -> dict[str, Any]:
+                            application_id: int | None = None, checkbox: bool = False) -> dict[str, Any]:
         """Resposta do perfil para uma pergunta de formulário: chame para cada pergunta que o perfil pode
         responder (diversidade, sim/não, listas, idiomas, anos de experiência, pretensão salarial) antes de
         perguntar qualquer coisa ao usuário. Não responda essas perguntas por conta própria.
@@ -558,13 +560,24 @@ def build_server(
         Com missing_field, o perfil não tem a resposta: o campo já foi criado (created true) ou estava a
         preencher; pergunte ao usuário uma vez e grave com add_profile_field (label = missing_field, value);
         as próximas vagas já saem preenchidas. Escalas de idioma: o nível mais próximo sem arredondar para cima.
-        Nunca deduz diversidade por nome, foto ou contexto."""
+        Nunca deduz diversidade por nome, foto ou contexto.
+
+        checkbox true: caixa de marcar avulsa (termos de uso, privacidade, LGPD, banco de talentos, marketing),
+        com o texto dela em question. answer "marcar" ou "desmarcar"; com handled_by ("extensao" ou "usuario"),
+        deixe desmarcada e, se continuar assim no fim, registre o pending que vem no retorno (consent_mode)."""
         profile = load_profile()
+        if checkbox:
+            result = resolve_checkbox(profile, question, str(paths_config.resolve("consent_mode", db_path)[0]))
+            return _with_missing_field(result)
         salary = None
         if application_id is not None:
             with repo() as r:
                 salary = r.get(application_id).get("salary_ask")
-        result = resolve(profile, question, options, years=profile["experience"]["years_to_inform"], salary=salary)
+        return _with_missing_field(
+            resolve(profile, question, options, years=profile["experience"]["years_to_inform"], salary=salary))
+
+    def _with_missing_field(result: dict[str, Any]) -> dict[str, Any]:
+        """Campo que o perfil não tem: cria com <PREENCHER> (created); a preencher: created false."""
         if result.get("missing_field") and result.pop("existing") is False:
             try:
                 added = ProfileFiles(default_skill_dir(db_path)).add_profile_field(
