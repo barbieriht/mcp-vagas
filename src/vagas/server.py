@@ -15,6 +15,7 @@ from typing import Annotated, Any
 from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel, ConfigDict, Field
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.types import ToolAnnotations
 
 from vagas import config as paths_config
 from vagas import panel, system
@@ -73,6 +74,27 @@ def _without_titles(node: Any, in_properties: bool = False) -> Any:
 
 
 _MIGRATION_DECLINED = "profile_migration_declined"
+
+# Anotações das tools: o Claude Desktop e o claude.ai agrupam as tools por elas ("só leitura" e "escrita") e o
+# usuário aprova cada grupo de uma vez. Sem anotação, toda tool conta como escrita destrutiva.
+READ_ONLY_TOOLS = frozenset({
+    "settings_link", "get_config", "find_application", "list_applications", "get_history", "extract_resume_text",
+    "get_profile", "extension_status", "diff_master", "get_master_resume", "suggest_tailored_selection",
+    "read_job_posting", "score_job_match", "list_resumes", "get_resume", "find_salary_estimate", "find_job_search",
+    "work_list", "get_search_run", "suggest_job_searches",
+})
+# Escritas que sobrescrevem ou tiram algo (as demais só acrescentam: registro, versão, arquivo novo).
+DESTRUCTIVE_TOOLS = frozenset({"update_application", "discard_salary_estimate", "apply_profile_migration",
+                               "save_master_draft"})
+# Acessam sites (vagas, buscas, LinkedIn); as demais só tocam o banco e os arquivos locais.
+OPEN_WORLD_TOOLS = frozenset({"read_job_posting", "triage_job", "search_jobs", "start_search_run",
+                              "import_linkedin_profile"})
+
+
+def tool_annotations(name: str) -> ToolAnnotations:
+    read_only = name in READ_ONLY_TOOLS
+    return ToolAnnotations(read_only_hint=read_only, destructive_hint=None if read_only else name in DESTRUCTIVE_TOOLS,
+                           open_world_hint=name in OPEN_WORLD_TOOLS)
 
 
 def build_server(
@@ -1172,6 +1194,7 @@ def build_server(
     for tool in server._tool_manager.list_tools():
         tool.parameters = optional_not_nullable(_without_titles(tool.parameters))
         tool.description = inspect.cleandoc(tool.description)
+        tool.annotations = tool_annotations(tool.name)
         if tool.fn_metadata.output_schema is not None and not tool.fn_metadata.wrap_output:
             tool.fn = compact_result(tool.fn)
     return server
