@@ -34,7 +34,7 @@ from vagas.job_board import JobBoard
 from vagas.job_search import JobSearchStore
 from vagas.linkedin_import import LinkedInImporter
 from vagas.salary import SalaryPoint, SalaryStore
-from vagas.autofill import default_log_path, default_status_path, extension_report
+from vagas.autofill import default_log_path, default_status_path, effective_platforms, extension_report
 from vagas.consents import resolve_checkbox
 from vagas.pending import PendingItem
 from vagas.form_answers import resolve
@@ -614,7 +614,8 @@ def build_server(
         Com known false ou warnings, avise o usuário uma vez, no começo do lote, e siga: campos da extensão
         vazios viram pending, nunca motivo para parar."""
         db = Path(db_path) if db_path is not None else default_db_path()
-        return extension_report(default_status_path(db), default_log_path(db), db)
+        platforms = effective_platforms(paths_config.resolve("autofill_platforms", db_path)[0])
+        return extension_report(default_status_path(db), default_log_path(db), db, platforms=platforms)
 
     @server.tool()
     def apply_profile_migration(accept: bool) -> dict[str, Any]:

@@ -138,12 +138,23 @@ def test_trusted_platform_is_approved_once_for_all_its_companies(vault, tmp_path
     assert [a["key"] for a in Approvals(tmp_path / "aprovacoes.json").list()] == ["gupy.io"]
 
 
-def test_trusted_platform_still_asks_for_a_scope_it_was_not_approved_for(vault, tmp_path):
+def test_a_platform_approval_covers_every_field_kind_in_every_company(vault, tmp_path):
+    # Na plataforma inteira, "Permitir sempre" vale para documentos, termos e currículo (antes, só o que estava na tela).
     autofill = Autofill(vault, Approvals(tmp_path / "aprovacoes.json"), log_path=tmp_path / "autofill.log",
                         open_sites=lambda: {}, extra_domains=lambda: [], platforms=lambda: ["gupy.io"])
     autofill.handle(request(confirm="always"))
 
     terms = autofill.handle(request(url="https://outra.gupy.io/candidates/jobs/2/apply", fields=[checkbox()]))
+
+    assert terms["status"] == "filled" and list(terms["values"].values()) == [True]
+
+
+def test_a_company_approval_still_asks_for_a_field_kind_it_did_not_cover(vault, tmp_path):
+    autofill = Autofill(vault, Approvals(tmp_path / "aprovacoes.json"), log_path=tmp_path / "autofill.log",
+                        open_sites=lambda: {}, extra_domains=lambda: [], platforms=lambda: [])
+    autofill.handle(request(confirm="always"))
+
+    terms = autofill.handle(request(fields=[checkbox()]))
 
     assert terms["status"] == "confirm" and terms["terms"]
 

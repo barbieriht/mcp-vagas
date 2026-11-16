@@ -7,7 +7,10 @@
   window.__vagasCofre = true;
 
   const MAYBE_DOCUMENT = /cpf|\brg\b|identidade|registro geral|cnh|habilita|motorista|\bpis\b|pasep|\bnis\b|\bnit\b|ctps|carteira de trabalho|eleitor|passaporte|passport|m[aã]e\b|mother|emissor|expedidor|licen[cs]e/i;
-  const MAYBE_CONSENT = /termo|condi[cç][oõ]es|privacidade|privacy|lgpd|terms|dados/i;
+  const MAYBE_CONSENT = /termo|condi[cç][oõ]es|privacidade|privacy|lgpd|terms|dados|personal data|consent|concord|agree|aceit/i;
+  // Rótulo que só diz "Concordo": o texto do aceite fica no bloco logo antes da caixa (ex.: Cornerstone).
+  const GENERIC_CONSENT = /^(li e )?(concordo|aceito|de acordo|autorizo|sim|i agree|agree|i accept|accept|yes|ok)\b[\s.!]*$/i;
+  const LINKEDIN = /(^|\.)linkedin\.com$/.test(location.hostname);
   const MAYBE_RESUME = /curr[ií]culo|curriculum|\bcv\b|resum[eé]/i;
   const TEXT_TYPES = new Set(["", "text", "tel", "number", "search"]);
   const seen = new WeakSet();
@@ -16,18 +19,61 @@
   const RETRY_MAX = 30000;
   const RETRY_FOR = 20 * 60 * 1000;
   let retryTimer = null;
+  let pageRetry = null; // { first, delay }: página recusada ou sem nada a preencher, consultada de novo
+  let lastProbe = 0;
+  const observedRoots = new WeakSet();
   const byId = new Map();
   let nextId = 0;
   let timer = null;
 
   const clean = (text) => (text || "").replace(/\s+/g, " ").trim();
 
+  // Raízes onde procurar campos: o documento e os shadow roots abertos (o modal do LinkedIn pode viver num deles).
+  function roots() {
+    const found = [document];
+    for (let i = 0; i < found.length; i++) {
+      for (const el of found[i].querySelectorAll("*")) {
+        if (el.shadowRoot && !found.includes(el.shadowRoot)) found.push(el.shadowRoot);
+      }
+    }
+    for (const root of found.slice(1)) {
+      if (!observedRoots.has(root)) {
+        observedRoots.add(root);
+        observer.observe(root, OBSERVE);
+      }
+    }
+    return found;
+  }
+
+  function queryAll(selector, list = roots()) {
+    return list.flatMap((root) => [...root.querySelectorAll(selector)]);
+  }
+
+  // Texto do primeiro bloco antes do campo (subindo até 4 níveis), sem passar por outro campo.
+  function precedingText(input) {
+    for (let node = input, depth = 0; node && depth < 4; node = node.parentElement, depth++) {
+      for (let prev = node.previousElementSibling; prev; prev = prev.previousElementSibling) {
+        if (prev.querySelector && prev.querySelector("input, select, textarea")) return "";
+        const text = clean(prev.textContent);
+        if (text) return text.slice(0, 600);
+      }
+    }
+    return "";
+  }
+
+  function consentText(box) {
+    const text = labelOf(box);
+    if (text && !GENERIC_CONSENT.test(text)) return text;
+    const before = precedingText(box);
+    return before ? clean(`${before} ${text}`) : text;
+  }
+
   function labelOf(input) {
     const parts = [];
     for (const label of input.labels || []) parts.push(clean(label.textContent));
     if (input.getAttribute("role") === "checkbox") parts.push(clean(input.textContent));
     for (const id of (input.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean)) {
-      parts.push(clean(document.getElementById(id)?.textContent));
+      parts.push(clean((input.getRootNode().getElementById?.(id) || document.getElementById(id))?.textContent));
     }
     parts.push(clean(input.getAttribute("aria-label")));
     let text = clean(parts.join(" "));
@@ -60,7 +106,8 @@
     if (box.getAttribute("role") === "checkbox") {
       return box.getAttribute("aria-checked") !== "true" && box.getAttribute("aria-disabled") !== "true" && visible(box);
     }
-    return !box.checked && !box.disabled && (visible(box) || [...(box.labels || [])].some(visible));
+    // Caixa nativa escondida sob um componente sem <label> (ex.: InHire): vale o contêiner visível.
+    return !box.checked && !box.disabled && (visible(box) || [...(box.labels || [])].some(visible) || shownNear(box));
   }
 
   // Campos de arquivo quase sempre ficam escondidos atrás de um botão: vale o rótulo ou o contêiner visível.
@@ -91,27 +138,31 @@
 
   async function scan() {
     const fields = [];
-    for (const input of document.querySelectorAll("input")) {
+    const sentOthers = []; // documentos e caixas enviados: voltam a ser consultados se a página for recusada
+    const all = roots();
+    for (const input of queryAll("input", all)) {
       if (seen.has(input) || !fillable(input)) continue;
       const text = labelOf(input);
       const attrs = attrsOf(input);
       if (!MAYBE_DOCUMENT.test(`${text} ${attrs}`)) continue;
       seen.add(input);
+      sentOthers.push(input);
       const id = String(nextId++);
       byId.set(id, input);
       fields.push({ id, text, attrs, placeholder: input.getAttribute("placeholder") || "", maxlength: input.maxLength > 0 ? input.maxLength : null });
     }
-    for (const box of document.querySelectorAll("input[type=checkbox], [role=checkbox]")) {
+    for (const box of queryAll("input[type=checkbox], [role=checkbox]", all)) {
       if (seen.has(box) || !checkable(box)) continue;
-      const text = labelOf(box);
+      const text = consentText(box);
       if (!MAYBE_CONSENT.test(text)) continue;
       seen.add(box);
+      sentOthers.push(box);
       const id = String(nextId++);
       byId.set(id, box);
       fields.push({ id, kind: "checkbox", text });
     }
     const files = [];
-    for (const input of document.querySelectorAll("input[type=file]")) {
+    for (const input of queryAll("input[type=file]", all)) {
       if (seen.has(input) || input.disabled || input.files?.length) continue;
       const text = labelOf(input);
       const attrs = attrsOf(input);
@@ -123,12 +174,28 @@
       files.push([id, input]);
       fields.push({ id, kind: "file", text, attrs, accept: input.getAttribute("accept") || "" });
     }
-    if (!fields.length) return;
+    if (!fields.length) {
+      if (LINKEDIN) probe(all);
+      return;
+    }
     let response;
     try {
       response = await chrome.runtime.sendMessage({ type: "fill", fields });
     } catch (error) {
-      return; // extensão recarregada ou service worker indisponível: nada a fazer nesta página
+      response = null; // service worker indisponível: tenta de novo mais tarde
+    }
+    // Recusada (o site ainda não é de uma candidatura aberta) ou sem nada a preencher: o site pode virar confiável
+    // (o currículo gerado grava o form_url) ou o perfil mudar; as caixas e os documentos voltam a ser consultados.
+    if (!response || ["refused", "nothing", "error"].includes(response.status)) {
+      for (const el of sentOthers) seen.delete(el);
+      const before = pageRetry || { first: Date.now(), delay: RETRY_FIRST / 2 };
+      if (sentOthers.length && Date.now() - before.first <= RETRY_FOR) {
+        pageRetry = { first: before.first, delay: Math.min(before.delay * 2, RETRY_MAX * 2) };
+        clearTimeout(retryTimer);
+        retryTimer = setTimeout(scan, pageRetry.delay);
+      }
+    } else {
+      pageRetry = null;
     }
     // O currículo personalizado só é gerado depois que o campo de upload aparece: sem PDF ainda, o campo
     // volta a ser consultado, com intervalo crescente, até receber o arquivo ou o preenchimento ser recusado.
@@ -154,7 +221,10 @@
       const el = byId.get(id);
       if (!el) continue;
       if (value && typeof value === "object") {
-        if (!el.files?.length) attachFile(el, value);
+        if (!el.files?.length) {
+          attachFile(el, value);
+          if (LINKEDIN) selectUploaded(value.name);
+        }
       } else if (value === true) {
         // Clique, não .checked: o framework da página só registra o aceite pelo evento.
         if (el.getAttribute("role") === "checkbox" ? el.getAttribute("aria-checked") !== "true" : !el.checked) el.click();
@@ -164,13 +234,55 @@
     }
   }
 
+  // LinkedIn Easy Apply: depois de subir o PDF, a lista de currículos pode manter o antigo selecionado. Marca o
+  // rádio do arquivo novo, pelo nome; nunca clica em botões (Next, Review, Submit, "Tailor resume with AI").
+  function selectUploaded(name) {
+    const started = Date.now();
+    const base = name.replace(/\.pdf$/i, "");
+    const tick = () => {
+      const all = roots();
+      const label = queryAll("[role=dialog] *, .artdeco-modal *", all).find((el) => !el.children.length
+        && (clean(el.textContent) === name || clean(el.textContent) === base));
+      let radio = null;
+      for (let node = label, depth = 0; node && !radio && depth < 6; node = node.parentElement, depth++) {
+        const radios = node.querySelectorAll("input[type=radio], [role=radio]");
+        if (radios.length === 1) radio = radios[0];
+        else if (radios.length > 1) break;
+      }
+      if (radio) {
+        const checked = radio.getAttribute("role") === "radio" ? radio.getAttribute("aria-checked") === "true" : radio.checked;
+        if (!checked) radio.click();
+        chrome.runtime.sendMessage({ type: "fill", fields: [], probe: { resume_selected: true } }).catch(() => {});
+      } else if (Date.now() - started < 12000) {
+        setTimeout(tick, 500);
+      } else {
+        chrome.runtime.sendMessage({ type: "fill", fields: [], probe: { resume_selected: false } }).catch(() => {});
+      }
+    };
+    setTimeout(tick, 500);
+  }
+
+  // Modal do Easy Apply aberto sem campo de arquivo à vista: conta o que a extensão vê (sem textos nem valores),
+  // para o extension_status mostrar por que o currículo não entrou. No máximo uma vez a cada 30 s.
+  function probe(all) {
+    if (Date.now() - lastProbe < 30000) return;
+    const dialog = queryAll("[role=dialog], .artdeco-modal", all).find((el) => MAYBE_RESUME.test(el.textContent || ""));
+    if (!dialog) return;
+    lastProbe = Date.now();
+    const files = queryAll("input[type=file]", all);
+    chrome.runtime.sendMessage({ type: "fill", fields: [], probe: {
+      dialog: true, file_inputs: files.length, file_inputs_shown: files.filter(shownNear).length,
+      shadow_roots: all.length - 1, frames: document.querySelectorAll("iframe").length, top: window === window.top,
+    } }).catch(() => {});
+  }
+
   function schedule() {
     clearTimeout(timer);
     timer = setTimeout(scan, 600);
   }
 
-  new MutationObserver(schedule).observe(document.documentElement, {
-    childList: true, subtree: true, attributes: true, attributeFilter: ["style", "class", "hidden"],
-  });
+  const OBSERVE = { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "class", "hidden"] };
+  const observer = new MutationObserver(schedule);
+  observer.observe(document.documentElement, OBSERVE);
   schedule();
 })();

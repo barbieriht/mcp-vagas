@@ -337,3 +337,144 @@ def test_documents_come_from_the_system_keyring_on_linux(browser):
     page.wait_for_function("document.getElementById('cpf').value !== ''", timeout=15000)
     assert page.input_value("#cpf") == "529.982.247-25"
     assert page.input_value("[name=documento2]") == "12.345.678-9"
+
+
+# --- etapas de SPA, caixas de privacidade fora do padrão, sites que viram confiáveis, LinkedIn Easy Apply ---------
+
+def _serve(context, pattern, body):
+    """Uma página só para este endereço (a rota registrada por último vence a do FORM)."""
+    context.route(pattern, lambda route: route.fulfill(status=200, content_type="text/html", body=body))
+
+
+STEPS = """<!doctype html><html><head><meta charset="utf-8"></head><body>
+<div id="etapa"><label for="cpf">CPF</label><input id="cpf">
+<button type="button" id="avancar">Avançar</button></div>
+<script>
+document.getElementById("avancar").addEventListener("click", () => {
+  document.getElementById("etapa").innerHTML = `
+    <h2>Diversidade</h2>
+    <div class="campo" onclick="this.querySelector('input').click()">
+      <input type="checkbox" id="inhire" style="display:none">
+      <span class="caixa"></span>
+      <p>Ao fornecer seus dados pessoais, você concorda com o que está descrito nesta
+        <a href="#">Política de Privacidade</a>, inclusive, para que possam desempenhar soluções voltadas à diversidade.</p>
+    </div>
+    <p>Autorizo o tratamento dos meus dados pessoais para fins de recrutamento, nos termos da LGPD.</p>
+    <div><label><input type="checkbox" id="concordo"> Concordo</label></div>
+    <label><input type="checkbox" id="vagas-email"> I'd like to receive updates about new job opportunities</label>
+    <label><input type="checkbox" id="mkt"> Quero receber ofertas e novidades de marketing</label>`;
+});
+</script></body></html>"""
+
+
+def test_privacy_boxes_of_a_later_spa_step_are_checked_and_marketing_is_not(browser):
+    context, tmp_path, _ = browser
+    _serve(context, "https://acme.gupy.io/etapas", STEPS)
+
+    page = _open_and_confirm(context, "https://acme.gupy.io/etapas", "Permitir sempre para acme")
+    page.wait_for_function("document.getElementById('cpf').value !== ''", timeout=15000)
+    with context.expect_page(timeout=15000) as popup:
+        page.click("#avancar")
+    confirm = popup.value
+    confirm.wait_for_load_state()
+    shown = confirm.inner_text("body")
+    confirm.get_by_role("button", name="Permitir sempre para acme").click()
+
+    page.wait_for_function("document.getElementById('inhire').checked && document.getElementById('concordo').checked",
+                           timeout=15000)
+    assert "Política de Privacidade" in shown and "LGPD" in shown
+    assert not page.is_checked("#vagas-email") and not page.is_checked("#mkt")
+    log = [json.loads(line) for line in (tmp_path / "autofill.log").read_text(encoding="utf-8").splitlines()]
+    assert len(log[-1]["terms"]) == 2 and "529" not in json.dumps(log)
+
+
+PRIVACY_ONLY = """<!doctype html><html><head><meta charset="utf-8"></head><body>
+<label><input type="checkbox" id="priv"> I agree with my personal data being processed in line with the privacy notice</label>
+</body></html>"""
+
+
+def test_a_site_that_becomes_trusted_after_the_page_opened_is_checked_again(browser):
+    # Ciklum (Oracle): a caixa foi vista antes do currículo gerar o form_url, e o host recusou o site.
+    context, tmp_path, _ = browser
+    from vagas.db import connect
+    from vagas.repo import Repo
+
+    url = "https://explore-jobs.ciklum-teste.com/en/sites/ciklum-career/job/5130/apply/email"
+    _serve(context, url, PRIVACY_ONLY)
+    page = context.new_page()
+    page.goto(url)
+    page.wait_for_timeout(2500)
+    assert not page.is_checked("#priv")
+
+    conn = connect(tmp_path / "vagas.db")
+    app = Repo(conn).add_application(company="Ciklum", role="ML Engineer", source="linkedin", status="a_aplicar",
+                                     url="https://www.linkedin.com/jobs/view/4489660026/")["application"]
+    Repo(conn).update_application(app["id"], form_url=url)
+    conn.close()
+    with context.expect_page(timeout=30000) as popup:
+        pass
+    confirm = popup.value
+    confirm.wait_for_load_state()
+    confirm.get_by_role("button", name="Só desta vez").click()
+
+    page.wait_for_function("document.getElementById('priv').checked", timeout=15000)
+
+
+EASY_APPLY = """<!doctype html><html><head><meta charset="utf-8"></head><body><main>Vaga</main>
+<script>
+const SHADOW = %s;
+setTimeout(() => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = SHADOW ? host.attachShadow({ mode: "open" }) : host;
+  root.innerHTML = `<div role="dialog" class="artdeco-modal" aria-label="Apply to Acme">
+    <h2>Apply to Acme</h2><span>2/5 pages</span><h3>Resume</h3>
+    <ul id="lista">
+      <li><label><input type="radio" name="cv" checked> <span>Curriculo_antigo.pdf</span></label></li>
+    </ul>
+    <label for="up" class="artdeco-button">Upload resume</label>
+    <input type="file" id="up" accept=".pdf,.doc,.docx" style="display:none">
+    <button type="button" id="next" onclick="window.clicked = 'next'">Next</button>
+    <button type="button" onclick="window.clicked = 'tailor'">Tailor resume with AI</button></div>`;
+  const byId = (id) => (SHADOW ? root : document).getElementById(id);
+  byId("up").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    window.uploaded = [file.name, file.size];
+    // O LinkedIn põe o arquivo novo na lista, mas mantém o antigo selecionado.
+    byId("lista").insertAdjacentHTML("beforeend",
+      `<li><label><input type="radio" name="cv" id="novo"> <span>${file.name}</span></label></li>`);
+  });
+  window.radios = () => [...root.querySelectorAll("input[type=radio]")].map((r) => r.checked);
+}, 800);
+</script></body></html>"""
+
+
+@pytest.mark.parametrize("shadow", [False, True], ids=["dom", "shadow-root"])
+def test_easy_apply_uploads_the_new_resume_and_selects_it_without_clicking_next(browser, shadow):
+    context, tmp_path, _ = browser
+    from resume_fixture import fictitious_resume  # noqa: F401  (o fixture já aprovou o currículo geral)
+    from vagas.db import connect
+    from vagas.repo import Repo
+    from vagas.resume_repo import ResumeStore
+
+    conn = connect(tmp_path / "vagas.db")
+    app = Repo(conn).add_application(company="Acme", role="Data Scientist III", source="linkedin", status="a_aplicar",
+                                     url="https://linkedin.com/jobs/view/4012345678")["application"]
+    created = ResumeStore(conn, tmp_path / "curriculo.yaml").create_tailored_resume(
+        {"label": "Acme", "sections": [{"section": "experience"}]}, tmp_path / "out", application_id=app["id"],
+        form_url="https://www.linkedin.com/jobs/view/4012345678/")
+    conn.close()
+    name = Path(created["path"]).name
+    _serve(context, "https://www.linkedin.com/jobs/view/**", EASY_APPLY % ("true" if shadow else "false"))
+
+    page = _open_and_confirm(context, "https://www.linkedin.com/jobs/view/4012345678/?trackingId=x%3D%3D&companyName=Acme",
+                             "Preencher nesta vaga")
+    page.wait_for_function("window.uploaded && window.radios().join() === 'false,true'", timeout=15000)
+
+    assert page.evaluate("window.uploaded")[0] == name and name == f"Acme_DS_III_{app['id']}.pdf"
+    assert page.evaluate("window.clicked") is None  # nem Next nem "Tailor resume with AI"
+    page.wait_for_timeout(800)
+    recent = json.loads((tmp_path / "autofill_status.json").read_text(encoding="utf-8"))["recent"]
+    attached = next(e for e in recent if e.get("resume") == "anexado")
+    assert attached["host"] == "www.linkedin.com" and attached["job"] == "4012345678"
+    assert any((e.get("probe") or {}).get("resume_selected") is True for e in recent)

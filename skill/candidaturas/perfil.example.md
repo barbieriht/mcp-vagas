@@ -51,3 +51,17 @@ Campos pedidos por formulários que não se encaixam nas seções acima. Dados s
 - <Rótulo do campo como o formulário pede>: <...>
 - CPF: informar manualmente
 - RG: informar manualmente
+- Nos últimos 5 anos, você é ou foi Agente Público? (opções Sim, Não): <...>
+- Você possui disponibilidade para viagens? (opções Sim, Não): <...>
+- Você pertence a um dos grupos abaixo? (opções Pessoa preta, Pessoa parda, Indígena, Mulher, Pessoa com Deficiência, LGBTI+, Não pertenço a nenhum dos grupos, Prefiro não responder): <...>
+- Are you willing to take a drug test, in accordance with local law/regulations? (opções Yes, No): <...>
+- Travel Domestically (opções No, Yes): <...>
+- Travel Internationally (opções No, Yes): <...>
+- Minimum Pay: <...>
+- Informe seu último salário Bruto: <...>
+- Atua/atuava com plano de bônus no último emprego? (opções Sim, Não): <...>
+- Você possui atualmente qualquer compromisso contratual com empregador anterior que possa impedir ou restringir sua contratação imediata, tais como cláusula de non-compete, garden leave ou obrigação similar? (opções Sim, Não): <...>
+- Possui participação societária em alguma empresa? (opções Sim, Não): <...>
+- Você já foi empregado(a) do Banco Bradesco S.A. ou de empresas do conglomerado econômico? (opções Sim, atuei como jovem aprendiz, Sim, atuei como estagiário(a), Sim, atuei em cargo efetivo, Não atuei): <...>
+- Você tem conhecimento de qualquer fato que possa caracterizar risco de envolvimento com práticas de lavagem de dinheiro ou financiamento ao terrorismo? (opções Sim, Não): <...>
+- Considere-me para outras posições e permita que minhas informações possam ser pesquisadas (banco de talentos) (opções Sim, Não): <...>
