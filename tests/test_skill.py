@@ -186,11 +186,12 @@ def test_resume_upload_is_left_to_the_browser_extension_with_the_path_as_fallbac
     assert "Não anexe você mesmo" in upload and "`windows_path`" in upload and "`pendente_usuario`" in upload
 
 
-def test_terms_of_use_are_left_to_the_browser_extension_but_declarations_are_not():
+def test_consent_boxes_follow_the_tool_and_declarations_follow_the_profile():
     text = (SKILL_DIR / "candidatar.md").read_text(encoding="utf-8")
     consent = text[text.index("**Consentimentos:**"):text.index("4. **Bloqueios.**")]
 
-    assert "extensão do Chrome" in consent and "Não as marque" in consent and "`pending`" in consent
+    assert "`resolve_form_answer`" in consent and "`checkbox` true" in consent and "`handled_by`" in consent
+    assert "Nunca marque uma caixa por conta própria" in consent and "`pending`" in consent
     assert "Declaro que" in consent and "perfil" in consent
 
 

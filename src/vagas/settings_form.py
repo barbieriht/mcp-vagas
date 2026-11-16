@@ -27,6 +27,7 @@ _TITLES = {
     "master_resume": "Arquivo do currículo geral (YAML)", "login_method": "Login preferido nos sites de vagas",
     "login_email": "Conta Google para login", "max_open_tabs": "Abas de candidatura abertas, no máximo",
     "auto_submit": "Envio automático", "autofill_domains": "Domínios extras da extensão do Chrome",
+    "consent_mode": "Quem marca os termos de uso e privacidade",
     "autofill_platforms": "Plataformas com permissão para todas as empresas",
     "salary_rule": "Regra da pretensão salarial",
     "resume_pdf": "PDF do currículo (fonte do currículo geral)",
@@ -34,6 +35,7 @@ _TITLES = {
 }
 _CHOICE_LABELS = {
     "linkedin": "LinkedIn", "google": "Google", "sim": "Ligado", "nao": "Desligado",
+    "extensao": "A extensão do Chrome", "claude": "O Claude (com \"autorizo\" no perfil)", "usuario": "Eu mesmo",
     "teto": "Teto: a mediana de mercado", "meio_termo": "Meio-termo entre o seu mínimo e a mediana",
     "percentil_25": "Percentil 25 do mercado", "ponto_baixo": "Ponto mais baixo de cada fonte",
 }

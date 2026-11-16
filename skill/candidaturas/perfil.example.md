@@ -23,8 +23,6 @@ Este arquivo guarda só o que não está no currículo ou respostas padrão de f
 - Área de atuação/estudo: escolher a opção ligada a inteligência artificial, se houver
 - Parentes na empresa: não
 - Cargo público: nunca ocupou
-- Incluir em bancos de talentos: <...>
-  - Valores aceitos: sim ou não. Com "sim", a extensão do Chrome marca a caixa de banco de talentos e o Claude responde "sim" quando o formulário pergunta.
 - Aceita contratação no modelo PJ?: <...>
 - Disponibilidade e interesse em contratação temporária (projeto de 2 meses)?: <...>
 - Valor da última remuneração: <...>
@@ -38,6 +36,15 @@ Respostas usadas nos formulários; "Prefiro não responder" vale em todas. O Cla
 - Sexo: <...>
 - Identidade de gênero: <...>
 - Orientação sexual: <...>
+
+## Consentimentos
+O que você autoriza nos formulários. Quem marca as caixas de termos é a opção "Quem marca os termos de uso e privacidade" do painel (`consent_mode`): a extensão do Chrome (padrão), o Claude ou você.
+- Autorizar uso de dados para recrutamento (termos, privacidade, LGPD): <...>
+  - Valores aceitos: autorizo ou não autorizo. Com "não autorizo", nenhuma caixa de termos é marcada, e a candidatura fica para você.
+- Marketing e comunicações: <...>
+  - Valores aceitos: sim ou não. Sem "sim", as caixas de marketing, comunicações e parceiros ficam desmarcadas.
+- Incluir em bancos de talentos: <...>
+  - Valores aceitos: sim ou não. Com "sim", a caixa de banco de talentos é marcada e o Claude responde "sim" quando o formulário pergunta.
 
 ## Outros campos de formulário
 Campos pedidos por formulários que não se encaixam nas seções acima. Dados sensíveis: só o campo, com "informar manualmente", ou "no cofre (extensão do Chrome)" para documentos cadastrados no cofre (`python -m vagas.sensitive set <campo>`). Documento cadastrado no cofre vale mesmo se a linha disser "informar manualmente". Quem preenche esses documentos nos formulários é a extensão do Chrome, com a sua confirmação na primeira vez de cada empresa.

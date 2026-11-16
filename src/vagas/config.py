@@ -30,6 +30,9 @@ _LOGIN_ALIASES = {"linkedin": "linkedin", "linked in": "linkedin", "google": "go
                   "conta google": "google"}
 _YES_NO = {"sim": "sim", "s": "sim", "yes": "sim", "true": "sim", "ligado": "sim", "ligada": "sim", "on": "sim",
            "nao": "nao", "n": "nao", "no": "nao", "false": "nao", "desligado": "nao", "desligada": "nao", "off": "nao"}
+CONSENT_MODES = ("extensao", "claude", "usuario")
+_CONSENT_ALIASES = {"extensao": "extensao", "extensao do chrome": "extensao", "chrome": "extensao",
+                    "claude": "claude", "usuario": "usuario", "eu": "usuario", "voce": "usuario", "manual": "usuario"}
 _SALARY_RULE_ALIASES = {
     **{rule.replace("_", " "): rule for rule in SALARY_RULES},
     "teto por faixa": "teto", "mediana": "teto", "meio termo minimo mercado": "meio_termo",
@@ -72,6 +75,10 @@ SETTINGS: dict[str, Setting] = {
                            "condições (sem pendências, campos da extensão preenchidos, pretensão da avaliação, sem "
                            "texto livre escrito pelo Claude); desligado, toda candidatura espera a sua confirmação",
                            choices=("sim", "nao"), default_literal="nao", ask_at_setup=False, aliases=_YES_NO),
+    "consent_mode": Setting("VAGAS_CONSENT_MODE", "choice", "Quem marca as caixas de termos de uso, privacidade e LGPD "
+                            "nos formulários: a extensão do Chrome (com a sua confirmação por empresa), o Claude (só "
+                            "com \"autorizo\" em Consentimentos no perfil) ou você", choices=CONSENT_MODES,
+                            default_literal="extensao", ask_at_setup=False, aliases=_CONSENT_ALIASES),
     "autofill_domains": Setting("VAGAS_AUTOFILL_DOMAINS", "text", "Domínios extras onde a extensão do Chrome preenche "
                                 "os documentos do cofre, separados por vírgula (além dos sites de vagas conhecidos e "
                                 "dos sites das candidaturas abertas)", ask_at_setup=False),

@@ -17,6 +17,7 @@ from vagas.repo import VagasError
 from vagas.salary_policy import default_policy_path
 
 OTHER_SECTION = "Outros campos de formulário"
+CREATABLE = (diversity.SECTION, "Consentimentos")  # seções que um campo novo cria, antes de OTHER_SECTION
 MANUAL = "informar manualmente"
 PLACEHOLDER = "<PREENCHER>"
 _ITEM = re.compile(r"^- (?P<label>[^:]+):\s*(?P<value>.*)$")
@@ -225,6 +226,17 @@ class ProfileFiles:
         return {"written": [r["label"] for r in migration["fields"] if r["value"]],
                 "to_fill": [r["label"] for r in migration["fields"] if not r["value"]]}
 
+    def data_consent(self) -> bool | None:
+        """"Autorizar uso de dados para recrutamento" do perfil: True (autorizo), False (não autorizo) ou None."""
+        from vagas import consents
+
+        path = self.dir / "perfil.md"
+        if not path.exists():
+            return None
+        perfil = _Profile(path)
+        index = perfil.find(consents.DATA)
+        return consents.yes(_ITEM.match(perfil.lines[index])["value"]) if index is not None else None
+
     def disability(self) -> str | None:
         """"Possui deficiência" do perfil (diversity.disability); None sem o campo."""
         path = self.dir / "perfil.md"
@@ -273,7 +285,7 @@ class ProfileFiles:
         perfil = _Profile(self.dir / "perfil.md")
         example = _Profile(self.dir / "perfil.example.md")
         wanted = section or OTHER_SECTION
-        if perfil.section(wanted, create=False) is None and section is not None and section != diversity.SECTION:
+        if perfil.section(wanted, create=False) is None and section is not None and section not in CREATABLE:
             names = ", ".join(name for _, name in perfil.sections())
             raise VagasError(f"Seção {section!r} não existe no perfil. Seções: {names}. Sem 'section', o campo vai "
                              f"para '{OTHER_SECTION}'.")
@@ -288,14 +300,14 @@ class ProfileFiles:
             result["line"] = perfil.lines[existing]
             result["section"] = next((n for i, n in reversed(perfil.sections()) if i < existing), wanted)
         else:
-            header, name = (perfil.section_before(wanted, OTHER_SECTION) if wanted == diversity.SECTION
+            header, name = (perfil.section_before(wanted, OTHER_SECTION) if wanted in CREATABLE
                             else perfil.section(wanted, create=True))
             line = f"- {label}: {MANUAL if sensitive else value or PLACEHOLDER}"
             perfil.insert(header, line)
             result["created"]["perfil"] = True
             result["line"], result["section"] = line, name
         if example.find(label) is None:
-            header, _ = (example.section_before(result["section"], OTHER_SECTION) if result["section"] == diversity.SECTION
+            header, _ = (example.section_before(result["section"], OTHER_SECTION) if result["section"] in CREATABLE
                          else example.section(result["section"], create=True))
             example.insert(header, f"- {label}: {MANUAL if sensitive else '<...>'}")
             result["created"]["example"] = True

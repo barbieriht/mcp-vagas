@@ -141,14 +141,14 @@ def test_profile_from_the_example_starts_empty_with_hints_and_documents_locked(d
     assert profile["Contato e identificação/Nome"]["hint"] == "Fulano de Tal"  # exemplo vira dica, nunca valor
     assert profile["Contato e identificação/Data de nascimento"]["hint"] == "DD/MM/AAAA"
     assert profile["Outros campos de formulário/CPF"]["kind"] == "locked"
-    assert profile["Respostas padrão/Incluir em bancos de talentos"]["kind"] == "yesno"
+    assert profile["Consentimentos/Incluir em bancos de talentos"]["kind"] == "yesno"
     assert not any(field_id.split("/")[-1].startswith("<") for field_id in profile)  # linha-modelo do exemplo
     assert not (skill / "perfil.md").exists()
 
 
 def test_saving_the_profile_fills_what_was_typed_and_marks_the_rest_pending(db_path, skill):
     result = save({"profile": {"Contato e identificação/Nome": "Maria Teste",
-                               "Respostas padrão/Incluir em bancos de talentos": "Não."}}, db_path)
+                               "Consentimentos/Incluir em bancos de talentos": "Não."}}, db_path)
 
     assert result["saved"], result["errors"]
     text = (skill / "perfil.md").read_text(encoding="utf-8")
@@ -180,9 +180,9 @@ def test_profile_never_takes_a_document_value(db_path, skill):
 
 
 def test_profile_yes_no_field_only_takes_yes_or_no(db_path, skill):
-    result = save({"profile": {"Respostas padrão/Incluir em bancos de talentos": "talvez"}}, db_path)
+    result = save({"profile": {"Consentimentos/Incluir em bancos de talentos": "talvez"}}, db_path)
 
-    assert result["errors"] == {"profile.Respostas padrão/Incluir em bancos de talentos": "Responda sim ou não."}
+    assert result["errors"] == {"profile.Consentimentos/Incluir em bancos de talentos": "Responda sim ou não."}
 
 
 def test_criteria_from_the_example_offer_choices_and_save_a_valid_file(db_path, skill):
@@ -252,7 +252,7 @@ def test_talent_pool_is_yes_or_no_even_without_the_note(db_path, skill):
     (skill / "perfil.md").write_text(text.replace("- Incluir em bancos de talentos: <...>",
                                                   "- Incluir em bancos de talentos: Sim."), encoding="utf-8")
 
-    field = section_fields(load(db_path), "profile")["Respostas padrão/Incluir em bancos de talentos"]
+    field = section_fields(load(db_path), "profile")["Consentimentos/Incluir em bancos de talentos"]
 
     assert field["kind"] == "yesno" and field["value"] == "sim"
 

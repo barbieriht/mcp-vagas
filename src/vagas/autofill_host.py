@@ -74,11 +74,18 @@ def build_autofill() -> Autofill:
         except VagasError:
             return None
 
+    def data_consent() -> bool | None:
+        try:
+            return ProfileFiles(default_skill_dir(db_path)).data_consent()
+        except VagasError:
+            return None
+
     applications = Applications(db_path)
     return Autofill(Vault(default_vault_path(db_path), default_backend()), Approvals(default_approvals_path(db_path)),
                     log_path=default_log_path(db_path), open_sites=applications.sites, extra_domains=extra_domains,
                     resumes=applications.with_resumes, platforms=platforms,
-                    talent_pool=talent_pool)
+                    talent_pool=talent_pool, consent_mode=lambda: config.resolve("consent_mode", db_path)[0],
+                    data_consent=data_consent)
 
 
 def main() -> None:

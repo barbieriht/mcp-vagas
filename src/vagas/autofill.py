@@ -122,6 +122,19 @@ def classify_consent(text: str) -> str | None:
     return "termos" if _CONSENT.search(words) else None
 
 
+def classify_checkbox(text: str) -> str | None:
+    """Caixa de marcar: "termos", "banco_talentos", "marketing" (comunicações, ofertas, parceiros), "declaracao"
+    (declaração de fato, "Declaro que...") ou None (outra pergunta)."""
+    words = _words(text)
+    if not words:
+        return None
+    if re.search(r"\bdeclaro\b", words) and not _DECLARATION_OF_READING.search(words):
+        return "declaracao"
+    if _NOT_CONSENT.search(words):
+        return "marketing"
+    return classify_consent(text)
+
+
 def classify_upload(text: str) -> str | None:
     """"curriculo" para o campo de arquivo do currículo; None para carta, foto, portfólio, documentos e afins."""
     words = _words(text)
@@ -281,7 +294,9 @@ class Autofill:
                  open_sites: Callable[[], dict[str, str]], extra_domains: Callable[[], list[str]],
                  resumes: Callable[[], list[dict[str, Any]]] = lambda: [], max_file_bytes: int = MAX_FILE_BYTES,
                  platforms: Callable[[], list[str]] = lambda: [],
-                 talent_pool: Callable[[], bool | None] = lambda: None):
+                 talent_pool: Callable[[], bool | None] = lambda: None,
+                 consent_mode: Callable[[], str] = lambda: "extensao",
+                 data_consent: Callable[[], bool | None] = lambda: None):
         self.vault = vault
         self.resumes = resumes
         self.max_file_bytes = max_file_bytes
@@ -291,6 +306,8 @@ class Autofill:
         self.extra_domains = extra_domains
         self.platforms = platforms
         self.talent_pool = talent_pool
+        self.consent_mode = consent_mode  # "usuario": a extensão não marca caixa nenhuma
+        self.data_consent = data_consent  # "não autorizo" no perfil: os termos nunca são marcados
 
     def handle(self, request: dict[str, Any]) -> dict[str, Any]:
         """{url, fields: [{id, kind?, text, attrs?, placeholder?, maxlength?, accept?}], confirm: None | "once" |
@@ -311,7 +328,9 @@ class Autofill:
         stored = set(self.vault.list())
         wanted = [(str(f.get("id")), doc, f) for f in fields
                   if f.get("kind") not in ("checkbox", "file") and (doc := classify_field(f)) and doc in stored]
-        accepted = {"termos", "banco_talentos"} if self.talent_pool() is True else {"termos"}
+        accepted = set() if self.consent_mode() == "usuario" else (
+            {"termos"} if self.data_consent() is not False else set()) | (
+            {"banco_talentos"} if self.talent_pool() is True else set())
         consents = [(str(f.get("id")), " ".join(str(f.get("text") or "").split()), kind) for f in fields
                     if f.get("kind") == "checkbox" and (kind := classify_consent(f.get("text") or "")) in accepted]
         terms = [(field_id, text) for field_id, text, _ in consents]

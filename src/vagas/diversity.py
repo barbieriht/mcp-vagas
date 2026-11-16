@@ -26,6 +26,7 @@ class Question:
     closed: bool  # lista fechada: resposta fora dela não vale (aberta: o texto do usuário vale)
     first_match: bool = False  # a primeira opção reconhecida vence (senão, duas opções = sem resposta)
     aliases: tuple[str, ...] = ()
+    not_say: bool = True  # "Prefiro não responder" é uma resposta
 
 
 QUESTIONS: tuple[Question, ...] = (
@@ -69,7 +70,7 @@ def canonical(q: Question, text: str | None) -> str | None:
     if not answer or answer.startswith("<"):
         return None
     norm = _norm(answer)
-    if norm.startswith("prefiro nao"):
+    if q.not_say and norm.startswith("prefiro nao"):
         return NOT_SAY
     if exact := next((o for o in q.options if _norm(o) == norm), None):
         return exact
