@@ -7,6 +7,7 @@ painel acrescenta (texto, aderência mínima), a ordem, a paginação e os rótu
 import re
 import sqlite3
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 from vagas.models import SOURCES, STATUSES
@@ -22,7 +23,8 @@ WORK_MODE_LABELS = {"remoto": "Remoto", "hibrido": "Híbrido", "presencial": "Pr
 SOURCE_LABELS = {"linkedin": "LinkedIn", "gupy": "Gupy", "indeed": "Indeed", "glassdoor": "Glassdoor",
                  "outro": "Outro site"}
 _LIGHT = ("id", "company", "role", "url", "status", "source", "location", "work_mode", "seniority", "match_score",
-          "salary_ask", "pending", "discard_reason", "created_at", "updated_at", "last_event_at", "search_id")
+          "salary_ask", "pending", "pending_items", "discard_reason", "created_at", "updated_at", "last_event_at",
+          "search_id")
 
 
 def _safe_url(url: Any) -> str | None:
@@ -49,9 +51,10 @@ def _int(value: Any, name: str, low: int, high: int) -> int:
     return number
 
 
-def list_jobs(conn: sqlite3.Connection, filters: dict[str, Any]) -> dict[str, Any]:
+def list_jobs(conn: sqlite3.Connection, filters: dict[str, Any], db_path: Path | str | None = None) -> dict[str, Any]:
     """filters (texto, como vêm da URL): status, source, since (AAAA-MM-DD), min_score, text, only_pending,
-    order ("aderencia" ou "recentes"), page, per_page."""
+    order ("aderencia" ou "recentes"), page, per_page. Traz também as pendências agrupadas entre as vagas e, com
+    db_path, a situação da extensão do Chrome (sem as listas de detalhe)."""
     status = filters.get("status") or None
     if status and status not in STATUSES:
         raise VagasError(f"status desconhecido: {status!r}. Use um de: {', '.join(STATUSES)}.")
@@ -91,8 +94,15 @@ def list_jobs(conn: sqlite3.Connection, filters: dict[str, Any]) -> dict[str, An
         counts[row["status"]] = row["n"]
     pages = max(1, -(-len(rows) // per_page))
     start = (page - 1) * per_page
+    extension = None
+    if db_path is not None:
+        from vagas.autofill import default_log_path, default_status_path, extension_report
+
+        report = extension_report(default_status_path(db_path), default_log_path(db_path), db_path)
+        extension = {k: v for k, v in report.items() if k not in ("recent", "applications")}
     return {"items": [_light(r) for r in rows[start:start + per_page]], "total": len(rows), "page": page,
-            "pages": pages, "counts": counts, "order": order,
+            "pages": pages, "counts": counts, "order": order, "pending_groups": Repo(conn).pending_groups(),
+            **({"extension": extension} if extension else {}),
             "statuses": [{"value": s, "label": STATUS_LABELS[s]} for s in STATUSES],
             "sources": [{"value": s, "label": SOURCE_LABELS[s]} for s in SOURCES]}
 
@@ -137,7 +147,7 @@ def update_job(conn: sqlite3.Connection, application_id: int, changes: dict[str,
     if status is None and note is None and pending is None:
         raise VagasError("Nada a mudar: escolha outra etapa, mude a pendência ou escreva uma anotação.")
     final_pending = current["pending"] if pending is None else pending
-    if (status or current["status"]) == "pendente_usuario" and not final_pending:
+    if (status or current["status"]) == "pendente_usuario" and not final_pending and not current.get("pending_items"):
         raise VagasError("Descreva o que falta (a pendência) para marcar como pendente com você.")
     if status == "descartada" and reason is None:
         raise VagasError("Informe o motivo do descarte.")

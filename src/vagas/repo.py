@@ -19,6 +19,9 @@ def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+RESOLVED_PENDING = "retomar o formulário: as respostas que faltavam já estão no perfil"
+
+
 def _require_text(field: str, value: str | None) -> str:
     if not value or not value.strip():
         raise VagasError(f"'{field}' é obrigatório e não pode ser vazio.")
@@ -44,7 +47,7 @@ def form_url_value(value: str) -> str | None:
 
 def _application(row: sqlite3.Row) -> dict[str, Any]:
     application = dict(row)
-    for field in ("salary_evaluation", "match_terms"):
+    for field in ("salary_evaluation", "match_terms", "pending_items"):
         if application.get(field):
             application[field] = json.loads(application[field])
     return application
@@ -164,18 +167,22 @@ class Repo:
         work_mode: str | None = None,
         location: str | None = None,
         form_url: str | None = None,
+        pending_items: list[Any] | None = None,
     ) -> dict[str, Any]:
         """Muda status, pendência, currículo vinculado, regime, modalidade, local, pretensão
         informada, página do formulário e/ou anota. pending="" limpa a pendência; location="" limpa o local;
-        form_url="" limpa a página do formulário.
+        form_url="" limpa a página do formulário; pending_items=[] limpa os itens estruturados.
 
         Mudança de status ou nota gravam evento; corrigir dados da vaga ou a pendência não grava.
         """
         current = self.get(application_id)
         if all(v is None for v in (status, note, pending, discard_reason, resume_id, contract, salary_expectation,
-                                   work_mode, location, form_url)):
+                                   work_mode, location, form_url, pending_items)):
             raise VagasError("Nada a atualizar: informe status, note, pending, resume_id, contract, work_mode, "
-                             "location, form_url ou salary_expectation.")
+                             "location, form_url, pending_items ou salary_expectation.")
+        from vagas.pending import clean_items
+
+        new_items = current["pending_items"] if pending_items is None else (clean_items(pending_items) or None)
         new_form_url = current["form_url"] if form_url is None else form_url_value(form_url)
         _require_choice("contract", contract, CONTRACTS)
         _require_choice("work_mode", work_mode, WORK_MODES)
@@ -192,8 +199,8 @@ class Repo:
             if status != "descartada":
                 raise VagasError("'discard_reason' só pode ser informado ao mudar o status para 'descartada'.")
             new_reason = discard_reason.strip() or None
-        if new_status == "pendente_usuario" and new_pending is None:
-            raise VagasError("Status 'pendente_usuario' exige 'pending' descrevendo o que falta.")
+        if new_status == "pendente_usuario" and new_pending is None and not new_items:
+            raise VagasError("Status 'pendente_usuario' exige 'pending' (ou 'pending_items') descrevendo o que falta.")
         if new_status == "descartada" and new_reason is None:
             raise VagasError("Status 'descartada' exige 'discard_reason'.")
 
@@ -203,14 +210,14 @@ class Repo:
                 """
                 UPDATE applications
                 SET status = ?, pending = ?, discard_reason = ?, contract = ?, salary_expectation = ?,
-                    work_mode = ?, location = ?, form_url = ?, updated_at = ?
+                    work_mode = ?, location = ?, form_url = ?, pending_items = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (new_status, new_pending, new_reason, contract or current["contract"],
                  current["salary_expectation"] if salary_expectation is None else (salary_expectation.strip() or None),
                  work_mode or current["work_mode"],
                  current["location"] if location is None else (location.strip() or None),
-                 new_form_url, now, application_id),
+                 new_form_url, json.dumps(new_items, ensure_ascii=False) if new_items else None, now, application_id),
             )
             if status is not None or note is not None:
                 self.conn.execute(
@@ -287,7 +294,7 @@ class Repo:
             conditions.append("a.status = ?")
             params.append(status)
         if only_pending:
-            conditions.append("a.pending IS NOT NULL")
+            conditions.append("(a.pending IS NOT NULL OR a.pending_items IS NOT NULL)")
         if source is not None:
             conditions.append("a.source = ?")
             params.append(source)
@@ -315,6 +322,27 @@ class Repo:
         )
         applications = [_application(row) for row in rows]
         return {"applications": applications, "count": len(applications)}
+
+    def pending_groups(self) -> list[dict[str, Any]]:
+        """Pendências estruturadas iguais entre as vagas pendente_usuario (vagas.pending.groups)."""
+        from vagas.pending import groups
+
+        return groups(self.list_applications(status="pendente_usuario")["applications"])
+
+    def resolve_pending(self, profile: dict[str, Any]) -> list[int]:
+        """Tira das vagas pendente_usuario os itens que o perfil já responde; devolve as vagas mexidas. O status
+        não muda: o formulário ainda espera o resto."""
+        from vagas.pending import answered, unresolved
+
+        done, changed = answered(profile), []
+        for app in self.list_applications(status="pendente_usuario")["applications"]:
+            items = app.get("pending_items") or []
+            remaining = unresolved(items, done)
+            if len(remaining) < len(items):
+                text = None if remaining or app.get("pending") else RESOLVED_PENDING
+                self.update_application(app["id"], pending_items=remaining, pending=text)
+                changed.append(app["id"])
+        return changed
 
     def get_state(self, key: str) -> str | None:
         row = self.conn.execute("SELECT value FROM app_state WHERE key = ?", (key,)).fetchone()

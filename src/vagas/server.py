@@ -36,6 +36,7 @@ from vagas.linkedin_import import LinkedInImporter
 from vagas.salary import SalaryPoint, SalaryStore
 from vagas.autofill import default_log_path, default_status_path, extension_report
 from vagas.consents import resolve_checkbox
+from vagas.pending import PendingItem
 from vagas.form_answers import resolve
 from vagas.profile_fields import ProfileFiles, default_skill_dir, disability_answer
 from vagas.search_run import SearchRunStore
@@ -317,6 +318,7 @@ def build_server(
         work_mode: WorkMode | None = None,
         location: str | None = None,
         form_url: str | None = None,
+        pending_items: list[PendingItem] | None = None,
     ) -> dict[str, Any]:
         """Atualiza uma candidatura existente: etapa do processo, pendência, anotação e/ou dados da vaga.
 
@@ -340,6 +342,11 @@ def build_server(
         - salary_expectation: pretensão informada no formulário, como foi digitada (ex.: "R$ 15.500").
           Registre ao enviar a candidatura; fica separada da pretensão calculada (salary_ask).
         - form_url: corrige a página https do formulário (ver create_tailored_resume); "" limpa.
+        - pending_items: o que falta, estruturado, junto do pending (que pode ficar só com o resto): kind
+          diversidade ou resposta_aberta (field = missing_field de resolve_form_answer), consentimento (field =
+          texto da caixa), anexo_curriculo (field = nome do PDF), documento_cofre (CPF, RG...) ou login (site).
+          Nunca o valor de um dado sensível. [] limpa. Os de diversidade e resposta aberta somem sozinhos
+          quando a resposta entra no perfil.
 
         Mudança de status e nota ficam registradas como eventos (ver get_history).
         Retorna a candidatura atualizada, sem a descrição e sem campos vazios.
@@ -348,7 +355,7 @@ def build_server(
             updated = r.update_application(
                 id, status=status, note=note, pending=pending, discard_reason=discard_reason,
                 resume_id=resume_id, contract=contract, salary_expectation=salary_expectation,
-                work_mode=work_mode, location=location, form_url=form_url,
+                work_mode=work_mode, location=location, form_url=form_url, pending_items=pending_items,
             )
         if contract is None and work_mode is None and location is None:
             return application_record(updated)
@@ -382,13 +389,18 @@ def build_server(
         - limit/offset: página (padrão as 50 primeiras); next_offset vem quando há mais.
         Cada item é um resumo (id, company, role, url, status, pending, match_score, salary_ask,
         last_event_at...), sem a descrição da vaga e sem campos vazios; o registro completo está em
-        get_history. Retorna {"applications", "count" (total com os filtros), "next_offset"?}.
+        get_history. Retorna {"applications", "count" (total com os filtros), "next_offset"?}; com
+        status "pendente_usuario" ou only_pending, também pending_groups: as pendências estruturadas iguais entre
+        as vagas ({kind, field?, label, count, ids}), para a revisão do lote ("12 vagas aguardam: anexar currículo").
         """
         with repo() as r:
             found = r.list_applications(
                 status=status, only_pending=only_pending, source=source, since=since, stale_days=stale_days,
             )["applications"]
+            groups = r.pending_groups() if status == "pendente_usuario" or only_pending else []
         page = {"applications": [application_summary(a) for a in found[offset:offset + limit]], "count": len(found)}
+        if groups:
+            page["pending_groups"] = groups
         if offset + limit < len(found):
             page["next_offset"] = offset + limit
         return page
@@ -613,7 +625,7 @@ def build_server(
         try:
             files = ProfileFiles(default_skill_dir(db_path))
             if accept:
-                return files.apply_diversity_migration()
+                return {**files.apply_diversity_migration(), **resolved_pending()}
             migration = files.get_profile(vault_fields=[]).get("migration")
         except VagasError as exc:
             raise ToolError(str(exc)) from exc
@@ -638,13 +650,22 @@ def build_server(
         "informar manualmente"; enviar value para eles é erro.
         A pasta da Skill vem de VAGAS_SKILL_DIR (ou do symlink da política salarial criado pelo
         instalador). No Claude Desktop, que usa uma cópia da Skill enviada em zip, reenvie o zip
-        depois. Retorna {created: {perfil, example}, updated, section, line}.
+        depois. Retorna {created: {perfil, example}, updated, section, line, resolved_pending?}: com value, as
+        vagas pendentes cujos pending_items essa resposta resolveu (os itens saem sozinhos).
         """
         try:
             files = ProfileFiles(default_skill_dir(db_path))
-            return files.add_profile_field(label, section=section, value=value, sensitive=sensitive)
+            result = files.add_profile_field(label, section=section, value=value, sensitive=sensitive)
         except VagasError as exc:
             raise ToolError(str(exc)) from exc
+        return {**result, **resolved_pending()} if value else result
+
+    def resolved_pending() -> dict[str, Any]:
+        """Itens de pendência que o perfil passou a responder saem das vagas: {resolved_pending: [ids]} ou {}."""
+        profile = load_profile()
+        with repo() as r:
+            ids = r.resolve_pending(profile)
+        return {"resolved_pending": ids} if ids else {}
 
     @server.tool()
     def diff_master(items: dict[str, Any]) -> dict[str, Any]:
