@@ -18,7 +18,8 @@ import os
 import re
 import sqlite3
 from datetime import datetime
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -103,6 +104,19 @@ class TriageCriteria:
 
 
 _CRITERIA_STATE = "triage_criteria_sha256"
+_PROFILE_SAYS = {
+    "nao": "; o perfil diz \"Possui deficiência: não\" (vale mais que PcD nos critérios).",
+    "nao_informado": "; o perfil diz \"Possui deficiência: prefiro não responder\" (vale mais que PcD nos critérios).",
+    "pendente": "; \"Possui deficiência\" ainda está a preencher no perfil.",
+}
+
+
+def _with_disability(criteria: "TriageCriteria", answer: str | None) -> "TriageCriteria":
+    """PcD entre os grupos disputados só com "Possui deficiência: sim"; sem o campo no perfil, vale o critério."""
+    if answer is None:
+        return criteria
+    groups = tuple(g for g in criteria.affirmative_ok if g != "pcd") + (("pcd",) if answer == "sim" else ())
+    return replace(criteria, affirmative_ok=groups)
 _OPEN = ("a_aplicar", "pendente_usuario")
 RECHECK_NOTE = "Descartada porque os critérios de triagem mudaram."
 
@@ -289,8 +303,13 @@ class Triage:
         policy_path: Path | str | None = None,
         draft_path: Path | str | None = None,
         salary_rule: str = "teto",
+        disability: Callable[[], str | None] | None = None,
     ):
+        """disability: resposta de "Possui deficiência" do perfil (profile_fields.disability_answer). Ela decide
+        as vagas exclusivas e afirmativas PcD no lugar de "PcD" nos critérios: só "sim" disputa; sem o campo
+        (None), vale o critério."""
         self.repo = Repo(conn)
+        self.disability = disability
         self.resumes = ResumeStore(conn, draft_path or default_draft_path())
         self.salaries = SalaryStore(conn, policy_path=policy_path or default_policy_path(), rule=salary_rule)
         self.fetcher = fetcher
@@ -313,14 +332,16 @@ class Triage:
             text = self.criteria_path.read_text(encoding="utf-8")
         except FileNotFoundError:
             return None
-        fingerprint = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        answer = self.disability() if self.disability else None
+        key = text if answer is None else f"{text}\n\0possui deficiencia={answer}"
+        fingerprint = hashlib.sha256(key.encode("utf-8")).hexdigest()
         if self.repo.get_state(_CRITERIA_STATE) == fingerprint:
             return None
-        criteria = parse_criteria(text, source=self.criteria_path.name)
+        criteria = _with_disability(parse_criteria(text, source=self.criteria_path.name), answer)
         open_apps = [app for status in _OPEN for app in self.repo.list_applications(status=status)["applications"]]
         discarded = []
         for app in open_apps:
-            reason = self._recheck(criteria, app)
+            reason = self._recheck(criteria, app, answer)
             if reason:
                 self.repo.update_application(app["id"], status="descartada", discard_reason=reason, note=RECHECK_NOTE)
                 discarded.append({"id": app["id"], "company": app["company"], "role": app["role"], "url": app["url"],
@@ -328,11 +349,11 @@ class Triage:
         self.repo.set_state(_CRITERIA_STATE, fingerprint)
         return {"checked": len(open_apps), "discarded": discarded}
 
-    def _recheck(self, criteria: TriageCriteria, app: dict[str, Any]) -> str | None:
+    def _recheck(self, criteria: TriageCriteria, app: dict[str, Any], answer: str | None) -> str | None:
         """As mesmas regras fixas da triagem, sobre o que ficou gravado da vaga."""
         posting = {"company": app["company"], "title": app["role"], "description": app.get("description"),
                    "work_mode": app.get("work_mode"), "location": app.get("location"), "work_mode_inferred": False}
-        reason = self._fixed_criteria(criteria, posting, [])
+        reason = self._fixed_criteria(criteria, posting, [], answer)
         if reason is None and (level := self._level_fit(criteria, app.get("seniority"))):
             reason = self._level(criteria, level, [])
         if reason is None and posting["work_mode"] in ("hibrido", "presencial"):
@@ -340,7 +361,8 @@ class Triage:
         return reason
 
     def _triage_job(self, url: str, search_id: int | None, not_duplicate: bool) -> dict[str, Any]:
-        criteria = load_criteria(self.criteria_path)
+        answer = self.disability() if self.disability else None
+        criteria = _with_disability(load_criteria(self.criteria_path), answer)
         existing = self.repo.find_application(url=url)  # só URL: casa pela forma canônica
         if existing:
             return self._result("ja_registrada", existing[0], None, None, None,
@@ -374,7 +396,7 @@ class Triage:
                     "matches": similar,
                 }])
 
-        discard = self._fixed_criteria(criteria, posting, reasons)
+        discard = self._fixed_criteria(criteria, posting, reasons, answer)
         if discard is None and affirmative.detect(f"{title}. {posting['description'] or ''}").generic:
             needs.append({"kind": "afirmativa", "detail": "A vaga se diz afirmativa, mas não cita um grupo "
                           "reconhecido. Leia a descrição: se for para um grupo fora de 'Vagas afirmativas que "
@@ -426,16 +448,19 @@ class Triage:
         return similar
 
     @staticmethod
-    def _fixed_criteria(criteria: TriageCriteria, posting: dict[str, Any], reasons: list[str]) -> str | None:
+    def _fixed_criteria(criteria: TriageCriteria, posting: dict[str, Any], reasons: list[str],
+                        disability: str | None = None) -> str | None:
         company = posting["company"] or ""
         if company and normalize_company(company) in criteria.ignored_companies:
             return f"Empresa {company} está na lista de empresas ignoradas."
         text = normalize_text(f"{posting['title']} {posting['description'] or ''}")
         term = next((t for t in (*DEFAULT_PCD_TERMS, *criteria.pcd_terms) if _contains(text, t)), None)
         if term and "pcd" not in criteria.affirmative_ok:
-            return f"Vaga exclusiva para PcD (termo {term!r} na vaga)."
+            return f"Vaga exclusiva para PcD (termo {term!r} na vaga)" + _PROFILE_SAYS.get(disability, ".")
         found = affirmative.detect(f"{posting['title']}. {posting['description'] or ''}")
         blocked = [g for g in found.groups if g not in criteria.affirmative_ok]
+        if blocked == ["pcd"] and disability is not None:
+            return f"Vaga afirmativa para PcD (\"{found.snippets['pcd']}\")" + _PROFILE_SAYS[disability]
         if blocked:
             return (f"Vaga afirmativa para {affirmative.labels(blocked)} (\"{found.snippets[blocked[0]]}\"); "
                     "não está em 'Vagas afirmativas que posso disputar' dos critérios.")

@@ -93,16 +93,32 @@ def replace_children(text: str, parent_id: str, new_lines: list[str]) -> str:
     return "".join(lines)
 
 
-def insert_item(text: str, section: str | None, line: str) -> str:
+def remove_item(text: str, field_id: str) -> str:
+    """Tira o campo de primeiro nível e o bloco indentado abaixo dele. KeyError se o campo não existir."""
+    item = next((i for i in parse(text) if _key(i.id) == _key(field_id) and i.parent is None), None)
+    if item is None:
+        raise KeyError(field_id)
+    lines = text.splitlines(keepends=True)
+    end = item.line + 1
+    while end < len(lines) and lines[end].strip() and lines[end][:1] in (" ", "\t"):
+        end += 1
+    del lines[item.line:end]
+    return "".join(lines)
+
+
+def insert_item(text: str, section: str | None, line: str, before: str | None = None) -> str:
     """Acrescenta a linha no fim da seção "## <section>" (depois do último item e dos subitens dele);
-    sem a seção, cria a seção no fim do arquivo (antes de "## Valores aceitos", se houver)."""
+    sem a seção, cria a seção antes de "## <before>", se houver, ou no fim do arquivo (antes de
+    "## Valores aceitos", se houver)."""
     lines = text.splitlines(keepends=True)
     if lines and not lines[-1].endswith(("\n", "\r")):
         lines[-1] += "\n"
     headers = [i for i, current in enumerate(lines) if current.startswith("## ")]
     start = next((i for i in headers if section and _key(lines[i][3:].strip()) == _key(section)), None)
     if start is None:
-        end = next((i for i in headers if normalize_text(lines[i][3:]).startswith("valores aceitos")), len(lines))
+        end = next((i for i in headers if before and _key(lines[i][3:].strip()) == _key(before)), None)
+        if end is None:
+            end = next((i for i in headers if normalize_text(lines[i][3:]).startswith("valores aceitos")), len(lines))
         block = ["\n", f"## {section}\n", line + "\n"] if section else [line + "\n"]
         while end > 0 and not lines[end - 1].strip():
             end -= 1

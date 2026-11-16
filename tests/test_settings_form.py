@@ -266,51 +266,96 @@ LEGACY_DIVERSITY = """## Respostas padrão
   - Heterossexual
   - Branco/Latino
 - Parentes na empresa: não
+
+## Outros campos de formulário
+- CPF: informar manualmente
 """
+DIVERSITY_SECTION = "Diversidade e inclusão"
 
 
 def diversity(data):
     fields = section_fields(data, "profile")
-    return {f["title"]: f for f in fields.values() if (f["parent"] or "").startswith("Diversidade")}
+    return {f["title"]: f for fid, f in fields.items() if fid.startswith(DIVERSITY_SECTION + "/")}
 
 
-def test_diversity_has_one_choice_per_question_with_prefer_not_and_other(db_path, skill):
+def test_diversity_has_one_field_per_question_closed_lists_for_disability_and_race(db_path, skill):
     fields = diversity(load(db_path))
 
-    assert set(fields) == {"Sexo", "Identidade de gênero", "Orientação sexual", "Raça/etnia"}
-    for field in fields.values():
-        assert field["kind"] == "choice_other"
-        assert "Prefiro não responder" in field["choices"] and len(field["choices"]) >= 4
+    assert list(fields) == ["Possui deficiência", "Cor/raça (IBGE)", "Sexo", "Identidade de gênero",
+                            "Orientação sexual"]
+    for title in ("Possui deficiência", "Cor/raça (IBGE)"):
+        assert fields[title]["kind"] == "choice"
+        assert [c["value"] for c in fields[title]["choices"]][0] == ""  # "Escolha…"
+        assert "Prefiro não responder" in [c["value"] for c in fields[title]["choices"]]
+    assert {"Branca", "Preta", "Parda", "Amarela", "Indígena"} <= {c["value"] for c in fields["Cor/raça (IBGE)"]["choices"]}
+    for title in ("Sexo", "Identidade de gênero", "Orientação sexual"):
+        assert fields[title]["kind"] == "choice_other" and "Prefiro não responder" in fields[title]["choices"]
     assert "Mulher transgênera" in fields["Identidade de gênero"]["choices"]
-    assert {"Branca", "Preta", "Parda", "Amarela", "Indígena"} <= set(fields["Raça/etnia"]["choices"])
+    assert any("PcD" in note for note in fields["Possui deficiência"]["notes"])
 
 
-def test_answers_written_as_loose_lines_are_recognized(db_path, skill):
+def test_old_answers_are_brought_to_the_new_fields_for_review(db_path, skill):
     (skill / "perfil.md").write_text(LEGACY_DIVERSITY, encoding="utf-8")
 
-    fields = diversity(load(db_path))
+    data = load(db_path)
+    profile, fields = section_fields(data, "profile"), diversity(data)
 
-    assert fields["Sexo"]["value"] == "Masculino"
+    assert not any(fid.startswith("Respostas padrão/Diversidade") for fid in profile)  # o campo antigo some
+    assert fields["Sexo"]["value"] == "Masculino" and fields["Sexo"]["migrated"]
     assert fields["Identidade de gênero"]["value"] == "Homem cisgênero"
     assert fields["Orientação sexual"]["value"] == "Heterossexual"
-    assert fields["Raça/etnia"]["value"] == "Branco/Latino"  # fora das opções: vira "Outra", sem perder o texto
+    assert fields["Cor/raça (IBGE)"]["value"] == "Branca"
+    assert fields["Possui deficiência"]["value"] == "" and not fields["Possui deficiência"].get("migrated")
+    assert any("formato antigo" in note for note in fields["Sexo"]["notes"])
 
 
-def test_changing_one_answer_rewrites_the_block_as_one_field_per_question(db_path, skill):
+def test_saving_the_reviewed_answers_writes_the_section_and_drops_the_old_block(db_path, skill):
     (skill / "perfil.md").write_text(LEGACY_DIVERSITY, encoding="utf-8")
-    fid = diversity(load(db_path))["Sexo"]["id"]
+    fields = diversity(load(db_path))
 
-    result = save({"profile": {fid: "Prefiro não responder"}}, db_path)
+    result = save({"profile": {fields["Sexo"]["id"]: "Masculino", fields["Cor/raça (IBGE)"]["id"]: "Branca",
+                               fields["Possui deficiência"]["id"]: "Não"}}, db_path)
 
     assert result["saved"], result["errors"]
     assert (skill / "perfil.md").read_text(encoding="utf-8") == """## Respostas padrão
-- Diversidade:
-  - Sexo: Prefiro não responder
-  - Identidade de gênero: Homem cisgênero
-  - Orientação sexual: Heterossexual
-  - Raça/etnia: Branco/Latino
 - Parentes na empresa: não
+
+## Diversidade e inclusão
+- Possui deficiência: Não
+- Cor/raça (IBGE): Branca
+- Sexo: Masculino
+- Identidade de gênero: Homem cisgênero
+- Orientação sexual: Heterossexual
+
+## Outros campos de formulário
+- CPF: informar manualmente
 """
+
+
+def test_closed_questions_only_take_their_options(db_path, skill):
+    (skill / "perfil.md").write_text("## Diversidade e inclusão\n- Cor/raça (IBGE): <PREENCHER>\n"
+                                     "- Sexo: <PREENCHER>\n", encoding="utf-8")
+    fields = diversity(load(db_path))
+
+    bad = save({"profile": {fields["Cor/raça (IBGE)"]["id"]: "Latina"}}, db_path)
+    good = save({"profile": {fields["Cor/raça (IBGE)"]["id"]: "Prefiro não responder",
+                             fields["Sexo"]["id"]: "Masculino"}}, db_path)
+
+    assert not bad["saved"] and "Branca" in bad["errors"]["profile." + fields["Cor/raça (IBGE)"]["id"]]
+    assert good["saved"], good["errors"]
+    assert "- Cor/raça (IBGE): Prefiro não responder\n- Sexo: Masculino\n" in (skill / "perfil.md").read_text(encoding="utf-8")
+
+
+def test_the_disability_field_warns_when_the_criteria_say_otherwise(db_path, skill):
+    (skill / "perfil.md").write_text("## Diversidade e inclusão\n- Possui deficiência: Não\n", encoding="utf-8")
+    criteria = (skill / "criterios-triagem.example.md").read_text(encoding="utf-8")
+    (skill / "criterios-triagem.md").write_text(
+        criteria.replace("- Vagas afirmativas que posso disputar: nenhuma", "- Vagas afirmativas que posso disputar: PcD"),
+        encoding="utf-8")
+
+    field = diversity(load(db_path))["Possui deficiência"]
+
+    assert any("critérios" in note and "PcD" in note for note in field["notes"])
 
 
 def test_pcd_terms_are_not_a_user_setting_anymore(db_path, skill):

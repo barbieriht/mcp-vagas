@@ -264,12 +264,12 @@ def test_enter_moves_to_the_next_field_and_diversity_offers_other(skill, db_path
             page.wait_for_timeout(300)
             assert requests == ["GET"] and not (skill / "perfil.md").exists()  # Enter não salva
 
-            page.get_by_label("Sexo", exact=True).select_option("Masculino")
-            race = page.get_by_label("Raça/etnia", exact=True)
-            race.select_option("__outra__")
-            other = page.get_by_label("Raça/etnia: outra resposta")
+            page.get_by_label("Cor/raça (IBGE)", exact=True).select_option("Branca")
+            gender = page.get_by_label("Identidade de gênero", exact=True)
+            gender.select_option("__outra__")
+            other = page.get_by_label("Identidade de gênero: outra resposta")
             assert other.is_visible() and page.evaluate("document.activeElement.placeholder") == "Escreva a resposta"
-            other.fill("Branco/Latino")
+            other.fill("Não-binárie")
             page.get_by_role("button", name="Salvar tudo").click()
             page.get_by_text("Tudo salvo").wait_for()
             browser.close()
@@ -278,8 +278,36 @@ def test_enter_moves_to_the_next_field_and_diversity_offers_other(skill, db_path
         server.server_close()
 
     profile = (skill / "perfil.md").read_text(encoding="utf-8")
-    assert "  - Sexo: Masculino\n" in profile and "  - Raça/etnia: Branco/Latino\n" in profile
-    assert "  - Identidade de gênero: <...>\n" in profile and "- Nome: Maria Teste" in profile
+    assert "- Cor/raça (IBGE): Branca\n" in profile and "- Identidade de gênero: Não-binárie\n" in profile
+    assert "- Sexo: <...>\n" in profile and "- Nome: Maria Teste" in profile
+
+
+@pytest.mark.skipif(not _chromium(), reason="Playwright com Chromium não instalado")
+def test_old_diversity_answers_are_saved_in_the_new_fields_with_one_click(skill, db_path):
+    from playwright.sync_api import sync_playwright
+
+    (skill / "perfil.md").write_text("## Respostas padrão\n- Diversidade:\n  - Sexo Masculino\n  - Branco/Latino\n"
+                                     "- Parentes na empresa: não\n", encoding="utf-8")
+    server = panel.make_server(db_path, token="t0k3n")
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            page.goto(server.url)
+            page.get_by_role("heading", name="Perfil para formulários").wait_for()
+            assert page.get_by_label("Cor/raça (IBGE)", exact=True).input_value() == "Branca"
+            page.get_by_role("button", name="Salvar tudo").click()
+            page.get_by_text("Tudo salvo").wait_for()
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    profile = (skill / "perfil.md").read_text(encoding="utf-8")
+    assert "Diversidade:" not in profile and "Sexo Masculino" not in profile
+    assert "- Cor/raça (IBGE): Branca\n- Sexo: Masculino\n" in profile
+    assert "- Possui deficiência: <PREENCHER>\n" in profile
 
 
 @pytest.mark.skipif(not _chromium(), reason="Playwright com Chromium não instalado")

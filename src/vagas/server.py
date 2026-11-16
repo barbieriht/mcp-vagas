@@ -34,7 +34,7 @@ from vagas.job_board import JobBoard
 from vagas.job_search import JobSearchStore
 from vagas.linkedin_import import LinkedInImporter
 from vagas.salary import SalaryPoint, SalaryStore
-from vagas.profile_fields import ProfileFiles, default_skill_dir
+from vagas.profile_fields import ProfileFiles, default_skill_dir, disability_answer
 from vagas.search_run import SearchRunStore
 from vagas.sensitive import Vault, default_backend, default_vault_path
 from vagas.salary_policy import default_policy_path
@@ -66,6 +66,9 @@ def _without_titles(node: Any, in_properties: bool = False) -> Any:
     if isinstance(node, list):
         return [_without_titles(item) for item in node]
     return node
+
+
+_MIGRATION_DECLINED = "profile_migration_declined"
 
 
 def build_server(
@@ -141,7 +144,7 @@ def build_server(
         return store(lambda conn: Triage(
             conn, fetcher=job_fetcher or http_fetch, criteria_path=default_criteria_path(db_path),
             policy_path=default_policy_path(db_path), draft_path=draft_path or default_draft_path(db_path),
-            salary_rule=salary_rule()))
+            salary_rule=salary_rule(), disability=lambda: disability_answer(db_path)))
 
     @server.tool()
     def settings_link() -> dict[str, Any]:
@@ -508,16 +511,22 @@ def build_server(
         bloqueio e pergunte ao usuário), "manual" (dado sensível: o usuário digita), "cofre" (documento
         de identidade guardado no cofre: quem preenche é a extensão do Chrome do usuário, não você;
         deixe o campo vazio, o value nunca é o dado) ou "cofre_vazio" (marcado como no cofre, mas não
-        cadastrado: o usuário cadastra com python -m vagas.sensitive set <vault_field>).
-        notes: orientações do campo (ex.: como escolher em escala fixa).
+        cadastrado: o usuário cadastra com python -m vagas.sensitive set <vault_field>) ou "migrar"
+        (respostas no formato antigo: não use; veja migration). notes: só orientações de como responder
+        (ex.: como escolher em escala fixa), nunca respostas.
+        migration (só quando há o que migrar): {id, section, fields: [{label, value, from}]}: os campos novos
+        propostos, com o texto de origem. Antes de preencher formulários, mostre-os ao usuário uma vez e chame
+        apply_profile_migration com a resposta dele. warnings: o que no perfil precisa da atenção dele.
         experience: {years_to_inform, years_computed, years_exact, years_declared, periods}. Quando o
         formulário pedir anos de experiência, informe years_to_inform: o valor que o usuário declarou no
         perfil ou, sem ele, os anos do currículo geral aprovado (somados sem sobreposição, arredondados).
         Não calcule você mesmo. periods: empresa, cargo, início e fim de cada experiência do currículo.
         """
+        with repo() as r:
+            declined = r.get_state(_MIGRATION_DECLINED)
         try:
             fields = (vault or Vault(default_vault_path(db_path), default_backend())).list()
-            profile = ProfileFiles(default_skill_dir(db_path)).get_profile(vault_fields=fields)
+            profile = ProfileFiles(default_skill_dir(db_path)).get_profile(vault_fields=fields, declined=declined)
         except VagasError as exc:
             raise ToolError(str(exc)) from exc
         try:
@@ -531,6 +540,25 @@ def build_server(
                         for item in (master or {}).get("experience", [])],
         }
         return profile
+
+    @server.tool()
+    def apply_profile_migration(accept: bool) -> dict[str, Any]:
+        """Responde à proposta `migration` do get_profile, depois de mostrá-la ao usuário: accept true grava os
+        campos novos da seção "Diversidade e inclusão" (sem resposta, ficam a preencher) e tira o campo antigo;
+        false guarda a recusa, e a proposta não volta. Chame só com a resposta dele, nunca por conta própria.
+        Retorna {written, to_fill} ou {declined: true}."""
+        try:
+            files = ProfileFiles(default_skill_dir(db_path))
+            if accept:
+                return files.apply_diversity_migration()
+            migration = files.get_profile(vault_fields=[]).get("migration")
+        except VagasError as exc:
+            raise ToolError(str(exc)) from exc
+        if migration is None:
+            raise ToolError("Não há proposta de migração no perfil.")
+        with repo() as r:
+            r.set_state(_MIGRATION_DECLINED, migration["id"])
+        return {"declined": True}
 
     @server.tool()
     def add_profile_field(label: str, section: str | None = None, value: str | None = None,

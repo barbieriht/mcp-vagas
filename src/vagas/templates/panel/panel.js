@@ -72,6 +72,11 @@ function badgeFor(control, show, text) {
   return badge;
 }
 
+// Resposta trazida do formato antigo do perfil: ainda não está no arquivo, então conta como alteração ao salvar.
+function loadedValue(field) {
+  return field.migrated ? null : field.value;
+}
+
 function hintFor(field, isNew) {
   if (!field.hint) return "";
   return isNew ? `Ex.: ${field.hint}` : field.hint;
@@ -153,7 +158,7 @@ function renderFileField(section, field, isNew) {
     else attrs.type = "text";
     control = el("input", attrs);
   }
-  register(section.key, field.id, field.value, () => control.value.trim(), control);
+  register(section.key, field.id, loadedValue(field), () => control.value.trim(), control);
   return el("div", { class: classes, "data-campo": name },
     el("div", { class: "cabeca" }, el("label", { for: id, text: field.title }),
       badgeFor(control, pending, field.missing ? "Campo novo" : "Falta preencher")),
@@ -175,7 +180,7 @@ function renderChoiceOther(section, field, name, id, classes, help, notes) {
   const showCustom = () => { custom.hidden = select.value !== OTHER; };
   select.addEventListener("change", () => { showCustom(); if (!custom.hidden) custom.focus(); });
   showCustom();
-  register(section.key, field.id, field.value, () => (select.value === OTHER ? custom.value.trim() : select.value), select);
+  register(section.key, field.id, loadedValue(field), () => (select.value === OTHER ? custom.value.trim() : select.value), select);
   return el("div", { class: classes, "data-campo": name },
     el("div", { class: "cabeca" }, el("label", { for: id, text: field.title }), badgeFor(select, !field.value, "Falta preencher")),
     help, select, custom, ...notes);
