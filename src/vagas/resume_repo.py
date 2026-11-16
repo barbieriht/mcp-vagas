@@ -16,7 +16,7 @@ from vagas.models import LINKEDIN_SECTIONS, RESUME_SOURCE_KINDS, STATUSES
 
 OPEN_STATUSES = ("a_aplicar", "pendente_usuario")
 from vagas.normalize import normalize_text
-from vagas.repo import Repo, VagasError, _require_choice, _require_text, _utcnow
+from vagas.repo import Repo, VagasError, _require_choice, _require_text, _utcnow, form_url_value
 from vagas.resume_extract import extract_pages, review_draft, windows_path, wsl_path
 from vagas.resume_diff import diff_master
 from vagas.resume_suggest import suggest_selection
@@ -340,8 +340,14 @@ class ResumeStore:
 
     def create_tailored_resume(
         self, selection: Any, out_dir: Path | str | None, application_id: int | None = None,
+        form_url: str | None = None,
     ) -> dict[str, Any]:
-        """Valida a seleção contra o currículo geral, gera o PDF e registra. Nada é gravado se falhar."""
+        """Valida a seleção contra o currículo geral, gera o PDF e registra. Nada é gravado se falhar.
+        form_url (com application_id) guarda na candidatura a página do formulário, onde a extensão anexa o PDF."""
+        if form_url is not None:
+            if application_id is None:
+                raise VagasError("'form_url' é da candidatura: informe também o application_id.")
+            form_url = form_url_value(form_url)
         if not isinstance(selection, TailoredSelection):
             try:
                 selection = TailoredSelection.model_validate(selection)
@@ -378,6 +384,8 @@ class ResumeStore:
                  json.dumps(selection.model_dump(exclude_none=True), ensure_ascii=False),
                  json.dumps(resolved, ensure_ascii=False), rendered["path"], rendered["pages"], self.now()),
             )
+            if form_url:
+                self.conn.execute("UPDATE applications SET form_url = ? WHERE id = ?", (form_url, application_id))
         return {"id": cursor.lastrowid, **rendered, "windows_path": windows_path(rendered["path"])}
 
     def suggest_tailored_selection(self, application_id: int) -> dict[str, Any]:

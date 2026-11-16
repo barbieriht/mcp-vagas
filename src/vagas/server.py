@@ -87,7 +87,7 @@ def build_server(
         "dela como link Markdown para a página da vaga, no formato [Cargo — Empresa](url), usando o campo url "
         "que as tools retornam; se a vaga não tiver url, escreva o nome sem link. Não mostre a URL crua ao lado. "
         "Em formulários de candidatura, os dados pessoais vêm de get_profile (não de cópias de arquivos da Skill), "
-        "e o currículo anexado é o personalizado da vaga, gerado com create_tailored_resume (com o application_id) "
+        "e o currículo anexado é o personalizado da vaga, gerado com create_tailored_resume (com o application_id e o form_url, o endereço da aba do formulário) "
         "só depois de abrir o formulário e ver nele um campo para enviar o currículo; vaga que usa o perfil do site "
         "(como algumas da Gupy) e não pede arquivo fica sem currículo personalizado. Se a geração falhar por pasta "
         "não configurada, chame get_config. Documentos "
@@ -309,6 +309,7 @@ def build_server(
         salary_expectation: str | None = None,
         work_mode: WorkMode | None = None,
         location: str | None = None,
+        form_url: str | None = None,
     ) -> dict[str, Any]:
         """Atualiza uma candidatura existente: etapa do processo, pendência, anotação e/ou dados da vaga.
 
@@ -331,6 +332,7 @@ def build_server(
           avaliação anterior não vale mais: resolva (confira o local com o usuário) e chame evaluate_salary.
         - salary_expectation: pretensão informada no formulário, como foi digitada (ex.: "R$ 15.500").
           Registre ao enviar a candidatura; fica separada da pretensão calculada (salary_ask).
+        - form_url: corrige a página https do formulário (ver create_tailored_resume); "" limpa.
 
         Mudança de status e nota ficam registradas como eventos (ver get_history).
         Retorna a candidatura atualizada, sem a descrição e sem campos vazios.
@@ -339,7 +341,7 @@ def build_server(
             updated = r.update_application(
                 id, status=status, note=note, pending=pending, discard_reason=discard_reason,
                 resume_id=resume_id, contract=contract, salary_expectation=salary_expectation,
-                work_mode=work_mode, location=location,
+                work_mode=work_mode, location=location, form_url=form_url,
             )
         if contract is None and work_mode is None and location is None:
             return application_record(updated)
@@ -637,7 +639,8 @@ def build_server(
             return s.suggest_tailored_selection(application_id)
 
     @server.tool()
-    def create_tailored_resume(selection: TailoredSelection, application_id: int | None = None) -> dict[str, Any]:
+    def create_tailored_resume(selection: TailoredSelection, application_id: int | None = None,
+                               form_url: str | None = None) -> dict[str, Any]:
         """Gera um currículo personalizado para uma vaga a partir do currículo geral aprovado.
 
         Escolha seções, itens e parágrafos (IDs de get_master_resume) e a ordem de seções e itens;
@@ -669,12 +672,18 @@ def build_server(
         vinculado depois com add_application/update_application e resume_id). Passe-o sempre que o
         currículo for para uma vaga: o arquivo se chama "<Nome>_<Sobrenome>_Resume_<Empresa>_<Cargo>.pdf"
         (cargo longo é encurtado), para distinguir vagas da mesma empresa. Sem ele, o nome usa o label.
+
+        form_url: endereço https da aba do formulário aberto, como está no navegador. Passe-o sempre (com
+        application_id): é por ele que a extensão do Chrome reconhece o formulário e anexa este PDF quando o
+        formulário fica fora do site onde a vaga foi achada (vaga do LinkedIn com formulário no SmartRecruiters,
+        Workday, Greenhouse ou no site da empresa). Fica gravado na candidatura.
         Retorna {"id", "path", "windows_path", "pages", "warnings"}; o PDF vai para VAGAS_RESUME_OUT.
         windows_path é o caminho como o usuário o vê no Windows (null fora de /mnt/<letra>): use-o ao
         pedir que ele anexe o arquivo na vaga.
         """
         with resumes() as s:
-            return s.create_tailored_resume(selection, resume_out or default_output_dir(db_path), application_id)
+            return s.create_tailored_resume(selection, resume_out or default_output_dir(db_path), application_id,
+                                            form_url)
 
     @server.tool()
     def read_job_posting(url: str) -> dict[str, Any]:
