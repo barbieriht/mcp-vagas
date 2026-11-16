@@ -9,12 +9,13 @@ from pathlib import Path
 from typing import Any
 
 import pypdf
+
+from vagas.resume_names import label_stem
 import typst
 
 from vagas.repo import VagasError
 
 MAX_PAGES = 2
-MAX_LABEL_CHARS = 70  # parte do rótulo no nome do arquivo; cargos longos são cortados entre palavras
 
 
 def default_output_dir(db_path: Path | str | None = None) -> Path | None:
@@ -24,7 +25,7 @@ def default_output_dir(db_path: Path | str | None = None) -> Path | None:
 
 
 def render_resume(resume: dict[str, Any], out_dir: Path | str | None, label: str | None = None,
-                  max_pages: int | None = None) -> dict[str, Any]:
+                  max_pages: int | None = None, stem: str | None = None) -> dict[str, Any]:
     """Gera o PDF em out_dir sem sobrescrever arquivos; retorna {path, pages, warnings}. Com max_pages, um PDF
     maior é recusado antes de ser gravado."""
     if out_dir is None:
@@ -47,7 +48,7 @@ def render_resume(resume: dict[str, Any], out_dir: Path | str | None, label: str
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = _free_path(out_dir, _file_stem(resume["basics"]["name"], label))
+    path = _free_path(out_dir, stem or label_stem(label))
     path.write_bytes(pdf)
 
     warnings = []
@@ -59,21 +60,6 @@ def render_resume(resume: dict[str, Any], out_dir: Path | str | None, label: str
 def _slug(text: str) -> str:
     ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
     return "_".join(re.findall(r"[A-Za-z0-9]+", ascii_text))
-
-
-def _file_stem(name: str, label: str | None) -> str:
-    words = name.split()
-    short = " ".join([words[0], words[-1]]) if len(words) > 1 else name
-    parts = [_slug(short), "Resume"]
-    if label and _slug(label):
-        parts.append(_shorten(_slug(label)))
-    return "_".join(parts)
-
-
-def _shorten(slug: str) -> str:
-    if len(slug) <= MAX_LABEL_CHARS:
-        return slug
-    return slug[:MAX_LABEL_CHARS + 1].rsplit("_", 1)[0]
 
 
 def _free_path(out_dir: Path, stem: str) -> Path:

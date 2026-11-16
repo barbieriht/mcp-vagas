@@ -210,7 +210,7 @@ async def test_render_master_resume_via_mcp(db_path, tmp_path, monkeypatch):
         unconfigured = await client.call_tool("render_master_resume", {})
 
     assert not_approved.is_error and "approve_master" in not_approved.content[0].text
-    assert rendered["path"] == str(tmp_path / "out" / "Fulana_Tal_Resume_Geral.pdf")
+    assert rendered["path"] == str(tmp_path / "out" / "Curriculo_Geral.pdf")
     assert rendered["pages"] == 1
     assert unconfigured.is_error and "VAGAS_RESUME_OUT" in unconfigured.content[0].text
 
@@ -237,7 +237,7 @@ async def test_tailored_resume_via_mcp(db_path, tmp_path):
         fetched = payload(await client.call_tool("get_resume", {"id": created["id"]}))
 
     assert "nunca" in tools["create_tailored_resume"].description.lower()
-    assert created["path"].endswith("Fulana_Tal_Resume_Nubank.pdf")
+    assert created["path"].endswith("Curriculo_Nubank.pdf")
     assert rejected.is_error and "45%" in rejected.content[0].text
     assert [r["id"] for r in listed["resumes"]] == [created["id"]]
     assert fetched["resolved"]["experience"][0]["company"] == "Acme Analytics"

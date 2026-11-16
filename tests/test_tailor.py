@@ -44,7 +44,7 @@ def test_creates_validates_renders_and_registers(store, out_dir):
     result = store.create_tailored_resume(selection(tech_lead({"id": P1})), out_dir)
 
     assert result["id"] > 0
-    assert result["path"] == str(out_dir / "Fulana_Tal_Resume_Nubank.pdf")
+    assert result["path"] == str(out_dir / "Curriculo_Nubank.pdf")
     assert result["pages"] == 1
     assert result["warnings"] == []
 
@@ -201,8 +201,8 @@ def test_result_gives_the_windows_path_when_the_pdf_is_under_mnt(store, tmp_path
 
     monkeypatch.setattr(system, "NATIVE_WINDOWS", False)  # comportamento do WSL; o nativo está em test_system
 
-    assert windows_path("/mnt/c/Users/T/Documents/Curriculos/Fulana_Tal_Resume_Nubank.pdf") == \
-        "C:\\Users\\T\\Documents\\Curriculos\\Fulana_Tal_Resume_Nubank.pdf"
+    assert windows_path("/mnt/c/Users/T/Documents/Curriculos/Curriculo_Nubank.pdf") == \
+        "C:\\Users\\T\\Documents\\Curriculos\\Curriculo_Nubank.pdf"
     assert windows_path("/mnt/d/x.pdf") == "D:\\x.pdf"
     assert windows_path("/home/u/x.pdf") is None
 

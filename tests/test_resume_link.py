@@ -57,8 +57,8 @@ def test_resume_for_an_application_is_named_after_company_and_role(repo, store, 
     first = store.create_tailored_resume(SELECTION, out_dir, application_id=ds["id"])
     second = store.create_tailored_resume(SELECTION, out_dir, application_id=mle["id"])
 
-    assert first["path"].endswith("Fulana_Tal_Resume_Nubank_Data_Scientist.pdf")
-    assert second["path"].endswith("Fulana_Tal_Resume_Nubank_Machine_Learning_Engineer_Pleno.pdf")
+    assert Path(first["path"]).name == f"Nubank_DS_{ds['id']}.pdf"  # sem o nome da pessoa, sempre o mesmo
+    assert Path(second["path"]).name == f"Nubank_MLE_Pl_{mle['id']}.pdf"
     assert store.get_resume(second["id"])["label"] == "Nubank - Machine Learning Engineer Pleno"
 
 
@@ -69,8 +69,8 @@ def test_long_role_titles_are_shortened_on_a_word_boundary(repo, store, out_dir)
     resume = store.create_tailored_resume(SELECTION, out_dir, application_id=app["id"])
 
     name = Path(resume["path"]).name
-    assert name.startswith("Fulana_Tal_Resume_Nubank_Cientista_de_Dados_Senior_Machine_Learning")
-    assert len(name) <= 100 and not name.endswith("_.pdf")
+    assert name == f"Nubank_DS_Sr_{app['id']}.pdf"
+    assert len(name) <= 50  # o Bradesco recusa nomes maiores
 
 
 def test_linking_to_unknown_application_is_rejected_before_generating(store, out_dir):

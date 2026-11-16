@@ -21,6 +21,7 @@ from vagas.resume_extract import extract_pages, review_draft, windows_path, wsl_
 from vagas.resume_diff import diff_master
 from vagas.resume_suggest import suggest_selection
 from vagas.resume_model import MasterResume, describe_errors
+from vagas.resume_names import application_stem
 from vagas.resume_render import MAX_PAGES, render_resume
 from vagas.resume_tailor import TailoredSelection, resolve, summary_problems
 from vagas.resume_validate import match_terms, source_note_problems, strings, term_set
@@ -353,7 +354,7 @@ class ResumeStore:
                 selection = TailoredSelection.model_validate(selection)
             except ValidationError as exc:
                 raise VagasError(describe_errors(exc, "Seleção inválida")) from exc
-        label = selection.label
+        label, stem = selection.label, None
         if application_id is not None:
             app = self.conn.execute(
                 "SELECT company, role FROM applications WHERE id = ?", (application_id,)
@@ -362,6 +363,7 @@ class ResumeStore:
                 raise VagasError(f"Candidatura {application_id} não existe.")
             # A mesma empresa pode ter várias vagas: o nome do arquivo identifica a vaga, não só a empresa.
             label = f"{app['company']} - {app['role']}"
+            stem = application_stem(app["company"], app["role"], application_id)
         master = self.get_master_resume()
         resolved = resolve(master["resume"], selection)
         if problems := summary_problems(resolved.get("summary"), from_master=selection.summary is None):
@@ -372,7 +374,7 @@ class ResumeStore:
                 f"O currículo geral aprovado tem campos que {SOURCE_NOTES_HELP}. Corrija o rascunho "
                 f"({self.draft_path}) com save_master_draft, mostre ao usuário e peça a aprovação (approve_master); "
                 "depois gere o currículo de novo:\n" + "\n".join(f"- {p}" for p in problems))
-        rendered = render_resume(resolved, out_dir, label=label, max_pages=MAX_PAGES)
+        rendered = render_resume(resolved, out_dir, label=label, max_pages=MAX_PAGES, stem=stem)
         with self.conn:
             cursor = self.conn.execute(
                 """

@@ -24,10 +24,10 @@ def out_dir(tmp_path):
 def test_renders_pdf_into_output_dir_with_professional_name(out_dir):
     result = render_resume(fictitious_resume(), out_dir, label="Nubank")
 
-    assert result["path"] == str(out_dir / "Fulana_Tal_Resume_Nubank.pdf")
+    assert result["path"] == str(out_dir / "Curriculo_Nubank.pdf")
     assert result["pages"] == 1
     assert result["warnings"] == []
-    assert (out_dir / "Fulana_Tal_Resume_Nubank.pdf").read_bytes().startswith(b"%PDF")
+    assert (out_dir / "Curriculo_Nubank.pdf").read_bytes().startswith(b"%PDF")
 
 
 def test_pdf_contains_the_resume_content(out_dir):
@@ -76,14 +76,14 @@ def test_existing_file_is_not_overwritten(out_dir):
     third = render_resume(fictitious_resume(), out_dir, label="Nubank")
 
     assert [first["path"], second["path"], third["path"]] == [
-        str(out_dir / f"Fulana_Tal_Resume_Nubank{suffix}.pdf") for suffix in ("", "_2", "_3")
+        str(out_dir / f"Curriculo_Nubank{suffix}.pdf") for suffix in ("", "_2", "_3")
     ]
 
 
 def test_label_is_sanitized_for_file_names(out_dir):
     result = render_resume(fictitious_resume(), out_dir, label="Itaú Unibanco S.A. / Dados")
 
-    assert result["path"] == str(out_dir / "Fulana_Tal_Resume_Itau_Unibanco_S_A_Dados.pdf")
+    assert result["path"] == str(out_dir / "Curriculo_Itau_Unibanco_S_A_Dados.pdf")
 
 
 def test_more_than_two_pages_is_a_warning(out_dir):
