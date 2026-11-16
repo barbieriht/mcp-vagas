@@ -261,7 +261,8 @@ class ProfileFiles:
 
     def add_profile_field(self, label: str, section: str | None = None, value: str | None = None,
                           sensitive: bool = False) -> dict[str, Any]:
-        label = (label or "").strip().rstrip(":").strip()
+        # Sem ":" no rótulo: "- rótulo: valor" separa no primeiro ":".
+        label = " ".join((label or "").strip().rstrip(":").replace(":", " -").split())
         if not label:
             raise VagasError("Informe 'label': o rótulo do campo como o formulário pede.")
         sensitive = sensitive or is_sensitive(label)
@@ -272,7 +273,7 @@ class ProfileFiles:
         perfil = _Profile(self.dir / "perfil.md")
         example = _Profile(self.dir / "perfil.example.md")
         wanted = section or OTHER_SECTION
-        if perfil.section(wanted, create=False) is None and section is not None:
+        if perfil.section(wanted, create=False) is None and section is not None and section != diversity.SECTION:
             names = ", ".join(name for _, name in perfil.sections())
             raise VagasError(f"Seção {section!r} não existe no perfil. Seções: {names}. Sem 'section', o campo vai "
                              f"para '{OTHER_SECTION}'.")
@@ -287,13 +288,15 @@ class ProfileFiles:
             result["line"] = perfil.lines[existing]
             result["section"] = next((n for i, n in reversed(perfil.sections()) if i < existing), wanted)
         else:
-            header, name = perfil.section(wanted, create=True)
+            header, name = (perfil.section_before(wanted, OTHER_SECTION) if wanted == diversity.SECTION
+                            else perfil.section(wanted, create=True))
             line = f"- {label}: {MANUAL if sensitive else value or PLACEHOLDER}"
             perfil.insert(header, line)
             result["created"]["perfil"] = True
             result["line"], result["section"] = line, name
         if example.find(label) is None:
-            header, _ = example.section(result["section"], create=True)
+            header, _ = (example.section_before(result["section"], OTHER_SECTION) if result["section"] == diversity.SECTION
+                         else example.section(result["section"], create=True))
             example.insert(header, f"- {label}: {MANUAL if sensitive else '<...>'}")
             result["created"]["example"] = True
         if result["created"]["perfil"] or result["updated"]:

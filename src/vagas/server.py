@@ -34,6 +34,7 @@ from vagas.job_board import JobBoard
 from vagas.job_search import JobSearchStore
 from vagas.linkedin_import import LinkedInImporter
 from vagas.salary import SalaryPoint, SalaryStore
+from vagas.form_answers import resolve
 from vagas.profile_fields import ProfileFiles, default_skill_dir, disability_answer
 from vagas.search_run import SearchRunStore
 from vagas.sensitive import Vault, default_backend, default_vault_path
@@ -502,6 +503,26 @@ def build_server(
         with resumes() as s:
             return s.save_master_draft(resume, overwrite=overwrite)
 
+    def load_profile() -> dict[str, Any]:
+        with repo() as r:
+            declined = r.get_state(_MIGRATION_DECLINED)
+        try:
+            fields = (vault or Vault(default_vault_path(db_path), default_backend())).list()
+            profile = ProfileFiles(default_skill_dir(db_path)).get_profile(vault_fields=fields, declined=declined)
+        except VagasError as exc:
+            raise ToolError(str(exc)) from exc
+        try:
+            with resumes() as r:
+                master = r.get_master_resume()["resume"]
+        except (VagasError, ToolError):
+            master = None
+        profile["experience"] = {
+            **years_to_declare(profile, master, date.today()),
+            "periods": [{k: item.get(k) for k in ("company", "title", "start", "end")}
+                        for item in (master or {}).get("experience", [])],
+        }
+        return profile
+
     @server.tool()
     def get_profile() -> dict[str, Any]:
         """Perfil do usuário para formulários, estruturado (perfil.md da Skill): use no lugar de ler o arquivo.
@@ -522,24 +543,40 @@ def build_server(
         perfil ou, sem ele, os anos do currículo geral aprovado (somados sem sobreposição, arredondados).
         Não calcule você mesmo. periods: empresa, cargo, início e fim de cada experiência do currículo.
         """
-        with repo() as r:
-            declined = r.get_state(_MIGRATION_DECLINED)
-        try:
-            fields = (vault or Vault(default_vault_path(db_path), default_backend())).list()
-            profile = ProfileFiles(default_skill_dir(db_path)).get_profile(vault_fields=fields, declined=declined)
-        except VagasError as exc:
-            raise ToolError(str(exc)) from exc
-        try:
-            with resumes() as r:
-                master = r.get_master_resume()["resume"]
-        except (VagasError, ToolError):
-            master = None
-        profile["experience"] = {
-            **years_to_declare(profile, master, date.today()),
-            "periods": [{k: item.get(k) for k in ("company", "title", "start", "end")}
-                        for item in (master or {}).get("experience", [])],
-        }
-        return profile
+        return load_profile()
+
+    @server.tool()
+    def resolve_form_answer(question: str, options: list[str] | None = None,
+                            application_id: int | None = None) -> dict[str, Any]:
+        """Resposta do perfil para uma pergunta de formulário: chame para cada pergunta que o perfil pode
+        responder (diversidade, sim/não, listas, idiomas, anos de experiência, pretensão salarial) antes de
+        perguntar qualquer coisa ao usuário. Não responda essas perguntas por conta própria.
+
+        question: o texto da pergunta como está no formulário; options: as opções oferecidas (vazio em campo
+        de texto); application_id: a candidatura, para a pretensão salarial dela.
+        Retorna {answer, source} (a opção exata a escolher, ou o texto a digitar) ou {blocked: true, reason}.
+        Com missing_field, o perfil não tem a resposta: o campo já foi criado (created true) ou estava a
+        preencher; pergunte ao usuário uma vez e grave com add_profile_field (label = missing_field, value);
+        as próximas vagas já saem preenchidas. Escalas de idioma: o nível mais próximo sem arredondar para cima.
+        Nunca deduz diversidade por nome, foto ou contexto."""
+        profile = load_profile()
+        salary = None
+        if application_id is not None:
+            with repo() as r:
+                salary = r.get(application_id).get("salary_ask")
+        result = resolve(profile, question, options, years=profile["experience"]["years_to_inform"], salary=salary)
+        if result.get("missing_field") and result.pop("existing") is False:
+            try:
+                added = ProfileFiles(default_skill_dir(db_path)).add_profile_field(
+                    result["missing_field"], section=result.pop("section"))
+            except VagasError as exc:
+                result["reason"] += f" O campo não foi criado no perfil: {exc}"
+                result["created"] = False
+            else:
+                result["created"] = added["created"]["perfil"]
+        elif result.get("missing_field"):
+            result["created"] = False
+        return result
 
     @server.tool()
     def apply_profile_migration(accept: bool) -> dict[str, Any]:

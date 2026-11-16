@@ -153,3 +153,15 @@ async def test_add_profile_field_via_mcp(db_path, skill, monkeypatch):
     assert ok["created"]["perfil"] is True
     assert bad.is_error and "sensível" in bad.content[0].text
     assert "informar manualmente" in tools["add_profile_field"].description
+
+
+def test_a_colon_inside_the_label_is_kept_out_of_the_line(skill):
+    files = ProfileFiles(skill)
+
+    files.add_profile_field("Como soube da vaga? (opções: LinkedIn, Indicação)")
+    files.add_profile_field("Como soube da vaga? (opções: LinkedIn, Indicação)", value="LinkedIn")
+
+    assert "- Como soube da vaga? (opções - LinkedIn, Indicação): LinkedIn\n" in read(skill, "perfil.md")
+    fields = [f for s in files.get_profile(vault_fields=[])["sections"] for f in s["fields"]]
+    assert {"label": "Como soube da vaga? (opções - LinkedIn, Indicação)", "value": "LinkedIn"} in [
+        {"label": f["label"], "value": f["value"]} for f in fields]

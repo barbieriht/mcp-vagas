@@ -1,0 +1,328 @@
+"""Resposta de uma pergunta de formulário a partir do perfil (saída de ProfileFiles.get_profile). Não depende de MCP.
+
+Escolhe, entre as opções do formulário, a que equivale ao valor do perfil: por igualdade, por grupos de
+equivalência explícitos ("Branca" = "Branco" = "White"; "Prefiro não responder" = "Não desejo informar"), por
+faixas numéricas (anos de experiência, pretensão) ou pela escala de idiomas (o nível mais próximo sem
+arredondar para cima). Sem equivalência, bloqueia com o motivo; nunca escolhe pela opção "mais parecida" nem
+deduz uma resposta que o perfil não tem. Perguntas de diversidade só saem dos campos de diversidade.
+"""
+
+import math
+import re
+from typing import Any
+
+from vagas import diversity
+from vagas.normalize import normalize_text
+
+LANGUAGES_LABEL = "Idiomas"
+
+# Grupos de equivalência: frases (normalizadas) que querem dizer a mesma resposta. Uma opção pertence ao grupo
+# quando é a frase ou começa por ela ("Não possuo deficiência" está em "Não").
+NOT_SAY = ("prefiro nao responder", "prefiro nao informar", "prefiro nao dizer", "prefiro nao declarar",
+           "nao desejo informar", "nao desejo responder", "nao desejo declarar", "nao quero informar",
+           "nao quero responder", "nao declarar", "nao informar", "nao informado", "prefer not to say",
+           "prefer not to answer", "i prefer not to say", "i prefer not to answer", "decline to answer",
+           "decline to self identify", "i dont wish to answer")
+GROUPS: tuple[tuple[str, ...], ...] = (
+    ("sim", "yes", "possuo", "tenho deficiencia", "sou pcd", "sou pessoa com deficiencia"),
+    ("nao", "no", "nenhuma", "nenhum", "nao possuo", "nao tenho", "nao sou pcd", "nao sou pessoa com deficiencia"),
+    ("branca", "branco", "white"),
+    ("preta", "preto", "black"),
+    ("parda", "pardo"),
+    ("amarela", "amarelo"),
+    ("indigena", "indigenous"),
+    ("homem cisgenero", "homem cis", "cisgender man", "cis man"),
+    ("mulher cisgenera", "mulher cisgenero", "mulher cis", "cisgender woman", "cis woman"),
+    ("homem transgenero", "homem trans", "transgender man", "trans man"),
+    ("mulher transgenera", "mulher transgenero", "mulher trans", "transgender woman", "trans woman"),
+    ("nao binario", "nao binarie", "non binary", "nonbinary"),
+    ("heterossexual", "hetero", "heterosexual", "straight"),
+    ("gay", "homossexual", "homosexual"),
+    ("lesbica", "lesbian"),
+    ("bissexual", "bisexual"),
+    ("pansexual",),
+    ("assexual", "asexual"),
+    # Amplos por último: "Homem cisgênero" também responde "Homem" quando o formulário só tem Homem/Mulher.
+    ("masculino", "homem", "male", "man"),
+    ("feminino", "mulher", "female", "woman"),
+)
+
+_LANGUAGE_NAMES = {
+    "ingles": ("ingles", "english"), "espanhol": ("espanhol", "spanish", "castelhano"),
+    "frances": ("frances", "french"), "alemao": ("alemao", "german"), "italiano": ("italiano", "italian"),
+    "portugues": ("portugues", "portuguese"), "mandarim": ("mandarim", "chines", "mandarin", "chinese"),
+    "japones": ("japones", "japanese"),
+}
+_CEFR = {"a1": 1, "a2": 2, "b1": 3, "b2": 4, "c1": 5, "c2": 6}
+_LEVEL_WORDS = (  # ordem importa: "intermediário avançado" antes de "intermediário" e de "avançado"
+    (("intermediario avancado", "upper intermediate", "intermediario superior"), 4),
+    (("nativo", "native", "lingua materna"), 7),
+    (("fluente", "fluent", "proficiente", "proficient"), 6),
+    (("avancado", "advanced"), 5),
+    (("intermediario", "intermediate"), 3),
+    (("basico", "basic", "elementar", "elementary"), 2),
+    (("iniciante", "beginner"), 1),
+)
+_YEARS = ("anos de experiencia", "tempo de experiencia", "years of experience", "experiencia em anos",
+          "quantos anos")
+_SALARY = ("pretensao", "expectativa salarial", "salario pretendido", "salario desejado", "remuneracao pretendida",
+           "remuneracao desejada", "salary expectation", "expected salary", "desired salary")
+_STOP = {"a", "o", "e", "de", "da", "do", "das", "dos", "em", "no", "na", "para", "com", "voce", "seu", "sua", "qual",
+         "quais", "possui", "tem", "ja", "um", "uma", "ao", "os", "as", "your", "do", "you", "have", "the", "of", "opcoes"}
+
+
+def _norm(text: str) -> str:
+    return " ".join(re.sub(r"[^a-z0-9+]+", " ", normalize_text(text or "")).split())
+
+
+def _is(option: str, phrase: str) -> bool:
+    return option == phrase or option.startswith(phrase + " ")
+
+
+def _not_say(text: str) -> bool:
+    return any(_is(_norm(text), p) for p in NOT_SAY)
+
+
+def _groups_of(value: str) -> list[tuple[str, ...]]:
+    norm = _norm(value)
+    return [g for g in GROUPS if any(_is(norm, p) for p in g)]
+
+
+def pick(value: str, options: list[str]) -> str | None:
+    """A opção que equivale ao valor do perfil, ou None. Sem opções, o próprio valor."""
+    if not options:
+        return value
+    norm = _norm(value)
+    if exact := [o for o in options if _norm(o) == norm]:
+        return exact[0]
+    if _not_say(value):
+        found = [o for o in options if _not_say(o)]
+        return found[0] if len(found) == 1 else None
+    for group in _groups_of(value):
+        found = [o for o in options if not _not_say(o) and any(_is(_norm(o), p) for p in group)]
+        if len(found) == 1:
+            return found[0]
+        if found:
+            return None  # duas opções no mesmo grupo: não escolhe
+    contained = [o for o in options if len(_norm(o)) >= 3 and not _not_say(o)
+                 and (_norm(o) in norm or norm in _norm(o))]
+    return contained[0] if len(contained) == 1 else None
+
+
+# --- faixas numéricas ------------------------------------------------------------------------------
+
+def _number(text: str) -> float:
+    """"8.001" -> 8001; "12.000,50" -> 12000.5; "3,5" -> 3.5."""
+    if "," in text:
+        whole, _, cents = text.rpartition(",")
+        return float(whole.replace(".", "") + "." + cents)
+    if re.fullmatch(r"\d{1,3}(\.\d{3})+", text):
+        return float(text.replace(".", ""))
+    return float(text)
+
+
+def _range(option: str) -> tuple[float, float, bool] | None:
+    """(mínimo, máximo, mínimo exclusivo) da opção, ou None se ela não tem número."""
+    numbers = [_number(n.rstrip(".,")) for n in re.findall(r"\d[\d.,]*", option)]
+    if not numbers:
+        return None
+    norm = _norm(option)
+    low = numbers[0]
+    if re.search(r"\d\s*\+", option) or "ou mais" in norm or "a partir de" in norm or "or more" in norm:
+        return low, math.inf, False
+    if any(w in norm for w in ("mais de", "acima de", "superior a", "more than", "over", "above")):
+        return low, math.inf, True
+    if any(w in norm for w in ("menos de", "abaixo de", "inferior a", "less than", "under", "below")):
+        return -math.inf, low - 1e-9, False
+    if norm.startswith(("ate ", "up to")):
+        return -math.inf, low, False
+    if len(numbers) >= 2:
+        return min(numbers[:2]), max(numbers[:2]), False
+    return low, low, False
+
+
+def pick_number(value: float, options: list[str]) -> str | None:
+    """A opção cuja faixa contém o valor; com duas (bordas iguais, "1+" e "3+"), a de mínimo maior."""
+    if not options:
+        return str(int(value)) if float(value).is_integer() else str(value)
+    found = []
+    for option in options:
+        bounds = _range(option)
+        if bounds is None:
+            continue
+        low, high, exclusive = bounds
+        if (value > low if exclusive else value >= low) and value <= high:
+            found.append((low, option))
+    return max(found)[1] if found else None
+
+
+# --- idiomas ---------------------------------------------------------------------------------------
+
+def _level(text: str) -> int | None:
+    norm = _norm(text)
+    if found := re.search(r"\b([abc][12])\b", norm):
+        return _CEFR[found.group(1)]
+    return next((rank for words, rank in _LEVEL_WORDS if any(w in norm for w in words)), None)
+
+
+def _language_of(question: str) -> str | None:
+    tokens = set(_norm(question).split())
+    return next((key for key, names in _LANGUAGE_NAMES.items() if tokens & set(names)), None)
+
+
+def _languages(value: str) -> dict[str, str]:
+    from vagas.settings_files import parse_languages
+
+    rows = {}
+    for row in parse_languages(value):
+        key = _language_of(row["language"])
+        if key:
+            rows[key] = row["level"]
+    return rows
+
+
+# --- resolução -------------------------------------------------------------------------------------
+
+def _fields(profile: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    return [(s["name"], f) for s in profile.get("sections") or [] for f in s.get("fields") or []]
+
+
+def _find(profile: dict[str, Any], label: str) -> tuple[str, dict[str, Any]] | None:
+    key = _norm(label)
+    return next(((s, f) for s, f in _fields(profile) if _norm(f["label"]) == key), None)
+
+
+def _diversity_questions(question: str) -> list[diversity.Question]:
+    norm = _norm(question)
+    tokens = set(norm.split())
+    by = {q.label: q for q in diversity.QUESTIONS}
+    if "deficien" in norm or tokens & {"pcd", "pcds", "disability"}:
+        return [by[diversity.DISABILITY]]
+    if "orientacao" in tokens or "sexual orientation" in norm:
+        return [by["Orientação sexual"]]
+    if "identidade de genero" in norm or "gender identity" in norm:
+        return [by["Identidade de gênero"]]
+    if tokens & {"raca", "etnia", "cor", "race", "ethnicity"}:
+        return [by["Cor/raça (IBGE)"]]
+    if tokens & {"sexo", "sex"}:
+        return [by["Sexo"]]
+    if tokens & {"genero", "gender"}:
+        return [by["Identidade de gênero"], by["Sexo"]]
+    return []
+
+
+def _blocked_by_status(section: str, field: dict[str, Any]) -> dict[str, Any] | None:
+    status, label = field["status"], field["label"]
+    if status == "preencher":
+        return {"blocked": True, "missing_field": label, "existing": True,
+                "reason": f"O campo {label!r} do perfil ainda está a preencher: pergunte ao usuário e grave com "
+                          "add_profile_field (mesmo label, value)."}
+    if status in ("cofre", "cofre_vazio"):
+        return {"blocked": True, "reason": f"{label} é documento do cofre: quem preenche é a extensão do Chrome. "
+                                           "Deixe o campo vazio."}
+    if status == "manual":
+        return {"blocked": True, "reason": f"{label} é dado sensível: o usuário digita no formulário."}
+    if status == "migrar":
+        return {"blocked": True, "reason": "As respostas de diversidade estão no formato antigo: mostre a proposta "
+                                           "'migration' do get_profile ao usuário e chame apply_profile_migration."}
+    return None
+
+
+def _answer(section: str, field: dict[str, Any], options: list[str]) -> dict[str, Any]:
+    if blocked := _blocked_by_status(section, field):
+        return blocked
+    chosen = pick(field["value"], options)
+    if chosen is None:
+        return {"blocked": True, "reason": f"Nenhuma opção do formulário equivale a {field['value']!r} (campo "
+                                           f"{field['label']!r} do perfil). Opções: {', '.join(options)}."}
+    return {"answer": chosen, "source": {"kind": "perfil", "field": field["label"], "section": section}}
+
+
+def _missing(label: str, section: str | None) -> dict[str, Any]:
+    return {"blocked": True, "missing_field": label, "existing": False, "section": section,
+            "reason": f"O perfil não tem {label!r}: pergunte ao usuário uma vez e grave a resposta com "
+                      "add_profile_field (mesmo label, value)."}
+
+
+def _by_label(profile: dict[str, Any], question: str) -> tuple[str, dict[str, Any]] | None:
+    """O campo cujo rótulo é a pergunta: igual, ou com todas as palavras de um contidas no outro (o mais longo)."""
+    words = set(_norm(question).split()) - _STOP
+    if not words:
+        return None
+    best = None
+    for section, field in _fields(profile):
+        if diversity.question(field["label"]) or diversity.is_old_block(field["label"]):
+            continue  # diversidade só pela pergunta reconhecida
+        if _norm(field["label"]) == _norm(question):
+            return section, field
+        label_words = set(_norm(field["label"]).split()) - _STOP
+        if label_words and (label_words <= words or words <= label_words):
+            score = len(label_words & words)
+            if best is None or score > best[0]:
+                best = (score, section, field)
+    return (best[1], best[2]) if best else None
+
+
+def resolve(profile: dict[str, Any], question: str, options: list[str] | None = None, years: float | None = None,
+            salary: float | None = None) -> dict[str, Any]:
+    """{answer, source} ou {blocked: true, reason, missing_field?, existing?, section?}.
+
+    years: anos de experiência a informar (get_profile.experience.years_to_inform); salary: pretensão da
+    candidatura (salary_ask). missing_field com existing false: o campo a criar no perfil (o rótulo da
+    pergunta, com as opções vistas)."""
+    options = [o.strip() for o in options or [] if o and o.strip()]
+    norm = _norm(question)
+    if questions := _diversity_questions(question):
+        pending = next(((s, f) for s, f in _fields(profile) if f["status"] == "migrar"), None)
+        if pending:  # criar o campo agora tiraria a resposta antiga da proposta de migração
+            return _blocked_by_status(*pending)
+        first = None
+        for q in questions:
+            found = _find(profile, q.label) or next(
+                ((s, f) for s, f in _fields(profile) if diversity.question(f["label"]) is q), None)
+            result = _answer(*found, options) if found else _missing(q.label, diversity.SECTION)
+            if "answer" in result:
+                return result
+            first = first or result
+        return first
+    if language := _language_of(question):
+        found = _find(profile, LANGUAGES_LABEL)
+        level = _languages(found[1]["value"]).get(language) if found and found[1]["status"] == "ok" else None
+        if level is not None:
+            return _language_answer(found[0], level, options)
+    if any(w in norm for w in _YEARS):
+        if years is None:
+            return {"blocked": True, "reason": "Anos de experiência não calculados: aprove o currículo geral ou "
+                                               "declare 'Anos de experiência a declarar' no perfil."}
+        chosen = pick_number(years, options)
+        if chosen is None:
+            return {"blocked": True, "reason": f"Nenhuma opção cobre {years} anos. Opções: {', '.join(options)}."}
+        return {"answer": chosen, "source": {"kind": "experiencia", "field": "years_to_inform"}}
+    if any(w in norm for w in _SALARY):
+        if salary is None:
+            return {"blocked": True, "reason": "Sem pretensão calculada para esta vaga: passe o application_id e, se "
+                                               "ainda não houver, chame evaluate_salary."}
+        chosen = pick_number(salary, options)
+        if chosen is None:
+            return {"blocked": True, "reason": f"Nenhuma opção cobre a pretensão {salary:g}. Opções: {', '.join(options)}."}
+        return {"answer": chosen, "source": {"kind": "pretensao", "field": "salary_ask"}}
+    if found := _by_label(profile, question):
+        return _answer(*found, options)
+    # Sem ":" no rótulo: no perfil, "- rótulo: valor" separa no primeiro ":".
+    label = " ".join(question.strip().rstrip("*:").replace(":", " -").split())
+    if options:
+        label = f"{label} (opções {', '.join(o.replace(':', ' -') for o in options)})"
+    return _missing(label, None)
+
+
+def _language_answer(section: str, level: str, options: list[str]) -> dict[str, Any]:
+    source = {"kind": "perfil", "field": LANGUAGES_LABEL, "section": section}
+    if not options:
+        return {"answer": level, "source": source}
+    mine = _level(level)
+    ranked = [(rank, option) for option in options if (rank := _level(option)) is not None]
+    fitting = [(rank, option) for rank, option in ranked if mine is not None and rank <= mine]
+    if not fitting:
+        return {"blocked": True, "reason": f"Nenhuma opção cabe no nível {level!r} sem arredondar para cima. "
+                                           f"Opções: {', '.join(options)}."}
+    return {"answer": max(fitting)[1], "source": source}
