@@ -249,3 +249,14 @@ def test_the_job_board_page_still_finds_the_resume_after_the_form_url(autofill, 
     asked = ask(autofill, "https://www.linkedin.com/jobs/view/4490042706/apply/")
 
     assert [r["application_id"] for r in asked["resumes"]] == [app["id"]]
+
+
+def test_the_host_still_works_before_the_server_migrates_the_database(autofill, make, conn):
+    # O host lê o banco sem migrar: até o servidor novo abrir o banco, a coluna form_url não existe.
+    app = make("https://acme.gupy.io/jobs/123")
+    conn.execute("ALTER TABLE applications DROP COLUMN form_url")
+    conn.commit()
+
+    asked = ask(autofill, "https://acme.gupy.io/candidates/jobs/123/apply")
+
+    assert [r["application_id"] for r in asked["resumes"]] == [app["id"]]

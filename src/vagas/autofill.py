@@ -419,19 +419,23 @@ class Applications:
         self.db_path = Path(db_path)
 
     def _rows(self, sql: str) -> list[sqlite3.Row]:
+        """{form_url} no SQL vira a coluna, ou NULL num banco que o servidor ainda não migrou (v16)."""
         if not self.db_path.exists():
             return []
         conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
         try:
-            return conn.execute(sql, OPEN_STATUSES).fetchall()
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(applications)")}
+            form_url = "a.form_url" if "form_url" in columns else "NULL"
+            return conn.execute(sql.format(form_url=form_url), OPEN_STATUSES).fetchall()
         finally:
             conn.close()
 
     def sites(self) -> dict[str, str]:
         """Site próprio de cada candidatura aberta -> empresa."""
         sites = {}
-        rows = self._rows(f"SELECT company, url, form_url FROM applications WHERE status IN ({_marks()}) ORDER BY updated_at")
+        rows = self._rows(f"SELECT a.company, a.url, {{form_url}} AS form_url FROM applications a "
+                          f"WHERE a.status IN ({_marks()}) ORDER BY a.updated_at")
         for row in rows:
             for url in (row["url"], row["form_url"]):
                 host = (urlsplit(url or "").hostname or "").lower()
@@ -442,7 +446,8 @@ class Applications:
     def with_resumes(self) -> list[dict[str, Any]]:
         """Candidaturas abertas com o último currículo personalizado, no caminho onde foi salvo."""
         rows = self._rows(f"""
-            SELECT a.id AS application_id, a.company, a.role, a.url, a.url_canonical, a.form_url, r.pdf_path AS path
+            SELECT a.id AS application_id, a.company, a.role, a.url, a.url_canonical, {{form_url}} AS form_url,
+                   r.pdf_path AS path
             FROM applications a
             JOIN resumes r ON r.id = (SELECT MAX(id) FROM resumes WHERE application_id = a.id)
             WHERE a.status IN ({_marks()})
