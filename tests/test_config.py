@@ -159,7 +159,7 @@ async def test_configured_folders_are_used_by_the_tools(db_path, tmp_path):
         await client.call_tool("add_application", {"company": "Nubank", "role": "DS", "source": "linkedin"})
         exported = payload(await client.call_tool("export_csv", {}))
 
-    assert rendered["path"] == str(pdfs / "Fulana_Tal_Resume_Geral.pdf")
+    assert rendered["path"] == str(pdfs / "Curriculo_Geral.pdf")
     assert exported["path"].startswith(str(csvs))
     assert draft.exists()
     assert json.loads(json.dumps(str(draft)))
