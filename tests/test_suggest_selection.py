@@ -131,3 +131,25 @@ def test_certifications_are_capped_by_relevance():
 
     certs = picks(result["selection"], "certifications")["items"][0]["items"]
     assert certs == ["cert-1", "cert-3", "cert-5", "cert-7", "cert-9", "cert-0"]
+
+
+async def test_the_form_url_goes_through_the_tools(db_path, tmp_path):
+    server = build_server(db_path, draft_path=tmp_path / "curriculo.yaml", resume_out=tmp_path / "pdfs")
+    form = "https://jobs.smartrecruiters.com/Beta/744000-ai-engineer"
+    async with Client(server) as client:
+        await client.call_tool("save_master_draft", {"resume": master()})
+        await client.call_tool("approve_master", {})
+        app = (await client.call_tool("add_application", {
+            "company": "Beta", "role": "AI Engineer", "source": "linkedin", "status": "a_aplicar",
+            "url": "https://www.linkedin.com/jobs/view/4490042706/"})).structured_content["application"]
+        tools = {t.name: t for t in (await client.list_tools()).tools}
+        created = await client.call_tool("create_tailored_resume", {
+            "selection": {"label": "Beta", "sections": [{"section": "experience"}]},
+            "application_id": app["id"], "form_url": form})
+        history = (await client.call_tool("get_history", {"id": app["id"]})).structured_content
+        cleared = (await client.call_tool("update_application", {"id": app["id"], "form_url": ""})).structured_content
+
+    assert not created.is_error, created.content
+    assert history["application"]["form_url"] == form
+    assert "form_url" not in cleared
+    assert "form_url" in tools["create_tailored_resume"].input_schema["properties"]
