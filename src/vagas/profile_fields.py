@@ -5,11 +5,13 @@ arquivos, na mesma seção: no perfil com o valor (ou <PREENCHER>), no exemplo c
 sensíveis (documentos, senhas, dados bancários) nunca são guardados: ficam como "informar manualmente".
 """
 
+import hashlib
 import os
 import re
 from pathlib import Path
 from typing import Any
 
+from vagas import diversity
 from vagas.normalize import normalize_text
 from vagas.repo import VagasError
 from vagas.salary_policy import default_policy_path
@@ -35,6 +37,18 @@ def default_skill_dir(db_path: Path | str | None = None) -> Path:
 
 def _key(label: str) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", normalize_text(label)))
+
+
+def _label(line: str) -> str:
+    return _ITEM.match(line)["label"].strip()
+
+
+def disability_answer(db_path: Path | str | None = None) -> str | None:
+    """"Possui deficiência" do perfil da Skill, para a triagem; None sem o campo ou sem a pasta da Skill."""
+    try:
+        return ProfileFiles(default_skill_dir(db_path)).disability()
+    except VagasError:
+        return None
 
 
 def is_sensitive(label: str) -> bool:
@@ -71,6 +85,33 @@ class _Profile:
         self.lines += ["", f"## {wanted}"]
         return len(self.lines) - 1, wanted
 
+    def block_end(self, index: int) -> int:
+        """Fim do bloco do campo na linha index: a linha depois dos subitens indentados."""
+        end = index + 1
+        while end < len(self.lines) and self.lines[end].strip() and self.lines[end][:1] in (" ", "\t"):
+            end += 1
+        return end
+
+    def old_diversity(self) -> tuple[int, int, list[str]] | None:
+        """O campo "Diversidade" do formato antigo: (início, fim, textos dos subitens)."""
+        for i, line in enumerate(self.lines):
+            if (m := _ITEM.match(line)) and diversity.is_old_block(m["label"]):
+                end = self.block_end(i)
+                children = [c.strip()[2:].strip() for c in self.lines[i + 1:end] if c.strip().startswith("- ")]
+                return i, end, children
+        return None
+
+    def section_before(self, wanted: str, before: str) -> tuple[int, str]:
+        """A seção; sem ela, cria antes da seção `before` (ou no fim)."""
+        found = self.section(wanted, create=False)
+        if found is not None:
+            return found
+        anchor = self.section(before, create=False)
+        if anchor is None:
+            return self.section(wanted, create=True)
+        self.lines[anchor[0]:anchor[0]] = [f"## {wanted}", ""]
+        return anchor[0], wanted
+
     def insert(self, header: int, line: str) -> None:
         end = next((i for i in range(header + 1, len(self.lines)) if self.lines[i].startswith("## ")), len(self.lines))
         last = max((i for i in range(header, end) if self.lines[i].strip()), default=header)
@@ -85,9 +126,13 @@ class ProfileFiles:
     def __init__(self, skill_dir: Path | str):
         self.dir = Path(skill_dir)
 
-    def get_profile(self, vault_fields: list[str]) -> dict[str, Any]:
-        """Perfil estruturado: seções e campos com status (ok, preencher, manual, cofre, cofre_vazio),
-        subitens como observações. Campos do cofre nunca trazem o valor, só a indicação."""
+    def get_profile(self, vault_fields: list[str], declined: str | None = None) -> dict[str, Any]:
+        """Perfil estruturado: seções e campos com status (ok, preencher, manual, cofre, cofre_vazio, migrar),
+        subitens como observações. Campos do cofre nunca trazem o valor, só a indicação.
+
+        Respostas de diversidade no formato antigo (subitens de "Diversidade") nunca saem como observações:
+        o campo fica "migrar" e `migration` propõe os campos novos, para o usuário confirmar. `declined` é o
+        id de uma proposta que ele recusou: ela não volta, e o campo fica "preencher"."""
         from vagas.sensitive import ALLOWED_FIELDS
 
         by_label = {_key(label): field for field, label in ALLOWED_FIELDS.items()}
@@ -96,6 +141,10 @@ class ProfileFiles:
         to_fill: list[str] = []
         vault_missing: list[str] = []
         current = None
+        old = perfil.old_diversity()
+        old_line = perfil.lines[old[0]] if old and old[2] else None
+        migration = self._migration(perfil) if old_line else None
+        offered = migration is not None and migration["id"] != declined
         for line in perfil.lines:
             if line.startswith("## "):
                 sections.append({"name": line[3:].strip(), "fields": []})
@@ -106,7 +155,11 @@ class ProfileFiles:
             if item:
                 label, value = item["label"].strip(), item["value"].strip()
                 field: dict[str, Any] = {"label": label, "value": value, "status": "ok", "notes": []}
-                if value.startswith("<"):
+                if line == old_line:
+                    field["value"], field["status"] = "", "migrar" if offered else "preencher"
+                    if not offered:
+                        to_fill.append(label)
+                elif value.startswith("<"):
                     field["status"] = "preencher"
                     to_fill.append(label)
                 elif _key(value) == _key(MANUAL) and by_label.get(_key(label)) in vault_fields:
@@ -123,8 +176,65 @@ class ProfileFiles:
                 sections[-1]["fields"].append(field)
                 current = field
             elif line.startswith((" ", "\t")) and line.strip().startswith("- ") and current is not None:
-                current["notes"].append(line.strip()[2:].strip())
-        return {"sections": sections, "to_fill": to_fill, "vault_missing": vault_missing}
+                if current["status"] not in ("migrar",) and not (old_line and current["label"] == _label(old_line)):
+                    current["notes"].append(line.strip()[2:].strip())
+        result: dict[str, Any] = {"sections": sections, "to_fill": to_fill, "vault_missing": vault_missing}
+        if old_line and offered:
+            result["migration"] = migration
+            result["warnings"] = [
+                "As respostas de diversidade estão no formato antigo (subitens do campo \"Diversidade\") e não valem "
+                "nos formulários. Mostre ao usuário os campos de 'migration' (valor proposto e o texto de origem) e "
+                "pergunte se confirma; com a resposta dele, chame apply_profile_migration (accept true ou false)."]
+        elif old_line:
+            result["warnings"] = [
+                "O usuário recusou migrar as respostas de diversidade do formato antigo: elas não valem nos formulários. "
+                f"Pergunte cada uma quando um formulário pedir e grave com add_profile_field (section \"{diversity.SECTION}\")."]
+        return result
+
+    def _migration(self, perfil: "_Profile") -> dict[str, Any] | None:
+        old = perfil.old_diversity()
+        if old is None or not old[2]:
+            return None
+        present = {m["label"].strip() for line in perfil.lines if (m := _ITEM.match(line))}
+        fields = diversity.proposal(old[2], present)
+        block = "\n".join(perfil.lines[old[0]:old[1]])
+        return {"id": hashlib.sha256(block.encode("utf-8")).hexdigest()[:16], "section": diversity.SECTION,
+                "fields": fields}
+
+    def apply_diversity_migration(self) -> dict[str, Any]:
+        """Grava a proposta de `migration`: um campo por pergunta na seção "Diversidade e inclusão" (sem resposta,
+        <PREENCHER>) e tira o campo antigo com os subitens. O exemplo recebe os campos com <...>."""
+        perfil = _Profile(self.dir / "perfil.md")
+        migration = self._migration(perfil)
+        if migration is None:
+            raise VagasError("Não há respostas de diversidade no formato antigo para migrar.")
+        start, end, _ = perfil.old_diversity()
+        del perfil.lines[start:end]
+        header, _ = perfil.section_before(diversity.SECTION, OTHER_SECTION)
+        for row in migration["fields"]:
+            perfil.insert(header, f"- {row['label']}: {row['value'] or PLACEHOLDER}")
+        perfil.save()
+        example = _Profile(self.dir / "perfil.example.md")
+        if (old := example.old_diversity()) is not None:
+            del example.lines[old[0]:old[1]]
+        header, _ = example.section_before(diversity.SECTION, OTHER_SECTION)
+        for q in diversity.QUESTIONS:
+            if example.find(q.label) is None:
+                example.insert(header, f"- {q.label}: <...>")
+        example.save()
+        return {"written": [r["label"] for r in migration["fields"] if r["value"]],
+                "to_fill": [r["label"] for r in migration["fields"] if not r["value"]]}
+
+    def disability(self) -> str | None:
+        """"Possui deficiência" do perfil (diversity.disability); None sem o campo."""
+        path = self.dir / "perfil.md"
+        if not path.exists():
+            return None
+        perfil = _Profile(path)
+        index = perfil.find(diversity.DISABILITY)
+        if index is None:
+            return None
+        return diversity.disability(_ITEM.match(perfil.lines[index])["value"])
 
     def talent_pool(self) -> bool | None:
         """Resposta de "Incluir em bancos de talentos" no perfil.md: True (sim), False (não) ou None (sem resposta)."""

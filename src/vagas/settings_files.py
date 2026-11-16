@@ -11,11 +11,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from vagas import affirmative, md_fields
+from vagas import affirmative, diversity, md_fields
 from vagas.models import ROLE_KEYS, ROLE_NAMES, SENIORITIES, SENIORITY_LABELS
 from vagas.normalize import normalize_text
 from vagas.experience import DECLARED_LABEL
-from vagas.profile_fields import MANUAL, TALENT_POOL, default_skill_dir, is_sensitive
+from vagas.profile_fields import MANUAL, OTHER_SECTION, TALENT_POOL, default_skill_dir, is_sensitive
 from vagas.repo import VagasError
 
 PENDING = "<PREENCHER>"
@@ -53,63 +53,44 @@ _YES = {"sim", "s", "yes"}
 _NO = {"nao", "n", "no"}
 
 
-# Diversidade: uma pergunta por campo, com as opções mais comuns nos formulários (IBGE para raça/cor),
-# "Prefiro não responder" e texto livre ("Outra") para qualquer resposta fora da lista.
-NOT_SAY = "Prefiro não responder"
-DIVERSITY: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
-    # (rótulo, opções, prefixos e palavras que identificam a pergunta numa linha solta)
-    ("Sexo", ("Masculino", "Feminino", "Intersexo"), ("sexo", "masc", "femin", "intersex")),
-    ("Identidade de gênero", ("Homem cisgênero", "Mulher cisgênera", "Homem transgênero", "Mulher transgênera",
-                              "Não binário", "Travesti"),
-     ("identidade de genero", "genero", "cis", "trans", "binari", "travesti")),
-    ("Orientação sexual", ("Heterossexual", "Gay", "Lésbica", "Bissexual", "Pansexual", "Assexual"),
-     ("orientacao sexual", "orientacao", "hetero", "homo", "gay", "lesbic", "bissex", "pansex", "assex")),
-    ("Raça/etnia", ("Branca", "Preta", "Parda", "Amarela", "Indígena"),
-     ("raca/etnia", "raca", "etnia", "cor", "branc", "pret", "negr", "pard", "amarel", "indigen", "latin")),
-)
+# Diversidade e inclusão: um campo por pergunta (vagas.diversity). Listas fechadas (deficiência, cor/raça do IBGE)
+# viram uma escolha; as demais aceitam "Outra" com texto livre. O campo "Diversidade" do formato antigo some: as
+# respostas dele aparecem nos campos novos, para o usuário conferir e salvar.
+MIGRATED_NOTE = "Resposta trazida do formato antigo do perfil: confira e salve para gravar."
+DISABILITY_NOTE = 'Também decide a triagem: só com "Sim" as vagas exclusivas para PcD seguem.'
 
 
-def _is_diversity(item: md_fields.Item) -> bool:
-    return item.parent is None and _norm(item.label).startswith("diversidade")
+def _question(item: md_fields.Item) -> diversity.Question | None:
+    return diversity.question(item.label) if item.parent is None else None
 
 
-def _strip_question(text: str, words: tuple[str, ...]) -> str:
-    """"Sexo Masculino" -> "Masculino"; "Raça: Parda" -> "Parda"."""
-    norm = _norm(text)
-    for word in words[:3]:
-        if norm.startswith(word + " ") or norm.startswith(word + ":"):
-            return text.strip()[len(word) + 1:].strip(" :")
-    return text.strip()
+def _old_block(items: list[md_fields.Item]) -> tuple[md_fields.Item, dict[str, dict[str, str | None]]] | None:
+    """O campo "Diversidade" antigo e a proposta de cada pergunta que o perfil ainda não tem."""
+    old = next((i for i in items if i.parent is None and diversity.is_old_block(i.label)), None)
+    if old is None:
+        return None
+    children = [f"{c.label}: {c.value}" for c in items if c.parent == old.label and c.section == old.section]
+    present = {i.label for i in items if i.parent is None}
+    rows = diversity.proposal(children + old.notes, present)
+    return old, {row["label"]: row for row in rows}
 
 
-def _diversity_answers(parent: md_fields.Item, items: list[md_fields.Item]) -> tuple[dict[str, str], list[str]]:
-    """Respostas atuais por pergunta, lidas dos subcampos ("Sexo: Masculino") ou de linhas soltas
-    ("Sexo Masculino", "Homem cisgênero"). Linhas que não identificam a pergunta voltam em `extra`."""
-    answers = {label: "" for label, _, _ in DIVERSITY}
-    for child in items:
-        if child.parent == parent.label and child.section == parent.section:
-            label = next((lb for lb, _, words in DIVERSITY if _norm(child.label).startswith(words[0].split("/")[0])
-                          or _norm(child.label) in words[:3]), None)
-            value = child.value.strip()
-            if label and not value.startswith("<"):
-                answers[label] = value
-    extra = []
-    for note in parent.notes:
-        placed = False
-        for label, options, words in DIVERSITY:
-            answer = _strip_question(note, words)
-            exact = next((o for o in (*options, NOT_SAY) if _norm(o) == _norm(answer)), None)
-            if exact and not answers[label]:
-                answers[label], placed = exact, True
-                break
-        if not placed:
-            for label, _, words in DIVERSITY:
-                if not answers[label] and any(word in _norm(note) for word in words):
-                    answers[label], placed = _strip_question(note, words), True
-                    break
-        if not placed:
-            extra.append(note)
-    return answers, extra
+def _choice_value(q: diversity.Question, raw: str) -> str | None:
+    """Valor a gravar; None se a lista é fechada e a resposta não é uma das opções."""
+    text = raw.strip()
+    if not text:
+        return ""
+    return diversity.canonical(q, text) if q.closed else text
+
+
+def _pcd_in_criteria(db_path: Path | str | None) -> bool:
+    from vagas.triage import parse_criteria
+
+    try:
+        path, _ = _criteria_paths(db_path)
+        return "pcd" in parse_criteria(path.read_text(encoding="utf-8")).affirmative_ok
+    except (OSError, VagasError):
+        return False
 
 
 # Idiomas: uma linha por idioma, com o nível; no arquivo continua uma linha só, "idioma (nível), ...".
@@ -184,6 +165,8 @@ def _locked_status(item: md_fields.Item) -> str | None:
 def _profile_kind(item: md_fields.Item, items: list[md_fields.Item]) -> str:
     if _locked_status(item):
         return "locked"
+    if (q := _question(item)) is not None:
+        return "choice" if q.closed else "choice_other"
     if _norm(item.label) == "idiomas" and item.parent is None:
         return "languages"
     if _norm(item.label) == _norm(DECLARED_LABEL) and item.parent is None:
@@ -210,27 +193,12 @@ def load_profile(db_path: Path | str | None) -> dict[str, Any]:
     items = md_fields.parse(text)
     groups: list[dict[str, Any]] = []
     pending: list[str] = []
-    diversity_parents = {(i.section, i.label) for i in items if _is_diversity(i)}
+    old = _old_block(items)
     for item in items:
         if item.label.startswith("<"):
             continue  # linha-modelo do exemplo ("<Rótulo do campo ...>"), não é campo
-        if (item.section, item.parent) in diversity_parents:
-            continue  # subcampos da diversidade: viram os campos de escolha abaixo
-        if _is_diversity(item):
-            answers, _ = _diversity_answers(item, items)
-            if not groups or groups[-1]["name"] != (item.section or ""):
-                groups.append({"name": item.section or "", "fields": []})
-            groups[-1]["fields"].append({"id": item.id, "title": "Diversidade", "kind": "group", "value": "", "hint": "",
-                                         "notes": ["Respostas usadas nos formulários. \"Prefiro não responder\" "
-                                                   "vale em todas."], "parent": None, "status": None})
-            for label, options, _ in DIVERSITY:
-                field_id = f"{item.id}/{label}"
-                groups[-1]["fields"].append({"id": field_id, "title": label, "kind": "choice_other",
-                                             "choices": [*options, NOT_SAY], "value": answers[label], "hint": "",
-                                             "notes": [], "parent": item.label, "status": None})
-                if not answers[label]:
-                    pending.append(field_id)
-            continue
+        if old and (item is old[0] or (item.parent == old[0].label and item.section == old[0].section)):
+            continue  # diversidade no formato antigo: as respostas aparecem nos campos novos
         kind = _profile_kind(item, items)
         placeholder = item.value.strip().startswith("<")
         value = "" if placeholder else item.value.strip()
@@ -246,11 +214,15 @@ def load_profile(db_path: Path | str | None) -> dict[str, Any]:
             rows = parse_languages(item.value) if not placeholder else []
             value, hint = ([], "") if from_example else (rows, "")
             hint_rows = rows if from_example else []
+        if kind in ("choice", "choice_other"):
+            value = "" if from_example or placeholder else (diversity.canonical(_question(item), value) or "")
+            hint = ""
         field = {"id": item.id, "title": item.label, "kind": kind, "value": value, "hint": hint,
                  **({"levels": list(LANGUAGE_LEVELS), "hint_rows": hint_rows} if kind == "languages" else {}),
+                 **(_choices(_question(item)) if kind in ("choice", "choice_other") else {}),
                  "notes": [n for n in item.notes if not _norm(n).startswith("valores aceitos")],
                  "parent": item.parent, "status": _locked_status(item) if kind == "locked" else None}
-        if kind in ("text", "yesno", "languages") and not value:
+        if kind in ("text", "yesno", "languages", "choice", "choice_other") and not value:
             pending.append(item.id)
         if not groups or groups[-1]["name"] != (item.section or ""):
             groups.append({"name": item.section or "", "fields": []})
@@ -261,13 +233,39 @@ def load_profile(db_path: Path | str | None) -> dict[str, Any]:
                      "hint": _hint(item.value) if item.value.strip().startswith("<") else item.value.strip(),
                      "notes": [n for n in item.notes if not _norm(n).startswith("valores aceitos")],
                      "parent": None, "status": None}
+            if kind in ("choice", "choice_other"):
+                field.update(_choices(_question(item)), hint="")
+                proposed = old[1].get(item.label) if old else None
+                if proposed and proposed["value"]:
+                    field.update(value=proposed["value"], migrated=True)
+                    field["notes"] = [*field["notes"], MIGRATED_NOTE]
             group = next((g for g in groups if g["name"] == (item.section or "")), None)
             if group is None:
                 group = {"name": item.section or "", "fields": []}
                 groups.append(group)
             group["fields"].extend(_with_periods(field, db_path) if kind == "years" else [field])
+    _disability_notes(groups, db_path)
     return {"key": "profile", "title": PROFILE_TITLE, "file": str(path), "new": from_example,
             "groups": groups, "pending": pending}
+
+
+def _choices(q: diversity.Question) -> dict[str, Any]:
+    options = [*q.options, diversity.NOT_SAY]
+    if q.closed:
+        return {"choices": [{"value": "", "label": "Escolha…"}, *({"value": o, "label": o} for o in options)]}
+    return {"choices": options}
+
+
+def _disability_notes(groups: list[dict[str, Any]], db_path: Path | str | None) -> None:
+    """Possui deficiência: como decide a triagem e, se os critérios disserem outra coisa, o aviso."""
+    for group in groups:
+        for field in group["fields"]:
+            if field["title"] != diversity.DISABILITY or field["parent"] is not None:
+                continue
+            field["notes"] = [*field["notes"], DISABILITY_NOTE]
+            if field["value"] != "Sim" and _pcd_in_criteria(db_path):
+                field["notes"].append('Os critérios de triagem incluem PcD em "Vagas afirmativas que posso disputar", '
+                                      'mas vale esta resposta: sem "Sim", as vagas exclusivas para PcD são descartadas.')
 
 
 def _periods_field(db_path: Path | str | None) -> dict[str, Any]:
@@ -323,12 +321,12 @@ def _missing_from_example(items: list[md_fields.Item], example: Path) -> list[tu
     example_items = md_fields.parse(example.read_text(encoding="utf-8"))
     missing = []
     for item in example_items:
-        if item.parent or item.label.startswith("<") or _is_diversity(item):
+        if item.parent or item.label.startswith("<") or diversity.is_old_block(item.label):
             continue
         if md_fields._key(item.id) in have or _norm(item.label) in have_labels:
             continue
         kind = _profile_kind(item, example_items)
-        if kind in ("text", "yesno", "years"):
+        if kind in ("text", "yesno", "years", "choice", "choice_other"):
             missing.append((item, kind))
     return missing
 
@@ -368,23 +366,22 @@ def plan_profile(values: Any, db_path: Path | str | None) -> tuple[Pending | Non
     by_key = {md_fields._key(item.id): item for item in items}
     missing = {} if from_example else {md_fields._key(i.id): (i, kind) for i, kind in _missing_from_example(items, example)}
     inserts: list[tuple[str | None, str]] = []
-    diversity_keys = {md_fields._key(f"{i.id}/{label}"): (i, label) for i in items if _is_diversity(i)
-                      for label, _, _ in DIVERSITY}
+    old = None if from_example else _old_block(items)
+    diversity_answers: dict[str, tuple[str | None, str]] = {}  # campos novos de diversidade: rótulo -> (seção, valor)
     updates: dict[str, str] = {}
-    diversity_updates: dict[str, dict[str, str]] = {}
     errors: dict[str, str] = {}
     for field_id, raw in values.items():
         name = f"profile.{field_id}"
-        if (target := diversity_keys.get(md_fields._key(str(field_id)))) is not None:
-            if not isinstance(raw, str) or "\n" in raw or "\r" in raw or raw.strip().startswith("<"):
-                errors[name] = "Escolha uma opção ou escreva a resposta numa linha só."
-            else:
-                diversity_updates.setdefault(target[0].id, {})[target[1]] = raw.strip()
-            continue
         if (new := missing.get(md_fields._key(str(field_id)))) is not None:
             new_item, new_kind = new
             if not isinstance(raw, str) or "\n" in raw or "\r" in raw or raw.strip().startswith("<"):
                 errors[name] = "Informe o valor numa linha só (sem começar com '<')."
+            elif new_kind in ("choice", "choice_other"):
+                q = _question(new_item)
+                if (chosen := _choice_value(q, raw)) is None:
+                    errors[name] = _choice_error(q)
+                else:
+                    diversity_answers[new_item.label] = (new_item.section, chosen)
             elif new_kind == "yesno" and raw.strip() and not _yes_no(raw):
                 errors[name] = "Responda sim ou não."
             elif new_kind == "years" and _years_value(raw) is None:
@@ -413,6 +410,12 @@ def plan_profile(values: Any, db_path: Path | str | None) -> tuple[Pending | Non
             if not row_errors:
                 updates[item.id] = line or PENDING
             continue
+        if kind in ("choice", "choice_other") and isinstance(raw, str) and "\n" not in raw and "\r" not in raw:
+            if (chosen := _choice_value(_question(item), raw)) is None:
+                errors[name] = _choice_error(_question(item))
+            else:
+                updates[item.id] = chosen or PENDING
+            continue
         if not isinstance(raw, str):
             errors[name] = "Informe o valor como texto."
         elif kind == "locked":
@@ -433,21 +436,43 @@ def plan_profile(values: Any, db_path: Path | str | None) -> tuple[Pending | Non
         return None, errors
     if from_example:  # perfil novo: o que não foi digitado fica pendente, nunca com o valor do exemplo
         for item in items:
-            if item.id not in updates and _profile_kind(item, items) in ("text", "yesno", "languages") \
+            if item.id not in updates and _profile_kind(item, items) in ("text", "yesno", "languages", "choice",
+                                                                           "choice_other") \
                     and not item.value.strip().startswith("<"):
                 updates[item.id] = PENDING
-    if not updates and not diversity_updates and not inserts:
+    if not updates and not diversity_answers and not inserts:
         return None, {}
     new_text = md_fields.apply(text, updates)
     for section, line in inserts:
         new_text = md_fields.insert_item(new_text, section, line)
-    for parent_id, changed in diversity_updates.items():
-        parent = next(i for i in md_fields.parse(new_text) if i.id == parent_id)
-        answers, extra = _diversity_answers(parent, md_fields.parse(new_text))
-        answers.update(changed)
-        lines = [f"  - {label}: {answers[label] or '<...>'}" for label, _, _ in DIVERSITY]
-        new_text = md_fields.replace_children(new_text, parent_id, lines + [f"  - {note}" for note in extra])
+    if diversity_answers:
+        new_text = _write_diversity(new_text, diversity_answers, old, missing)
     return Pending(path, new_text), {}
+
+
+def _choice_error(q: diversity.Question) -> str:
+    if q.closed:
+        return f"Escolha uma das opções: {', '.join((*q.options, diversity.NOT_SAY))}."
+    return "Escolha uma opção ou escreva a resposta numa linha só."
+
+
+def _write_diversity(text: str, answers: dict[str, tuple[str | None, str]], old: Any,
+                     missing: dict[str, tuple[md_fields.Item, str]]) -> str:
+    """Grava os campos novos de diversidade. Com o campo antigo no perfil, grava todas as perguntas que faltam
+    (a resposta enviada, senão a trazida do formato antigo, senão a preencher) e tira o campo antigo."""
+    rows = dict(answers)
+    if old is not None:
+        for item, kind in missing.values():
+            if kind in ("choice", "choice_other") and item.label not in rows:
+                proposed = old[1].get(item.label) or {}
+                rows[item.label] = (item.section, proposed.get("value") or "")
+        text = md_fields.remove_item(text, old[0].id)
+    order = [q.label for q in diversity.QUESTIONS]
+    for label in sorted(rows, key=lambda lb: order.index(lb) if lb in order else len(order)):
+        section, value = rows[label]
+        if value or old is not None:
+            text = md_fields.insert_item(text, section, f"- {label}: {value or PENDING}", before=OTHER_SECTION)
+    return text
 
 
 # --- critérios de triagem --------------------------------------------------------------------
@@ -494,7 +519,8 @@ _HELP = {
     "conditional_roles": "Cargos que só seguem com aderência igual ou maior que a mínima.",
     "min_match": "De 0 a 100: quanto da vaga precisa bater com o seu currículo geral.",
     "ignored_companies": "Separadas por vírgula. Maiúsculas, acentos, Ltda e S.A. são ignorados.",
-    "affirmative_ok": "Grupos cujas vagas afirmativas você quer disputar. Nenhum marcado: nenhuma.",
+    "affirmative_ok": ("Grupos cujas vagas afirmativas você quer disputar. Nenhum marcado: nenhuma. PcD: com "
+                       "\"Possui deficiência\" preenchido no perfil, é ele que decide."),
     "accepted_locations": "Cidades aceitas para vagas híbridas e presenciais, separadas por vírgula. Remotas são "
                           "sempre aceitas.",
     "search_seniorities": "Níveis a que você se candidata. Nenhum marcado: todos.",
