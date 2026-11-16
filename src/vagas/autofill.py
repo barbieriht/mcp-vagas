@@ -367,8 +367,8 @@ class Autofill:
 
     def _resume_candidates(self, url: str, origin: Origin, sites: dict[str, str],
                            extras: list[str]) -> list[dict[str, Any]]:
-        """Candidaturas abertas com currículo cuja vaga é a da página; sem nenhuma, as da mesma empresa ou site
-        (nunca nos agregadores, onde o endereço não identifica a empresa)."""
+        """Candidaturas abertas com currículo cuja vaga (ou página do formulário, form_url) é a da página; sem
+        nenhuma, as da mesma empresa ou site (nunca nos agregadores, onde o endereço não identifica a empresa)."""
         page = canonical_url(url) or ""
         parts = urlsplit(url)
         gupy_job = re.search(r"/jobs/(\d+)", parts.path) if (parts.hostname or "").endswith("gupy.io") else None
@@ -376,22 +376,27 @@ class Autofill:
         for app in self.resumes():
             if not Path(app["path"]).is_file():
                 continue
-            canon = app.get("url_canonical") or ""
-            if canon and (canon == page or page.startswith(canon + "/")
-                          or (gupy_job and re.search(rf"\.gupy\.io/jobs/{gupy_job.group(1)}$", canon))):
+            urls = [app.get("url") or "", app.get("form_url") or ""]
+            canons = [app.get("url_canonical") or "", canonical_url(urls[1]) or ""]
+            if any(canon and (canon == page or page.startswith(canon + "/")
+                              or (gupy_job and re.search(rf"\.gupy\.io/jobs/{gupy_job.group(1)}$", canon)))
+                   for canon in canons):
                 exact.append(app)
-            elif origin.remember:
-                try:
-                    if resolve_origin(app.get("url") or "", sites, extras).key == origin.key:
-                        same.append(app)
-                except VagasError:
-                    pass
+            elif origin.remember and origin.key in {_origin_key(url, sites, extras) for url in urls if url}:
+                same.append(app)
         return exact or same
 
     def _log(self, entry: dict[str, Any]) -> None:
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         with self.log_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def _origin_key(url: str, sites: dict[str, str], extras: list[str]) -> str | None:
+    try:
+        return resolve_origin(url, sites, extras).key
+    except VagasError:
+        return None
 
 
 def _resume_summary(app: dict[str, Any]) -> dict[str, Any]:
@@ -426,16 +431,18 @@ class Applications:
     def sites(self) -> dict[str, str]:
         """Site próprio de cada candidatura aberta -> empresa."""
         sites = {}
-        for row in self._rows(f"SELECT company, url FROM applications WHERE status IN ({_marks()}) ORDER BY updated_at"):
-            host = (urlsplit(row["url"] or "").hostname or "").lower()
-            if host and not any(_matches(host, d) for d in TRUSTED_DOMAINS):
-                sites[site(host)] = row["company"]
+        rows = self._rows(f"SELECT company, url, form_url FROM applications WHERE status IN ({_marks()}) ORDER BY updated_at")
+        for row in rows:
+            for url in (row["url"], row["form_url"]):
+                host = (urlsplit(url or "").hostname or "").lower()
+                if host and not any(_matches(host, d) for d in TRUSTED_DOMAINS):
+                    sites[site(host)] = row["company"]
         return sites
 
     def with_resumes(self) -> list[dict[str, Any]]:
         """Candidaturas abertas com o último currículo personalizado, no caminho onde foi salvo."""
         rows = self._rows(f"""
-            SELECT a.id AS application_id, a.company, a.role, a.url, a.url_canonical, r.pdf_path AS path
+            SELECT a.id AS application_id, a.company, a.role, a.url, a.url_canonical, a.form_url, r.pdf_path AS path
             FROM applications a
             JOIN resumes r ON r.id = (SELECT MAX(id) FROM resumes WHERE application_id = a.id)
             WHERE a.status IN ({_marks()})

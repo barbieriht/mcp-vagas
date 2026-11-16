@@ -222,6 +222,11 @@ MIGRATIONS = [
     """
     CREATE TABLE app_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     """,
+    # v16: página do formulário de candidatura, quando fica fora do site onde a vaga foi achada (vaga do
+    # LinkedIn com formulário no SmartRecruiters, Workday...): liga a página ao currículo na extensão
+    """
+    ALTER TABLE applications ADD COLUMN form_url TEXT;
+    """,
 ]
 LATEST_VERSION = len(MIGRATIONS)
 

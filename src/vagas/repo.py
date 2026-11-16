@@ -5,6 +5,7 @@ import sqlite3
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import urlsplit
 
 from vagas.models import CONTRACTS, INITIAL_STATUSES, SENIORITIES, SOURCES, STATUSES, WORK_MODES
 from vagas.normalize import canonical_url, normalize_company
@@ -27,6 +28,18 @@ def _require_text(field: str, value: str | None) -> str:
 def _require_choice(field: str, value: str | None, choices: tuple[str, ...]) -> None:
     if value is not None and value not in choices:
         raise VagasError(f"'{field}' inválido: {value!r}. Valores aceitos: {', '.join(choices)}.")
+
+
+def form_url_value(value: str) -> str | None:
+    """Endereço do formulário de candidatura, sem espaços; "" limpa. VagasError se não for uma página https."""
+    value = value.strip()
+    if not value:
+        return None
+    parts = urlsplit(value)
+    if parts.scheme != "https" or not parts.hostname:
+        raise VagasError(f"'form_url' deve ser o endereço https da página do formulário, como aparece no "
+                         f"navegador (ex.: https://jobs.smartrecruiters.com/Empresa/123); recebido {value!r}.")
+    return value
 
 
 def _application(row: sqlite3.Row) -> dict[str, Any]:
@@ -150,17 +163,20 @@ class Repo:
         salary_expectation: str | None = None,
         work_mode: str | None = None,
         location: str | None = None,
+        form_url: str | None = None,
     ) -> dict[str, Any]:
         """Muda status, pendência, currículo vinculado, regime, modalidade, local, pretensão
-        informada e/ou anota. pending="" limpa a pendência; location="" limpa o local.
+        informada, página do formulário e/ou anota. pending="" limpa a pendência; location="" limpa o local;
+        form_url="" limpa a página do formulário.
 
         Mudança de status ou nota gravam evento; corrigir dados da vaga ou a pendência não grava.
         """
         current = self.get(application_id)
         if all(v is None for v in (status, note, pending, discard_reason, resume_id, contract, salary_expectation,
-                                   work_mode, location)):
+                                   work_mode, location, form_url)):
             raise VagasError("Nada a atualizar: informe status, note, pending, resume_id, contract, work_mode, "
-                             "location ou salary_expectation.")
+                             "location, form_url ou salary_expectation.")
+        new_form_url = current["form_url"] if form_url is None else form_url_value(form_url)
         _require_choice("contract", contract, CONTRACTS)
         _require_choice("work_mode", work_mode, WORK_MODES)
         if resume_id is not None:
@@ -187,14 +203,14 @@ class Repo:
                 """
                 UPDATE applications
                 SET status = ?, pending = ?, discard_reason = ?, contract = ?, salary_expectation = ?,
-                    work_mode = ?, location = ?, updated_at = ?
+                    work_mode = ?, location = ?, form_url = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (new_status, new_pending, new_reason, contract or current["contract"],
                  current["salary_expectation"] if salary_expectation is None else (salary_expectation.strip() or None),
                  work_mode or current["work_mode"],
                  current["location"] if location is None else (location.strip() or None),
-                 now, application_id),
+                 new_form_url, now, application_id),
             )
             if status is not None or note is not None:
                 self.conn.execute(

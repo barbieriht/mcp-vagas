@@ -155,3 +155,41 @@ def test_list_resumes_filters_by_application(repo, store, out_dir):
 
     assert [r["id"] for r in store.list_resumes(application_id=app["id"])] == [linked["id"]]
     assert len(store.list_resumes()) == 2
+
+
+FORM = "https://jobs.smartrecruiters.com/Nubank/744000-data-scientist"
+
+
+def test_the_form_url_is_kept_on_the_application_when_the_resume_is_created(repo, store, out_dir):
+    app = new_application(repo, url="https://www.linkedin.com/jobs/view/4490042706/")["application"]
+
+    store.create_tailored_resume(SELECTION, out_dir, application_id=app["id"], form_url=f"  {FORM}  ")
+
+    assert repo.get(app["id"])["form_url"] == FORM
+    assert repo.get(app["id"])["url"] == "https://www.linkedin.com/jobs/view/4490042706/"
+
+
+def test_a_form_url_needs_the_application(store, out_dir):
+    with pytest.raises(VagasError, match="application_id"):
+        store.create_tailored_resume(SELECTION, out_dir, form_url=FORM)
+
+
+@pytest.mark.parametrize("bad", ["jobs.smartrecruiters.com/Nubank/1", "http://jobs.example.com/1", "file:///C:/x.pdf"])
+def test_a_form_url_must_be_an_https_page(repo, store, out_dir, bad):
+    app = new_application(repo)["application"]
+
+    with pytest.raises(VagasError, match="https"):
+        store.create_tailored_resume(SELECTION, out_dir, application_id=app["id"], form_url=bad)
+    with pytest.raises(VagasError, match="https"):
+        repo.update_application(app["id"], form_url=bad)
+    assert store.list_resumes(app["id"]) == []
+
+
+def test_update_application_corrects_the_form_url(repo, store, out_dir):
+    app = new_application(repo, status="pendente_usuario", pending="anexar")["application"]
+
+    updated = repo.update_application(app["id"], form_url=FORM)
+
+    assert updated["form_url"] == FORM
+    assert updated["status"] == "pendente_usuario"
+    assert repo.update_application(app["id"], form_url="")["form_url"] is None

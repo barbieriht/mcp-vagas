@@ -32,12 +32,13 @@ def store(conn, tmp_path):
 
 @pytest.fixture
 def make(conn, store, tmp_path):
-    def make(url, company="Acme", role="Data Scientist", status="a_aplicar", resume=True):
+    def make(url, company="Acme", role="Data Scientist", status="a_aplicar", resume=True, form_url=None):
         extra = {"pending": "x"} if status == "pendente_usuario" else {}
         app = Repo(conn).add_application(company=company, role=role, source="outro", url=url, status=status,
                                          **extra)["application"]
         if resume:
-            created = store.create_tailored_resume(SELECTION, tmp_path / "out", application_id=app["id"])
+            created = store.create_tailored_resume(SELECTION, tmp_path / "out", application_id=app["id"],
+                                                   form_url=form_url)
             app["pdf"] = Path(created["path"])
         return app
     return make
@@ -201,3 +202,50 @@ def test_a_trusted_platform_never_offers_another_companys_resume(make, db_path, 
 
     assert response["origin"]["key"] == "gupy.io"
     assert [r["application_id"] for r in response["resumes"]] == [acme["id"]]
+
+
+# Vaga achada no LinkedIn com o formulário em outro site: a candidatura guarda o endereço do LinkedIn, e só o
+# form_url (informado ao gerar o currículo) liga a página do formulário ao PDF.
+@pytest.mark.parametrize("form_url, page_url", [
+    ("https://jobs.smartrecruiters.com/AcmeCorp/744000-data-scientist",
+     "https://jobs.smartrecruiters.com/AcmeCorp/744000-data-scientist/oneclick-ui/apply"),
+    ("https://boards.greenhouse.io/acme/jobs/4455", "https://boards.greenhouse.io/embed/job_app?for=acme&token=4455"),
+    ("https://acme.wd5.myworkdayjobs.com/pt-BR/careers/job/Sao-Paulo/Data-Scientist_R1",
+     "https://acme.wd5.myworkdayjobs.com/pt-BR/careers/job/Sao-Paulo/Data-Scientist_R1/apply/applyManually"),
+    ("https://digitalcareers.acme.com/jobs/77", "https://digitalcareers.acme.com/apply/77/step1"),
+])
+def test_a_form_outside_the_job_board_gets_the_resume_through_its_form_url(autofill, make, form_url, page_url):
+    app = make("https://www.linkedin.com/jobs/view/4490042706/", form_url=form_url)
+    make("https://outra.gupy.io/jobs/555", company="Outra")
+
+    asked = ask(autofill, page_url)
+
+    assert asked["status"] == "confirm"
+    assert [r["application_id"] for r in asked["resumes"]] == [app["id"]]
+
+
+def test_without_the_form_url_a_form_outside_the_job_board_has_no_resume(autofill, make):
+    make("https://www.linkedin.com/jobs/view/4490042706/")
+
+    asked = ask(autofill, "https://jobs.smartrecruiters.com/AcmeCorp/744000-data-scientist/oneclick-ui/apply")
+
+    assert asked["status"] == "nothing"
+
+
+def test_the_company_site_of_a_form_url_is_trusted_for_documents(autofill, make):
+    make("https://www.linkedin.com/jobs/view/4490042706/", form_url="https://digitalcareers.acme.com/jobs/77")
+    cpf = {"id": "c", "text": "CPF", "attrs": "cpf"}
+
+    asked = ask(autofill, "https://digitalcareers.acme.com/apply/77/step1", fields=[cpf])
+
+    assert asked["status"] == "confirm"
+    assert asked["documents"] == ["CPF"]
+
+
+def test_the_job_board_page_still_finds_the_resume_after_the_form_url(autofill, make):
+    app = make("https://www.linkedin.com/jobs/view/4490042706/",
+               form_url="https://jobs.smartrecruiters.com/AcmeCorp/744000-data-scientist")
+
+    asked = ask(autofill, "https://www.linkedin.com/jobs/view/4490042706/apply/")
+
+    assert [r["application_id"] for r in asked["resumes"]] == [app["id"]]
