@@ -48,10 +48,25 @@ PATH_PLATFORMS = ("greenhouse.io", "lever.co", "ashbyhq.com", "workable.com", "s
 # Plataformas com a empresa no subdomínio (empresa.gupy.io).
 SUBDOMAIN_PLATFORMS = ("gupy.io", "myworkdayjobs.com", "inhire.app", "recrut.ai", "solides.com.br", "abler.com.br",
                        "recruitee.com", "teamtailor.com", "breezy.hr", "bamboohr.com", "icims.com", "taleo.net",
-                       "pinpointhq.com", "personio.com", "factorialhr.com")
+                       "pinpointhq.com", "personio.com", "factorialhr.com", "factorialhr.com.br", "csod.com")
 TRUSTED_DOMAINS = (*AGGREGATORS, *PATH_PLATFORMS, *SUBDOMAIN_PLATFORMS)
 # Plataformas que o usuário pode aprovar por inteiro (autofill_platforms): uma aprovação vale para todas as empresas.
 PLATFORMS = (*PATH_PLATFORMS, *SUBDOMAIN_PLATFORMS)
+# Aprovadas por inteiro mesmo sem configuração: ATS multiempresa conferidos (vagas reais na base ou formato público
+# de uma página por empresa num domínio comum). autofill_platforms acrescenta outras e tira estas com "-dominio".
+# Sólides fica fora: não há um formato confirmado de candidatura multiempresa. Sites white-label (Oracle Recruiting
+# em domínio da empresa) não têm domínio comum: a aprovação continua por site.
+DEFAULT_PLATFORMS = ("gupy.io", "inhire.app", "csod.com", "factorialhr.com.br", "myworkdayjobs.com", "greenhouse.io",
+                     "lever.co", "smartrecruiters.com", "recruitee.com")
+ALL_SCOPES = frozenset({"documentos", "termos", "banco_talentos", "curriculo"})
+
+
+def effective_platforms(configured: str | list[str] | None) -> list[str]:
+    """As padrão mais as de autofill_platforms; "-dominio" tira uma padrão."""
+    items = configured if isinstance(configured, list) else re.split(r"[,;\s]+", (configured or "").strip().lower())
+    removed = {i[1:] for i in items if i.startswith("-")}
+    added = [i for i in items if i and not i.startswith("-")]
+    return [d for d in dict.fromkeys((*DEFAULT_PLATFORMS, *added)) if d not in removed]
 
 _JOB_PARAMS = ("currentJobId", "jk", "vjk", "jl", "jobListingId", "jobId", "id")
 
@@ -79,7 +94,9 @@ _CONSENT = re.compile(
     r"|\btratamento\s+(dos\s+|de\s+)?(meus\s+)?dados\b|\bterms\s+(of\s+)?(use|service)\b"
     r"|\bterms\s+and\s+conditions\b|\bprivacy\s+(policy|notice|statement)\b"
     r"|\btermos?\s+de\s+consentimento\b|\bconsentimento\s+(livre|expresso|para\s+(o\s+)?tratamento)\b"
-    r"|\bconsent\s+form\b")
+    r"|\bconsent\s+form\b"
+    r"|\b(dados\s+pessoais|personal\s+data)\b.{0,80}\b(tratad\w*|tratamento|process\w*)\b"
+    r"|\b(tratamento|tratar|processing|process)\b.{0,40}\b(dados\s+pessoais|personal\s+data)\b")
 # Banco de talentos: marcado só quando o perfil diz "sim" em "Incluir em bancos de talentos".
 _TALENT_POOL = re.compile(
     r"\bbanco\s+de\s+talentos\b|\btalent\s+(pool|community|network)\b"
@@ -184,6 +201,7 @@ class Origin:
     label: str  # nome mostrado na confirmação
     host: str
     remember: bool  # False nos agregadores: a confirmação vale só para a vaga
+    platform: bool = False  # chave da plataforma inteira: "Permitir sempre" vale para todas as empresas dela
 
 
 def _matches(host: str, domain: str) -> bool:
@@ -236,7 +254,7 @@ def resolve_origin(url: str, open_sites: dict[str, str], extra_domains: list[str
 
 
 def _whole_platform(domain: str, host: str) -> Origin:
-    return Origin(domain, f"{domain} (todas as empresas)", host, remember=True)
+    return Origin(domain, f"{domain} (todas as empresas)", host, remember=True, platform=True)
 
 
 class Approvals:
@@ -352,13 +370,13 @@ class Autofill:
             resume = next((c for c in candidates if c["application_id"] == chosen_id), None)
         else:
             resume = candidates[0] if len(candidates) == 1 else None
-        warnings = []
+        warnings, resume_error = [], None
         if resume and Path(resume["path"]).stat().st_size > self.max_file_bytes:
             warnings.append(f"Currículo {Path(resume['path']).name} grande demais para a extensão "
                             f"({Path(resume['path']).stat().st_size // 1000} KB); anexe à mão: {resume['path']}")
-            resume, needs_choice = None, False
+            resume, needs_choice, resume_error = None, False, "grande_demais"
         if not wanted and not terms and not resume and not needs_choice:
-            return {"status": "nothing", **({"warnings": warnings} if warnings else {})}
+            return {"status": "nothing", **({"warnings": warnings, "resume_error": resume_error} if warnings else {})}
         documents = list(dict.fromkeys(ALLOWED_FIELDS[doc] for _, doc, _ in wanted))
         term_texts = list(dict.fromkeys(text for _, text in terms))
         scopes = ({"documentos"} if wanted else set()) | {kind for _, _, kind in consents} | (
@@ -367,7 +385,8 @@ class Autofill:
         if origin.remember and self.approvals.covers(origin.key, scopes) and not needs_choice:
             mode = "aprovada"
         elif confirm == "always" and origin.remember and not needs_choice:
-            self.approvals.add(origin.key, origin.label, scopes)
+            # Na plataforma inteira, a aprovação vale para tudo o que a extensão preenche em todas as empresas.
+            self.approvals.add(origin.key, origin.label, ALL_SCOPES if origin.platform else scopes)
             mode = "always"
         elif confirm in ("once", "always") and not needs_choice:
             mode = "once"
@@ -391,7 +410,7 @@ class Autofill:
             entry["resume"] = {"application_id": resume["application_id"], "name": path.name}
         self._log(entry)
         return {"status": "filled", "values": values, "label": origin.label,
-                **({"warnings": warnings} if warnings else {})}
+                **({"warnings": warnings, "resume_error": resume_error} if warnings else {})}
 
     def _resume_candidates(self, url: str, origin: Origin, sites: dict[str, str],
                            extras: list[str]) -> list[dict[str, Any]]:
@@ -420,9 +439,9 @@ class Autofill:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
-def _origin_key(url: str, sites: dict[str, str], extras: list[str]) -> str | None:
+def _origin_key(url: str, sites: dict[str, str], extras: list[str], platforms: list[str] | tuple[str, ...] = ()) -> str | None:
     try:
-        return resolve_origin(url, sites, extras).key
+        return resolve_origin(url, sites, extras, platforms).key
     except VagasError:
         return None
 
@@ -492,7 +511,7 @@ class Applications:
 
 # --- situação da extensão --------------------------------------------------------------------------
 
-EXTENSION_VERSION = "1.3.0"  # a de extension/manifest.json; a extensão manda a dela em cada pedido
+EXTENSION_VERSION = "1.4.0"  # a de extension/manifest.json; a extensão manda a dela em cada pedido
 _RECENT = 20
 
 
@@ -532,13 +551,20 @@ class ExtensionStatus:
             fields[kind] = fields.get(kind, 0) + 1
         entry: dict[str, Any] = {"at": _now(), "host": (urlsplit(request.get("url") or "").hostname or "").lower(),
                                  "status": response.get("status"), "fields": fields}
-        if fields.get("curriculo"):
+        parts = urlsplit(request.get("url") or "")
+        if any(_matches(entry["host"], d) for d in AGGREGATORS) and (job := _job_id(parts)).isdigit():
+            entry["job"] = job  # no agregador, a vaga é o que identifica a candidatura (jobId do LinkedIn)
+        if fields.get("curriculo") or response.get("resume_error"):
             sent = any(isinstance(v, dict) for v in (response.get("values") or {}).values())
-            entry["resume"] = "anexado" if sent else "a_confirmar" if response.get("resumes") else "nao_encontrado"
+            entry["resume"] = (response.get("resume_error") or ("anexado" if sent else "a_confirmar"
+                               if response.get("resumes") else "nao_encontrado"))
+        if isinstance(request.get("probe"), dict):  # o que a extensão viu no modal (só contagens e sim/não)
+            entry["probe"] = {str(k)[:30]: v for k, v in list(request["probe"].items())[:10]
+                              if isinstance(v, bool | int) and not isinstance(v, str)}
         try:
             data = self.read() or {}
             recent = [e for e in data.get("recent") or [] if isinstance(e, dict)]
-            same = ("host", "status", "fields", "resume")
+            same = ("host", "status", "fields", "resume", "job", "probe")
             if recent and all(recent[0].get(k) == entry.get(k) for k in same):
                 entry["count"] = int(recent[0].get("count") or 1) + 1
                 recent = recent[1:]
@@ -573,7 +599,8 @@ def _log_entries(path: Path) -> list[dict[str, Any]]:
 
 
 def extension_report(status_path: Path | str, log_path: Path | str, db_path: Path | str,
-                     now: datetime | None = None, days: int = 30) -> dict[str, Any]:
+                     now: datetime | None = None, days: int = 30,
+                     platforms: list[str] | None = None) -> dict[str, Any]:
     """Situação da extensão para o Claude: known false sem rastro dela neste computador; senão last_seen,
     idle_hours, version, outdated, warnings, recent (últimas consultas) e applications (o que ela preencheu em
     cada candidatura mexida nos últimos `days` dias: currículo, documentos, termos)."""
@@ -602,15 +629,17 @@ def extension_report(status_path: Path | str, log_path: Path | str, db_path: Pat
                         "com o application_id e o form_url da aba.")
     return {"known": True, "last_seen": last.isoformat(), "idle_hours": idle, "version": version,
             "expected_version": EXTENSION_VERSION, "outdated": outdated, "warnings": warnings, "recent": recent,
-            "applications": _filled_by_application(entries, db_path, now - timedelta(days=days))}
+            "applications": _filled_by_application(entries, db_path, now - timedelta(days=days),
+                                                   effective_platforms("") if platforms is None else platforms)}
 
 
-def _filled_by_application(entries: list[dict[str, Any]], db_path: Path | str,
-                           since: datetime) -> list[dict[str, Any]]:
+def _filled_by_application(entries: list[dict[str, Any]], db_path: Path | str, since: datetime,
+                           platforms: list[str]) -> list[dict[str, Any]]:
     apps = Applications(db_path)
     sites = apps.sites()
     rows = apps.recent(since.isoformat())
-    keys = {row["id"]: {k for url in (row["url"], row["form_url"]) if url and (k := _origin_key(url, sites, []))}
+    keys = {row["id"]: {k for url in (row["url"], row["form_url"]) if url
+                        for k in (_origin_key(url, sites, []), _origin_key(url, sites, [], platforms)) if k}
             for row in rows}
     found: dict[int, dict[str, Any]] = {}
     for entry in entries:

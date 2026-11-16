@@ -38,7 +38,10 @@ function ask(cacheKey, details) {
 async function fill(message, sender) {
   const tabId = sender.tab.id;
   // A versão vai junto para o MCP saber se a extensão em uso é a instalada (extension_status).
-  const request = { url: sender.url, fields: message.fields, confirm: null, version: chrome.runtime.getManifest().version };
+  // Quadro about:blank (conteúdo escrito pela página): vale o endereço da aba.
+  const url = /^https?:/.test(sender.url || "") ? sender.url : sender.tab.url;
+  const request = { url, fields: message.fields, confirm: null, version: chrome.runtime.getManifest().version };
+  if (message.probe) request.probe = message.probe;
   let response = await chrome.runtime.sendNativeMessage(HOST, request);
   if (response.status === "confirm") {
     const cacheKey = `${tabId}|${response.origin.key}`;

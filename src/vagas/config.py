@@ -82,9 +82,11 @@ SETTINGS: dict[str, Setting] = {
     "autofill_domains": Setting("VAGAS_AUTOFILL_DOMAINS", "text", "Domínios extras onde a extensão do Chrome preenche "
                                 "os documentos do cofre, separados por vírgula (além dos sites de vagas conhecidos e "
                                 "dos sites das candidaturas abertas)", ask_at_setup=False),
-    "autofill_platforms": Setting("VAGAS_AUTOFILL_PLATFORMS", "text", "Plataformas de recrutamento (ex.: gupy.io) "
-                                  "em que um \"Permitir sempre\" da extensão do Chrome vale para todas as empresas, "
-                                  "separadas por vírgula; nas demais, a confirmação é por empresa",
+    "autofill_platforms": Setting("VAGAS_AUTOFILL_PLATFORMS", "text", "Plataformas de recrutamento, além das padrão "
+                                  "(Gupy, InHire, Cornerstone, Factorial, Workday, Greenhouse, Lever, SmartRecruiters, "
+                                  "Recruitee), em que um \"Permitir sempre\" da extensão do Chrome vale para todas as "
+                                  "empresas, separadas por vírgula; \"-dominio\" tira uma padrão. Nas demais, a "
+                                  "confirmação é por empresa",
                                   ask_at_setup=False),
     "salary_rule": Setting("VAGAS_SALARY_RULE", "choice", "Regra da pretensão salarial a partir do valor de mercado "
                            "(perguntada depois da primeira busca de vagas)", choices=SALARY_RULES,
@@ -231,11 +233,12 @@ def _clean_choice(key: str, value: str) -> str | None:
     if key == "autofill_platforms":
         from vagas.autofill import PLATFORMS
 
-        try:
-            domains = split_domains(text)
-        except ValueError:
+        items = [i for i in re.split(r"[,;\s]+", text.strip()) if i]
+        try:  # "-dominio" tira uma das plataformas padrão (autofill.DEFAULT_PLATFORMS)
+            domains = [("-" if i.startswith("-") else "") + split_domains(i.lstrip("-"))[0] for i in items]
+        except (ValueError, IndexError):
             return None
-        return ", ".join(domains) if domains and set(domains) <= set(PLATFORMS) else None
+        return ", ".join(domains) if domains and {d.lstrip("-") for d in domains} <= set(PLATFORMS) else None
     if key == "login_email":
         return text.lower() if re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", text) else None
     if key == "linkedin_url":

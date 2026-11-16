@@ -14,7 +14,7 @@ from typing import Any, BinaryIO
 
 from vagas import config
 from vagas.autofill import (Applications, Approvals, Autofill, default_approvals_path, default_log_path,
-                            default_status_path)
+                            default_status_path, effective_platforms)
 from vagas.db import default_db_path
 from vagas.profile_fields import ProfileFiles, default_skill_dir
 from vagas.repo import VagasError
@@ -66,8 +66,7 @@ def build_autofill() -> Autofill:
         return config.split_domains(value) if value else []
 
     def platforms() -> list[str]:
-        value = config.resolve("autofill_platforms", db_path)[0]
-        return config.split_domains(value) if value else []
+        return effective_platforms(config.resolve("autofill_platforms", db_path)[0])
 
     def talent_pool() -> bool | None:
         try:
