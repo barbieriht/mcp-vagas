@@ -136,3 +136,38 @@ def test_without_a_list_every_level_goes_ahead(triage_for):
     result = triage.triage_job(url)
 
     assert result["decision"] == "a_aplicar" and result["level"]["listed"] is True
+
+
+@pytest.mark.parametrize("name", ["Data Scientist Intern", "Estágio em Ciência de Dados"])
+def test_internship_outside_the_list_is_discarded_even_without_a_years_range(triage_for, name):
+    """Regressão: "estagio" não tem faixa na tabela de níveis, e a lista de senioridades só era conferida para os
+    níveis da tabela; o estágio passava como a_aplicar com "Senioridades buscadas: junior, pleno, senior"."""
+    triage, fetcher = triage_for(LISTED)
+    url = fetcher.add(gupy(10, name=name))
+
+    result = triage.triage_job(url)
+
+    assert result["decision"] == "descartada"
+    assert result["level"]["job_level"] == "estagio" and result["level"]["listed"] is False
+    assert result["level"]["job_years"] is None
+    assert "senioridades a que você se candidata" in result["application"]["discard_reason"]
+
+
+def test_level_missing_from_a_custom_table_is_still_checked_against_the_list(triage_for):
+    triage, fetcher = triage_for(LISTED + "- Níveis de experiência: junior 0-2, pleno 2-5, senior 5-8\n")
+    url = fetcher.add(gupy(11, name="Staff Data Scientist"))
+
+    assert triage.triage_job(url)["decision"] == "descartada"
+
+
+def test_criteria_recheck_discards_open_internships(triage_for):
+    triage, _ = triage_for(BASE)
+    app = triage.repo.add_application(company="Acme", role="Data Scientist Intern", source="gupy",
+                                      status="a_aplicar", seniority="estagio", work_mode="remoto")["application"]
+    triage.apply_criteria_changes()
+    triage, _ = triage_for(LISTED)
+
+    recheck = triage.apply_criteria_changes()
+
+    assert [d["id"] for d in recheck["discarded"]] == [app["id"]]
+    assert triage.repo.get(app["id"])["status"] == "descartada"

@@ -33,11 +33,11 @@ def test_matched_and_missing_terms_with_score(store):
 
 
 def test_repeated_terms_count_once_regardless_of_case(store):
-    result = store.score_job_match("Strong Python skills. Python and PYTHON daily, plus Spark and Spark.")
+    result = store.score_job_match("Strong Python skills. Python and PYTHON daily, plus Spark, Spark and Kafka.")
 
     assert result["matched"] == ["Python"]
-    assert result["missing"] == ["Spark"]
-    assert result["score"] == 50
+    assert result["missing"] == ["Spark", "Kafka"]
+    assert result["score"] == 33
 
 
 @pytest.mark.parametrize("description, score", [
@@ -217,3 +217,39 @@ def test_multiword_skills_count_as_phrases_not_as_loose_words(db_path, tmp_path)
 
     assert result["matched"] == ["Python", "Machine Learning"]
     assert result["missing"] == []
+
+
+@pytest.mark.parametrize("description", [
+    "Vaga de analista. Conhecimento em Excel.",
+    "Apply through LinkedIn. Collaboration and Communication are key.",
+    "Must know Python and SQL.",
+])
+def test_too_few_technical_terms_give_no_score(store, description):
+    """Regressão: uma vaga cujo único termo extraído era "Excel" (ou só "LinkedIn", "Collaboration") tinha nota 100."""
+    result = store.score_job_match(description)
+
+    assert result["score"] is None
+    assert "avalie a aderência pela leitura da vaga" in result["note"]
+
+
+def test_generic_terms_do_not_count_in_the_score(store):
+    result = store.score_job_match("Requirements: Python, SQL, C# and Excel. Apply on LinkedIn. Rust is a plus.")
+
+    assert sorted(result["generic"]) == ["Excel", "LinkedIn"]
+    assert "Excel" not in result["matched"] + result["missing"]
+    assert result["matched"] == ["Python", "SQL", "C#"] and result["missing"] == ["Rust"]
+    assert result["score"] == 75
+
+
+def test_rescore_applies_the_minimum_to_stored_scores(store):
+    from vagas.repo import Repo
+
+    repo = Repo(store.conn)
+    app = repo.add_application(company="Acme", role="Analista", source="gupy", status="a_aplicar",
+                               description="Conhecimento em Excel.", match_score=100,
+                               match_terms={"matched": ["Excel"], "missing": []})["application"]
+
+    assert store.rescore_applications()["rescored"] == 1
+    rescored = repo.get(app["id"])
+    assert rescored["match_score"] is None
+    assert [n["kind"] for n in rescored["needs"]] == ["aderencia"]

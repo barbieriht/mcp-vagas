@@ -21,9 +21,10 @@ from vagas import config as paths_config
 from vagas import panel, system
 from vagas.db import connect, default_db_path
 from vagas.experience import years_to_declare
+from vagas.app_query import ApplicationFilter
 from vagas.models import (
-    Contract, Currency, InitialStatus, LinkedInSection, ResumeSourceKind, RoleKey, SalaryMode, Seniority,
-    Source, Status, WorkMode,
+    Contract, Currency, InitialStatus, LinkedInSection, QueryField, QueryOrder, ResumeSourceKind, RoleKey,
+    SalaryMode, Seniority, Source, Status, WorkMode,
 )
 from vagas.repo import Repo, VagasError
 from vagas.resume_model import MasterResume
@@ -81,11 +82,11 @@ READ_ONLY_TOOLS = frozenset({
     "settings_link", "get_config", "find_application", "list_applications", "get_history", "extract_resume_text",
     "get_profile", "extension_status", "diff_master", "get_master_resume", "suggest_tailored_selection",
     "read_job_posting", "score_job_match", "list_resumes", "get_resume", "find_salary_estimate", "find_job_search",
-    "work_list", "get_search_run", "suggest_job_searches",
+    "work_list", "get_search_run", "suggest_job_searches", "query_applications",
 })
 # Escritas que sobrescrevem ou tiram algo (as demais só acrescentam: registro, versão, arquivo novo).
-DESTRUCTIVE_TOOLS = frozenset({"update_application", "discard_salary_estimate", "apply_profile_migration",
-                               "save_master_draft"})
+DESTRUCTIVE_TOOLS = frozenset({"update_application", "bulk_update_applications", "discard_salary_estimate",
+                               "apply_profile_migration", "save_master_draft"})
 # Acessam sites (vagas, buscas, LinkedIn); as demais só tocam o banco e os arquivos locais.
 OPEN_WORLD_TOOLS = frozenset({"read_job_posting", "triage_job", "search_jobs", "start_search_run",
                               "import_linkedin_profile"})
@@ -426,6 +427,74 @@ def build_server(
         if offset + limit < len(found):
             page["next_offset"] = offset + limit
         return page
+
+    @server.tool()
+    def query_applications(
+        filter: ApplicationFilter | None = None,
+        fields: list[QueryField] | None = None,
+        limit: Annotated[int, Field(ge=1, le=1000)] = 500,
+        offset: Annotated[int, Field(ge=0)] = 0,
+        order_by: QueryOrder = "-created_at",
+    ) -> dict[str, Any]:
+        """Consulta candidaturas por filtros estruturados, para revisar ou limpar a lista de trabalho sem paginar
+        list_applications e julgar linha a linha. Use antes de bulk_update_applications, com o mesmo filter.
+
+        filter (todos combinados com E; listas = qualquer um destes):
+        - status: um ou uma lista; seniority, work_mode: listas; seniority_missing, work_mode_missing,
+          match_score_missing: true inclui as sem o campo (sozinho, só elas), false só as com o campo;
+        - location_any/location_none, role_any/role_none: trechos sem diferenciar maiúsculas nem acentos
+          ("sao paulo" acha "São Paulo"); no cargo, um termo entre barras é expressão regular
+          ("/\\b(intern|estagi\\w*)\\b/");
+        - state_any/state_none: siglas ou nomes de estado, lidos do local como na triagem (vaga sem estado
+          conhecido não passa em state_any e passa em state_none);
+        - company_any/company_none: nome normalizado como em find_application, por palavras inteiras ("itau" acha
+          "Itaú Unibanco S.A.", "ci" não acha "Cielo");
+        - match_score_min/match_score_max: faixa da aderência (0-100);
+        - needs_any/needs_none: tipos de needs da triagem ainda abertos (cargo, local, modalidade, senioridade,
+          aderencia, afirmativa, pesquisa_salarial, salario);
+        - search_id, created_since, created_until (datas ISO; data sem hora inclui o dia todo), ids.
+        fields: colunas de cada linha (padrão id, company, role, seniority, work_mode, location, match_score,
+        status, url; id sempre vem); needs vem só com os tipos. order_by: -created_at (padrão), created_at,
+        -match_score, match_score (sem nota por último), company, id, -id.
+        Retorna {count (total com os filtros), rows, next_offset?}; linhas sem campos vazios e sem a descrição.
+        """
+        with repo() as r:
+            return r.query_applications(filter or ApplicationFilter(), fields=fields, limit=limit, offset=offset,
+                                        order_by=order_by)
+
+    @server.tool()
+    def bulk_update_applications(
+        filter: ApplicationFilter | None = None,
+        ids: list[int] | None = None,
+        status: Status | None = None,
+        discard_reason: str | None = None,
+        note: str | None = None,
+        pending: str | None = None,
+        dry_run: bool = True,
+        confirm_token: str | None = None,
+        max_affected: Annotated[int, Field(ge=1, le=2000)] = 300,
+    ) -> dict[str, Any]:
+        """Aplica a mesma alteração (status, discard_reason, note, pending) a todas as candidaturas de um filtro,
+        numa chamada, no lugar de chamar update_application uma a uma. Sempre em dois passos:
+        1. dry_run (padrão): nada é gravado. Retorna {would_affect, sample (as 20 primeiras), skipped,
+           confirm_token, expires_at}. Mostre a contagem e a amostra ao usuário e peça a confirmação dele;
+        2. com a confirmação, chame de novo com os mesmos filter/ids e alteração, dry_run=false e o confirm_token.
+           Retorna {updated, skipped, ids}.
+        O token vale 10 minutos e só para o mesmo filtro, a mesma alteração e o mesmo conjunto de candidaturas:
+        se alguma entrou, saiu ou mudou de status no meio, a aplicação é recusada; refaça a simulação.
+
+        filter: o mesmo de query_applications (ao menos um filtro); ou ids, lista explícita (um dos dois).
+        Cada linha passa pela validação de update_application: "descartada" exige discard_reason (gravado em
+        todas), "pendente_usuario" exige pendência, pending="" limpa. Se uma linha falhar, nada é gravado (uma
+        transação só) e o erro diz qual. Mudança de status e nota viram um evento por candidatura (get_history).
+        skipped = [{id, reason}]: já no status pedido, ou em aplicada, rh, tecnica, gestor ou proposta (processo
+        em andamento), que só mudam se filter.status citar esse status. max_affected (padrão 300): acima disso a
+        chamada é recusada; aumente só se o usuário confirmar o número.
+        """
+        with repo() as r:
+            return r.bulk_update(filter=filter, ids=ids, status=status, discard_reason=discard_reason, note=note,
+                                 pending=pending, dry_run=dry_run, confirm_token=confirm_token,
+                                 max_affected=max_affected)
 
     @server.tool()
     def export_csv() -> dict[str, Any]:
@@ -862,7 +931,9 @@ def build_server(
         "senioridade", "afirmativa" (vaga afirmativa sem grupo reconhecido: leia e julgue),
         "pesquisa_salarial" (pesquise com as consultas em queries, as research_queries de
         evaluate_salary, e chame evaluate_salary de novo), "salario".
-        Se o julgamento reprovar a vaga, use update_application com status "descartada".
+        Se o julgamento reprovar a vaga, use update_application com status "descartada". Os needs ficam gravados na
+        candidatura (query_applications com needs_any/needs_none) e cada tipo sai sozinho quando resolvido (ex.:
+        work_mode registrado tira "modalidade"; avaliação salarial feita tira "cargo" e "salario").
         Página bloqueada ou sem dados estruturados: erro; leia a vaga pelo navegador e faça a triagem
         pelos passos manuais da Skill.
         Níveis de experiência (tabela do criterios-triagem.md): só embasam. level = {your_years (anos
@@ -888,8 +959,9 @@ def build_server(
 
         Extrai só os termos técnicos da descrição (skills do currículo, tecnologias conhecidas,
         siglas, nomes como PyTorch ou C++) e separa os que aparecem no currículo geral ("matched")
-        dos que não aparecem ("missing"). "score" é a proporção de presentes, de 0 a 100 (null se a
-        descrição não tiver termos técnicos). Passe company, title e location da vaga: palavras
+        dos que não aparecem ("missing"). "score" é a proporção de presentes, de 0 a 100; null com menos
+        de 3 termos técnicos (note diz quantos: julgue pela leitura). "generic" = termos que não contam na nota
+        (sites de vagas, Excel e Office, competências comportamentais, idiomas). Passe company, title e location da vaga: palavras
         deles são ignoradas. "related" = {termo ausente: [termos da mesma família no currículo]}
         (ex.: XGBoost ausente, relacionado LightGBM): lacuna de ferramenta, não de competência; não
         conta na nota. "optional" = termos que só aparecem em trechos de requisitos desejáveis

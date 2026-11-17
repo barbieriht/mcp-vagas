@@ -380,11 +380,11 @@ async def test_score_job_match_via_mcp(server):
         before = await client.call_tool("score_job_match", {"description": "Python and Spark"})
         await client.call_tool("save_master_draft", {"resume": fictitious_resume()})
         await client.call_tool("approve_master", {})
-        result = payload(await client.call_tool("score_job_match", {"description": "Strong Python and Spark."}))
+        result = payload(await client.call_tool("score_job_match", {"description": "Strong Python, SQL and Spark."}))
 
     assert "indicativ" in tools["score_job_match"].description.lower()
     assert before.is_error and "approve_master" in before.content[0].text
-    assert (result["matched"], result["missing"], result["score"]) == (["Python"], ["Spark"], 50)
+    assert (result["matched"], result["missing"], result["score"]) == (["Python", "SQL"], ["Spark"], 67)
 
 
 async def test_a_aplicar_via_mcp(server):

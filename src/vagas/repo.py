@@ -47,7 +47,7 @@ def form_url_value(value: str) -> str | None:
 
 def _application(row: sqlite3.Row) -> dict[str, Any]:
     application = dict(row)
-    for field in ("salary_evaluation", "match_terms", "pending_items"):
+    for field in ("salary_evaluation", "match_terms", "pending_items", "needs"):
         if application.get(field):
             application[field] = json.loads(application[field])
     return application
@@ -180,6 +180,30 @@ class Repo:
                                    work_mode, location, form_url, pending_items)):
             raise VagasError("Nada a atualizar: informe status, note, pending, resume_id, contract, work_mode, "
                              "location, form_url, pending_items ou salary_expectation.")
+        with self.conn:
+            self._update_row(current, status=status, note=note, pending=pending, discard_reason=discard_reason,
+                             resume_id=resume_id, contract=contract, salary_expectation=salary_expectation,
+                             work_mode=work_mode, location=location, form_url=form_url, pending_items=pending_items)
+        return self.get(application_id)
+
+    def _update_row(
+        self,
+        current: dict[str, Any],
+        status: str | None = None,
+        note: str | None = None,
+        pending: str | None = None,
+        discard_reason: str | None = None,
+        resume_id: int | None = None,
+        contract: str | None = None,
+        salary_expectation: str | None = None,
+        work_mode: str | None = None,
+        location: str | None = None,
+        form_url: str | None = None,
+        pending_items: list[Any] | None = None,
+    ) -> None:
+        """Valida e grava a alteração de uma candidatura, sem abrir nem fechar a transação: update_application e
+        a alteração em lote usam a mesma regra. VagasError antes de qualquer escrita."""
+        application_id = current["id"]
         from vagas.pending import clean_items
 
         new_items = current["pending_items"] if pending_items is None else (clean_items(pending_items) or None)
@@ -205,28 +229,27 @@ class Repo:
             raise VagasError("Status 'descartada' exige 'discard_reason'.")
 
         now = self.now()
-        with self.conn:
+        self.conn.execute(
+            """
+            UPDATE applications
+            SET status = ?, pending = ?, discard_reason = ?, contract = ?, salary_expectation = ?,
+                work_mode = ?, location = ?, form_url = ?, pending_items = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (new_status, new_pending, new_reason, contract or current["contract"],
+             current["salary_expectation"] if salary_expectation is None else (salary_expectation.strip() or None),
+             work_mode or current["work_mode"],
+             current["location"] if location is None else (location.strip() or None),
+             new_form_url, json.dumps(new_items, ensure_ascii=False) if new_items else None, now, application_id),
+        )
+        if status is not None or note is not None:
             self.conn.execute(
-                """
-                UPDATE applications
-                SET status = ?, pending = ?, discard_reason = ?, contract = ?, salary_expectation = ?,
-                    work_mode = ?, location = ?, form_url = ?, pending_items = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (new_status, new_pending, new_reason, contract or current["contract"],
-                 current["salary_expectation"] if salary_expectation is None else (salary_expectation.strip() or None),
-                 work_mode or current["work_mode"],
-                 current["location"] if location is None else (location.strip() or None),
-                 new_form_url, json.dumps(new_items, ensure_ascii=False) if new_items else None, now, application_id),
+                "INSERT INTO events (application_id, at, from_status, to_status, note) VALUES (?, ?, ?, ?, ?)",
+                (application_id, now, current["status"], new_status, note),
             )
-            if status is not None or note is not None:
-                self.conn.execute(
-                    "INSERT INTO events (application_id, at, from_status, to_status, note) VALUES (?, ?, ?, ?, ?)",
-                    (application_id, now, current["status"], new_status, note),
-                )
-            if resume_id is not None:
-                self._link_resume(resume_id, application_id)
-        return self.get(application_id)
+        if resume_id is not None:
+            self._link_resume(resume_id, application_id)
+        self._refresh_needs(application_id)
 
     def get_history(self, application_id: int) -> dict[str, Any]:
         resumes = self.conn.execute(
@@ -370,9 +393,11 @@ class Repo:
                               (seniority, self.now(), application_id))
         return self.update_application(application_id, note=f"Senioridade: {seniority} ({reason}).")
 
-    def set_match(self, application_id: int, match_score: int | None, match_terms: dict[str, Any]) -> None:
-        """Atualiza a aderência gravada (recalculada quando o currículo geral muda). Não gera evento."""
-        self.get(application_id)
+    def set_match(self, application_id: int, match_score: int | None, match_terms: dict[str, Any],
+                  note: str | None = None) -> None:
+        """Atualiza a aderência gravada (recalculada quando o currículo geral muda). Não gera evento. Sem nota,
+        a vaga ganha o need "aderencia" (detail = note, o motivo de score_job_match); com nota, ele sai."""
+        current = self.get(application_id)
         if match_score is not None and not 0 <= match_score <= 100:
             raise VagasError(f"'match_score' deve estar entre 0 e 100 (recebido {match_score}).")
         _check_match_terms(match_terms)
@@ -381,6 +406,46 @@ class Repo:
                 "UPDATE applications SET match_score = ?, match_terms = ? WHERE id = ?",
                 (match_score, json.dumps(match_terms, ensure_ascii=False), application_id),
             )
+            needs = current.get("needs") or []
+            if match_score is None and "aderencia" not in [n["kind"] for n in needs]:
+                self._write_needs(application_id, [*needs, {"kind": "aderencia", "detail": note}])
+            self._refresh_needs(application_id)
+
+    def set_needs(self, application_id: int, needs: list[dict[str, Any]]) -> None:
+        """Grava o que a triagem não decidiu ([{kind, detail}]; [] limpa). Não gera evento."""
+        self.get(application_id)
+        with self.conn:
+            self._write_needs(application_id, needs)
+
+    def _write_needs(self, application_id: int, needs: list[dict[str, Any]]) -> None:
+        from vagas.needs import stored
+
+        rows = stored(needs)
+        self.conn.execute("UPDATE applications SET needs = ? WHERE id = ?",
+                          (json.dumps(rows, ensure_ascii=False) if rows else None, application_id))
+
+    def _refresh_needs(self, application_id: int) -> None:
+        """Tira os needs que o registro passou a resolver (vagas.needs), dentro da transação de quem chamou."""
+        from vagas.needs import unresolved
+
+        app = self.get(application_id)
+        if app.get("needs"):
+            remaining = unresolved(app["needs"], app)
+            if len(remaining) < len(app["needs"]):
+                self._write_needs(application_id, remaining)
+
+    def query_applications(self, filter: Any, fields: list[str] | None = None, limit: int = 500, offset: int = 0,
+                           order_by: str = "-created_at") -> dict[str, Any]:
+        """Candidaturas que passam em todos os filtros (vagas.app_query). Retorna {count, rows, next_offset?}."""
+        from vagas.app_query import query
+
+        return query(self, filter, fields=fields, limit=limit, offset=offset, order_by=order_by)
+
+    def bulk_update(self, **kwargs: Any) -> dict[str, Any]:
+        """A mesma alteração em várias candidaturas, simulada antes (vagas.app_query.bulk_update)."""
+        from vagas.app_query import bulk_update
+
+        return bulk_update(self, **kwargs)
 
     def events(self, application_id: int) -> list[dict[str, Any]]:
         rows = self.conn.execute(

@@ -337,6 +337,7 @@ O PDF sai na pasta `resume_out` (veja [Configuração completa](#configuração-
 - *"Mostre minha lista de vagas a aplicar."* (ordenada pela aderência ao currículo)
 - *"Exporte minhas candidaturas para uma planilha."* (`export_csv`)
 - *"O que está pendente comigo?"* / *"Quais candidaturas estão sem resposta há mais de 30 dias?"* (`list_applications`)
+- *"Descarte todas as vagas a aplicar de estágio."* / *"Quais vagas a aplicar ainda estão sem modalidade?"* (`query_applications` e `bulk_update_applications`: o Claude mostra a contagem e uma amostra e só aplica com a sua confirmação)
 
 Status possíveis: `a_aplicar` (vaga encontrada e triada, aguardando candidatura), `aplicada`, `pendente_usuario`, `rh`, `tecnica`, `gestor`, `proposta`, `recusada`, `desistiu`, `descartada`.
 
@@ -349,6 +350,8 @@ Status possíveis: `a_aplicar` (vaga encontrada e triada, aguardando candidatura
 | `add_application` | registra vaga (`a_aplicar`, `aplicada`, `pendente_usuario` ou `descartada`), com busca de origem e aderência; duplicata devolve a existente |
 | `update_application` | muda etapa, pendência, nota ou currículo vinculado |
 | `list_applications` | lista candidaturas com filtros combináveis: status, pendências, fonte, data de criação e sem resposta há N dias |
+| `query_applications` | consulta por filtros estruturados (status, senioridade, modalidade, local, estado, cargo, empresa, aderência, needs da triagem, busca, datas, ids), sem acento nem maiúscula, com as colunas pedidas |
+| `bulk_update_applications` | a mesma alteração (status, motivo do descarte, nota, pendência) em todas as candidaturas de um filtro: simula primeiro e aplica com o token da simulação, numa transação só, com um evento por candidatura; processos em andamento só mudam se o filtro citar o status |
 | `export_csv` | exporta todas as candidaturas para um CSV novo (separador `;`, abre no Excel e no Google Sheets) |
 | `get_history` | candidatura, linha do tempo e currículos vinculados |
 | `extract_resume_text` | extrai o texto do PDF do currículo (caminho Windows ou WSL) |
@@ -366,7 +369,7 @@ Status possíveis: `a_aplicar` (vaga encontrada e triada, aguardando candidatura
 | `get_profile` | perfil estruturado para formulários: campos com status (preenchido, a preencher, manual, no cofre) |
 | `add_profile_field` | acrescenta um campo de formulário ao `perfil.md` e ao `perfil.example.md` (dados sensíveis só como "informar manualmente") |
 | `diff_master` | compara itens das fontes com o currículo geral aprovado: novos, alterados e ausentes, com IDs preservados |
-| `score_job_match` | aderência de uma vaga ao currículo geral: nota 0–100, termos presentes e ausentes (indicativa) |
+| `score_job_match` | aderência de uma vaga ao currículo geral: nota 0–100, termos presentes e ausentes (indicativa); sem nota com menos de 3 termos técnicos, e termos genéricos (Excel, LinkedIn, competências comportamentais, idiomas) não contam |
 | `list_resumes` / `get_resume` | consulta currículos personalizados gerados |
 | `find_salary_estimate` | consulta o cache de salários (empresa e mercado; chamar antes de pesquisar) |
 | `save_salary_estimate` | registra uma pesquisa de salários (inclusive "nada encontrado") |

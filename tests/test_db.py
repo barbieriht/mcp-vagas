@@ -23,6 +23,7 @@ def drop_v14(conn):
     conn.execute("DROP TABLE app_state")  # v15
     conn.execute("ALTER TABLE applications DROP COLUMN form_url")  # v16
     conn.execute("ALTER TABLE applications DROP COLUMN pending_items")  # v17
+    conn.execute("ALTER TABLE applications DROP COLUMN needs")  # v18
 
 
 def test_new_database_gets_latest_schema(db_path):
@@ -35,6 +36,7 @@ def test_new_database_gets_latest_schema(db_path):
         "status", "pending", "discard_reason", "created_at", "updated_at", "salary_evaluation",
         "search_id", "match_score", "match_terms", "contract",
         "salary_basis", "salary_market", "salary_rule", "salary_ask", "form_url", "pending_items",
+        "needs",
     }
     assert columns(conn, "events") == {
         "id", "application_id", "at", "from_status", "to_status", "note",
