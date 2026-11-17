@@ -23,7 +23,7 @@ from vagas.models import (
     Contract, Period,
 )
 from vagas.normalize import normalize_company, normalize_text
-from vagas.repo import VagasError, _require_choice, _utcnow
+from vagas.repo import Repo, VagasError, _require_choice, _utcnow
 from vagas.resume_model import Text, _Model, describe_errors
 from vagas.salary_policy import default_policy_path, load_policy
 
@@ -372,6 +372,7 @@ class SalaryStore:
                     (json.dumps(record, ensure_ascii=False), result["basis"], result["median"], result["rule"],
                      result["value_to_inform"], application_id),
                 )
+                Repo(self.conn)._refresh_needs(application_id)  # cargo e salário resolvidos pela avaliação
         return result
 
     def _evaluate(self, role_key, seniority, currency, contract, my_min, my_max, mode, pj_multiplier,

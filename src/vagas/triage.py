@@ -28,6 +28,7 @@ from vagas.db import default_db_path
 from vagas.job_posting import Fetcher, JobPostingError, http_fetch, read_job_posting
 from vagas.models import CURRENCIES, ROLE_KEYS, ROLE_NAMES, SENIORITIES
 from vagas.normalize import normalize_company, normalize_text
+from vagas.places import state_code, state_of
 from vagas.repo import Repo, VagasError
 from vagas.resume_repo import ResumeStore, default_draft_path
 from vagas.experience import experience_years
@@ -57,14 +58,6 @@ _KEYS = {
     "anos por senioridade": "years_by_level",
     "niveis de experiencia": "years_by_level",
     "estados aceitos para hibrido e presencial": "accepted_states",
-}
-_STATES = {
-    "AC": "acre", "AL": "alagoas", "AP": "amapa", "AM": "amazonas", "BA": "bahia", "CE": "ceara",
-    "DF": "distrito federal", "ES": "espirito santo", "GO": "goias", "MA": "maranhao", "MT": "mato grosso",
-    "MS": "mato grosso do sul", "MG": "minas gerais", "PA": "para", "PB": "paraiba", "PR": "parana",
-    "PE": "pernambuco", "PI": "piaui", "RJ": "rio de janeiro", "RN": "rio grande do norte",
-    "RS": "rio grande do sul", "RO": "rondonia", "RR": "roraima", "SC": "santa catarina", "SP": "sao paulo",
-    "SE": "sergipe", "TO": "tocantins",
 }
 @dataclass(frozen=True)
 class Level:
@@ -253,23 +246,9 @@ def _years_by_level(items: list[str], where: str) -> tuple[Level, ...]:
 
 
 def _state(value: str, where: str) -> str:
-    norm = normalize_text(value)
-    for uf, name in _STATES.items():
-        if norm in (uf.lower(), name):
-            return uf
-    raise VagasError(f"Estado desconhecido em {where}: {value!r}. Use a sigla (ex.: SP) ou o nome do estado.")
-
-
-def state_of(location: str | None) -> str | None:
-    """UF do local da vaga ("Barueri, São Paulo, Brazil" -> SP), ou None se não der para saber."""
-    if not location:
-        return None
-    parts = [normalize_text(re.sub(r"^Greater\s+|\s+Area$", "", p.strip())) for p in location.split(",")]
-    for part in reversed(parts):
-        for uf, name in _STATES.items():
-            if part in (uf.lower(), name):
-                return uf
-    return None
+    if (uf := state_code(value)) is None:
+        raise VagasError(f"Estado desconhecido em {where}: {value!r}. Use a sigla (ex.: SP) ou o nome do estado.")
+    return uf
 
 
 def years_required(text: str | None) -> int | None:
@@ -431,6 +410,8 @@ class Triage:
             needs = [n for n in needs if n["kind"] not in ("pesquisa_salarial", "salario")]
         elif salary:
             reasons.append(salary["reason"])
+        if needs:
+            self.repo.set_needs(app["id"], needs)  # consultável depois (query_applications needs_any)
         return self._result(decision, self.repo.get(app["id"]), posting, match, salary, reasons, needs, level)
 
     # --- Etapas ---------------------------------------------------------------------------------
@@ -581,31 +562,37 @@ class Triage:
             needs.append({"kind": "salario", "detail": f"Faixa publicada não registrada: {exc}"})
 
     def _level_fit(self, criteria: TriageCriteria, seniority: str | None) -> dict[str, Any] | None:
-        """Enquadramento: anos de experiência do currículo geral contra a faixa do nível da vaga."""
+        """Enquadramento: anos de experiência do currículo geral contra a faixa do nível da vaga. Nível sem faixa na
+        tabela (estágio, ou um que a tabela editada não traz): job_years e within nulos, mas a lista de senioridades
+        ainda decide (listed)."""
         table = {level.name: level for level in criteria.years_by_level}
-        if seniority is None or seniority not in table:
+        if seniority not in SENIORITIES:  # sem nível, ou texto livre antigo: nada a conferir
             return None
         try:
             years = experience_years(self.resumes.get_master_resume()["resume"],
                                      datetime.fromisoformat(self.repo.now()).date())
         except VagasError:
             years = None
-        job = table[seniority]
+        job = table.get(seniority)
         return {
             "your_years": years,
             "your_level": level_for_years(years, criteria.years_by_level) if years is not None else None,
-            "job_level": seniority, "job_years": job.years(),
-            "within": None if years is None else job.min <= years and (job.max is None or years <= job.max),
+            "job_level": seniority, "job_years": job.years() if job else None,
+            "within": None if years is None or job is None else (
+                job.min <= years and (job.max is None or years <= job.max)),
             "listed": not criteria.search_seniorities or seniority in criteria.search_seniorities,
         }
 
     @staticmethod
     def _level(criteria: TriageCriteria, level: dict[str, Any], reasons: list[str]) -> str | None:
         """Os níveis só embasam: a lista de senioridades decide; fora do enquadramento a vaga segue."""
-        job = f"Vaga {level['job_level']} ({level['job_years']} anos)"
+        job = f"Vaga {level['job_level']}" + (f" ({level['job_years']} anos)" if level["job_years"] else "")
         if not level["listed"]:
             return (f"{job} fora das senioridades a que você se candidata "
                     f"({', '.join(criteria.search_seniorities)}, em criterios-triagem.md).")
+        if level["job_years"] is None:
+            reasons.append(f"{job} entre as senioridades a que você se candidata (nível sem faixa de anos na tabela).")
+            return None
         if level["your_years"] is None:
             return None
         years = f"{level['your_years']:.1f}".replace(".", ",")

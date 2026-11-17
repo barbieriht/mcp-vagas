@@ -27,7 +27,7 @@ POLICY = """\
 - Remoto nacional (BRL, CLT): mínimo 8.000
 - Híbrido/presencial em São Paulo e região (BRL, CLT): mínimo 10.000
 """
-GOOD = "<p>Modelos com Python e SQL.</p>"
+GOOD = "<p>Modelos com Python, SQL e C++.</p>"
 BAD = "<p>Kafka, Airflow, Hadoop, Scala, Spark, Flink, Kubernetes.</p>"
 
 
@@ -123,7 +123,7 @@ def test_target_job_is_registered_scored_and_salary_evaluated(triage, fetcher, c
     assert result["decision"] == "a_aplicar"
     assert (app["status"], app["role"], app["company"], app["work_mode"], app["location"], app["source"]) == (
         "a_aplicar", "Cientista de Dados Pleno", "Acme", "hibrido", "São Paulo, SP, Brasil", "gupy")
-    assert app["match_score"] == 100 and app["match_terms"]["matched"] == ["Python", "SQL"]
+    assert app["match_score"] == 100 and app["match_terms"]["matched"] == ["Python", "SQL", "C++"]
     assert "Modelos com Python" in app["description"]
     assert (result["salary"]["decision"], result["salary"]["value_to_inform"]) == ("aplicar", 12000)
     assert result["salary"]["policy"]["band"] == "Híbrido/presencial em São Paulo e região"

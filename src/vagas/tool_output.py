@@ -25,14 +25,21 @@ def without_empty(row: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in row.items() if not _is_empty(value)}
 
 
+def _need_kinds(application: dict[str, Any]) -> dict[str, Any]:
+    """needs só com os tipos (["modalidade", "cargo"]): o detalhe de cada um, longo, fica em get_history."""
+    if application.get("needs"):
+        return {**application, "needs": [n["kind"] for n in application["needs"]]}
+    return application
+
+
 def application_record(application: dict[str, Any]) -> dict[str, Any]:
     """Candidatura como volta de uma gravação ou triagem: sem a descrição e sem campos vazios."""
-    return without_empty({k: v for k, v in application.items() if k not in _RECORD_HIDDEN})
+    return without_empty(_need_kinds({k: v for k, v in application.items() if k not in _RECORD_HIDDEN}))
 
 
 def application_summary(application: dict[str, Any]) -> dict[str, Any]:
     """Linha de lista ou busca: o necessário para escolher a candidatura e o passo seguinte."""
-    return without_empty({k: v for k, v in application.items() if k not in _SUMMARY_HIDDEN})
+    return without_empty(_need_kinds({k: v for k, v in application.items() if k not in _SUMMARY_HIDDEN}))
 
 
 def optional_not_nullable(node: Any) -> Any:
@@ -60,9 +67,10 @@ def _not_nullable(prop: Any) -> Any:
         return prop
     prop = {k: v for k, v in prop.items() if k != "default"}
     branches = prop.get("anyOf")
-    if isinstance(branches, list) and len(branches) == 2 and {"type": "null"} in branches:
-        [other] = [b for b in branches if b != {"type": "null"}]
-        prop = {**{k: v for k, v in prop.items() if k != "anyOf"}, **other}
+    if isinstance(branches, list) and {"type": "null"} in branches:
+        others = [b for b in branches if b != {"type": "null"}]
+        rest = {k: v for k, v in prop.items() if k != "anyOf"}
+        prop = {**rest, **others[0]} if len(others) == 1 else {**rest, "anyOf": others}
     return prop
 
 

@@ -1,5 +1,6 @@
 """Conexão com o SQLite, schema e migrações (versionadas por PRAGMA user_version)."""
 
+import json
 import logging
 import os
 import sqlite3
@@ -38,6 +39,33 @@ def _recanonicalize_urls(conn: sqlite3.Connection) -> None:
         conn.execute("UPDATE applications SET url_canonical = ? WHERE id = ?", (new, application_id))
         taken.discard(old)
         taken.add(new)
+
+
+def _add_needs(conn: sqlite3.Connection) -> None:
+    """Coluna needs e, para as vagas triadas numa busca em lote, os tipos que o resumo da busca guardou (sem o
+    detalhe, que o resumo não tem), menos os que o registro já resolve. Vagas triadas uma a uma ficam sem."""
+    from vagas.needs import unresolved
+
+    conn.execute("ALTER TABLE applications ADD COLUMN needs TEXT")
+    found: dict[int, list[str]] = {}
+    for (summary,) in conn.execute("SELECT summary FROM search_runs WHERE summary IS NOT NULL ORDER BY id"):
+        try:
+            rows = json.loads(summary).get("a_aplicar") or []
+        except (ValueError, AttributeError):
+            continue
+        for row in rows:
+            if isinstance(row, dict) and isinstance(row.get("id"), int) and isinstance(row.get("needs"), list):
+                found[row["id"]] = [k for k in row["needs"] if isinstance(k, str)]
+    for application_id, kinds in found.items():
+        app = conn.execute("SELECT work_mode, seniority, match_score, salary_evaluation FROM applications "
+                           "WHERE id = ?", (application_id,)).fetchone()
+        if app is None:
+            continue
+        record = {**dict(app), "salary_evaluation": json.loads(app["salary_evaluation"] or "null")}
+        needs = unresolved([{"kind": k} for k in dict.fromkeys(kinds)], record)
+        if needs:
+            conn.execute("UPDATE applications SET needs = ? WHERE id = ?",
+                         (json.dumps(needs, ensure_ascii=False), application_id))
 
 
 # Cada passo é SQL ou uma função (para transformar dados com código Python).
@@ -231,6 +259,8 @@ MIGRATIONS = [
     """
     ALTER TABLE applications ADD COLUMN pending_items TEXT;
     """,
+    # v18: o que a triagem não decidiu ([{kind, detail}] em JSON), recuperado dos resumos das buscas em lote
+    _add_needs,
 ]
 LATEST_VERSION = len(MIGRATIONS)
 

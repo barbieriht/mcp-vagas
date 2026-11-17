@@ -122,6 +122,20 @@ totalpass gympass wellhub alelo sodexo flash caju swile zenklub
 """.split())
 
 
+# Termos que passam como técnicos (estão no currículo, têm maiúsculas no meio, ou são ferramentas que toda vaga cita),
+# mas não medem aderência: sites de vagas, competências comportamentais, pacote Office, idiomas e abreviações. Ficam
+# fora da nota (aparecem em "generic"); sem isso, uma vaga que só citava "Excel" ou "LinkedIn" tinha nota 100.
+GENERIC_TERMS = frozenset(normalize_text(t) for t in """
+linkedin|linkedin learning|gupy|glassdoor|indeed|collaboration|communication|teamwork|leadership|learn|learning
+|ownership|autonomy|creativity|curiosity|adaptability|empathy|problem solving|critical thinking|soft skills
+|team player|comunicação|colaboração|liderança|proatividade|autonomia|criatividade|curiosidade|empatia
+|trabalho em equipe|excel|powerpoint|word|outlook|office|microsoft office|ms office|pacote office|google sheets
+|google workspace|g suite|microsoft teams|english|inglês|portuguese|português|spanish|espanhol|e.g|i.e|etc|mba
+""".replace("\n", "").split("|"))
+# Abaixo disso a proporção não diz nada (1 de 1 = 100): sem nota, a triagem pede o julgamento ("aderencia").
+MIN_SCORED_TERMS = 3
+
+
 def _technical(term: str, skills: set[str], excluded: set[str]) -> str | None:
     """O termo na forma a mostrar, se for técnico; senão None."""
     term = term.strip("®™©")
@@ -319,7 +333,7 @@ class ResumeStore:
             if (app["match_score"], app.get("match_terms")) == (match["score"], terms):
                 unchanged += 1
                 continue
-            repo.set_match(app["id"], match["score"], terms)
+            repo.set_match(app["id"], match["score"], terms, note=match["note"])
             changed += 1
         return {"rescored": changed, "unchanged": unchanged}
 
@@ -441,20 +455,25 @@ class ResumeStore:
         def present(term: str) -> bool:  # termos de início de frase não passam pela checagem de match_terms
             return term.lower() in corpus or all(p.lower() in corpus for p in term.split("-") if p)
 
-        matched = [t for t in terms if present(t)] + [p for p in phrases if p not in terms]
-        missing = [t for t in terms if not present(t)]
         terms = [*terms, *(p for p in phrases if p not in terms)]
-        total = len(matched) + len(missing)
-        if total == 0:
-            return {"score": None, "matched": [], "missing": [], "related": {}, "optional": [],
-                    "note": "A descrição não tem termos técnicos reconhecíveis (tecnologias, siglas, nomes "
-                            "próprios); avalie a aderência pela leitura da vaga."}
+        generic = [t for t in terms if normalize_text(t) in GENERIC_TERMS]
+        terms = [t for t in terms if t not in generic]
+        matched = [t for t in terms if t in phrases or present(t)]
+        missing = [t for t in terms if t not in matched]
         spans = _optional_spans(description)
         optional = [t for t in terms if spans and _only_optional(t, description, spans)]
+        if len(terms) < MIN_SCORED_TERMS:
+            found = {0: "A descrição não tem termos técnicos reconhecíveis (tecnologias, siglas, nomes próprios)",
+                     1: "A descrição só tem 1 termo técnico"}.get(len(terms), f"A descrição só tem {len(terms)} "
+                                                                     "termos técnicos")
+            return {"score": None, "matched": matched, "missing": missing, "related": _related(missing, corpus),
+                    "optional": optional, "generic": generic,
+                    "note": f"{found}, pouco para uma nota (mínimo {MIN_SCORED_TERMS}, sem contar os genéricos como "
+                            "Excel e LinkedIn); avalie a aderência pela leitura da vaga."}
         weight = {t: OPTIONAL_WEIGHT if t in optional else 1.0 for t in terms}
         score = round(100 * sum(weight[t] for t in matched) / sum(weight.values()))
         return {"score": score, "matched": matched, "missing": missing, "related": _related(missing, corpus),
-                "optional": optional, "note": None}
+                "optional": optional, "generic": generic, "note": None}
 
     def list_resumes(self, application_id: int | None = None) -> list[dict[str, Any]]:
         rows = self.conn.execute(

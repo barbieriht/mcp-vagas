@@ -137,3 +137,11 @@ async def test_get_config_explains_only_what_still_needs_setup(db_path, monkeypa
     assert settings["resume_out"]["env"] == "VAGAS_RESUME_OUT" and "env" not in settings["export_dir"]
     assert settings["login_method"]["choices"] == ["linkedin", "google"]
     assert all(value not in (None, [], {}) for entry in settings.values() for value in entry.values())
+
+
+async def test_no_tool_schema_spells_optional_as_nullable(server):
+    """Nem nos modelos aninhados (filter de query_applications), nem com mais de um tipo (status: um ou lista)."""
+    async with Client(server) as client:
+        tools = (await client.list_tools()).tools
+
+    assert [t.name for t in tools if '"null"' in json.dumps(t.input_schema)] == []

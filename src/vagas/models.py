@@ -39,6 +39,19 @@ SENIORITY_LABELS: dict[str, str] = {"estagio": "estágio", "junior": "júnior", 
 # Pendências estruturadas de uma candidatura (pending_items)
 PendingKind = Literal["diversidade", "consentimento", "anexo_curriculo", "documento_cofre", "resposta_aberta", "login"]
 
+# O que a triagem não decide e deixa para julgar (needs), gravado na candidatura
+NeedKind = Literal["cargo", "local", "modalidade", "senioridade", "aderencia", "afirmativa", "pesquisa_salarial",
+                   "salario"]
+# Etapas de um processo em andamento: alterações em lote só as tocam se o filtro as citar
+PROTECTED_STATUSES: tuple[str, ...] = ("aplicada", "rh", "tecnica", "gestor", "proposta")
+# Colunas que query_applications devolve (sem a descrição nem a avaliação salarial completa)
+QueryField = Literal[
+    "id", "company", "role", "url", "source", "status", "seniority", "work_mode", "location", "contract",
+    "match_score", "match_terms", "needs", "pending", "discard_reason", "salary_ask", "salary_market",
+    "salary_basis", "search_id", "form_url", "created_at", "updated_at", "last_event_at",
+]
+QueryOrder = Literal["-created_at", "created_at", "-match_score", "match_score", "company", "id", "-id"]
+
 # Fontes do currículo geral
 ResumeSourceKind = Literal["linkedin", "pdf"]
 LinkedInSection = Literal[
@@ -58,3 +71,5 @@ SALARY_RULES: tuple[str, ...] = get_args(SalaryRule)
 RESUME_SOURCE_KINDS: tuple[str, ...] = get_args(ResumeSourceKind)
 LINKEDIN_SECTIONS: tuple[str, ...] = get_args(LinkedInSection)
 PENDING_KINDS: tuple[str, ...] = get_args(PendingKind)
+NEED_KINDS: tuple[str, ...] = get_args(NeedKind)
+QUERY_FIELDS: tuple[str, ...] = get_args(QueryField)
