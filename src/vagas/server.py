@@ -22,6 +22,7 @@ from vagas import config as paths_config
 from vagas import panel, system
 from vagas.db import connect, default_db_path
 from vagas.experience import years_to_declare
+from vagas.generic_questions import is_generic_label
 from vagas.app_query import ApplicationFilter
 from vagas.models import (
     Contract, Currency, InitialStatus, LinkedInSection, QueryField, QueryOrder, ResumeSourceKind, RoleKey,
@@ -378,7 +379,8 @@ def build_server(
           diversidade ou resposta_aberta (field = missing_field de resolve_form_answer), consentimento (field =
           texto da caixa), anexo_curriculo (field = nome do PDF), documento_cofre (CPF, RG...) ou login (site).
           Nunca o valor de um dado sensível. [] limpa. Os de diversidade e resposta aberta somem sozinhos
-          quando a resposta entra no perfil.
+          quando a resposta entra no perfil. blocks_form true: a etapa não avança sem esse item, e o resto do
+          formulário ainda não foi visto (a vaga é retomada quando ele for respondido).
 
         Mudança de status e nota ficam registradas como eventos (ver get_history).
         Retorna a candidatura atualizada, sem a descrição e sem campos vazios.
@@ -423,7 +425,8 @@ def build_server(
         last_event_at...), sem a descrição da vaga e sem campos vazios; o registro completo está em
         get_history. Retorna {"applications", "count" (total com os filtros), "next_offset"?}; com
         status "pendente_usuario" ou only_pending, também pending_groups: as pendências estruturadas iguais entre
-        as vagas ({kind, field?, label, count, ids}), para a revisão do lote ("12 vagas aguardam: anexar currículo").
+        as vagas ({kind, field?, label, count, ids, stalled_ids?}), para a revisão do lote ("12 vagas aguardam:
+        anexar currículo"); stalled_ids: as vagas paradas numa etapa do formulário por esse item.
         """
         with repo() as r:
             found = r.list_applications(
@@ -675,7 +678,9 @@ def build_server(
         Retorna {answer, source} (a opção exata a escolher, ou o texto a digitar) ou {blocked: true, reason}.
         Com missing_field, o perfil não tem a resposta: o campo já foi criado (created true) ou estava a
         preencher; pergunte ao usuário uma vez e grave com add_profile_field (label = missing_field, value);
-        as próximas vagas já saem preenchidas. Idiomas: o nível declarado (campo "Idiomas"); a certificação só quando
+        as próximas vagas já saem preenchidas. seen_in: outras vagas pendente_usuario esperando o mesmo campo;
+        ask_now true (campo genérico ou já visto em outra vaga): em lote, pergunte já ao usuário, uma vez, e siga
+        com as outras vagas sem esperar. Idiomas: o nível declarado (campo "Idiomas"); a certificação só quando
         a pergunta pede certificação ou as opções são níveis CEFR; sempre o mais próximo sem arredondar para cima.
         Nunca deduz diversidade por nome, foto ou contexto.
 
@@ -685,7 +690,7 @@ def build_server(
         profile = load_profile()
         if checkbox:
             result = resolve_checkbox(profile, question, str(paths_config.resolve("consent_mode", db_path)[0]))
-            return _with_missing_field(result)
+            return _with_missing_field(result, application_id)
         salary = company = None
         if application_id is not None:
             with repo() as r:
@@ -693,10 +698,18 @@ def build_server(
             salary, company = application.get("salary_ask"), application.get("company")
         return _with_missing_field(
             resolve(profile, question, options, years=profile["experience"]["years_to_inform"], salary=salary,
-                    company=company))
+                    company=company), application_id)
 
-    def _with_missing_field(result: dict[str, Any]) -> dict[str, Any]:
-        """Campo que o perfil não tem: cria com <PREENCHER> (created); a preencher: created false."""
+    def _with_missing_field(result: dict[str, Any], application_id: int | None = None) -> dict[str, Any]:
+        """Campo que o perfil não tem: cria com <PREENCHER> (created); a preencher: created false. seen_in e
+        ask_now dizem se a mesma pergunta já parou outras vagas (perguntar uma vez, logo)."""
+        if result.get("missing_field"):
+            with repo() as r:
+                seen = r.waiting_for(result["missing_field"], exclude=application_id)
+            if seen:
+                result["seen_in"] = seen
+            if seen or is_generic_label(result["missing_field"]):
+                result["ask_now"] = True
         if result.get("missing_field") and result.pop("existing") is False:
             try:
                 added = ProfileFiles(default_skill_dir(db_path)).add_profile_field(
@@ -762,8 +775,9 @@ def build_server(
         "informar manualmente"; enviar value para eles é erro.
         A pasta da Skill vem de VAGAS_SKILL_DIR (ou do symlink da política salarial criado pelo
         instalador). No Claude Desktop, que usa uma cópia da Skill enviada em zip, reenvie o zip
-        depois. Retorna {created: {perfil, example}, updated, section, line, resolved_pending?}: com value, as
-        vagas pendentes cujos pending_items essa resposta resolveu (os itens saem sozinhos).
+        depois. Retorna {created: {perfil, example}, updated, section, line, resolved_pending?, resume?}: com value,
+        as vagas pendentes cujos pending_items essa resposta resolveu (os itens saem sozinhos) e, em resume, as que
+        estavam paradas numa etapa do formulário por ela (blocks_form): retome o preenchimento delas.
         """
         try:
             files = ProfileFiles(default_skill_dir(db_path))
@@ -776,8 +790,9 @@ def build_server(
         """Itens de pendência que o perfil passou a responder saem das vagas: {resolved_pending: [ids]} ou {}."""
         profile = load_profile()
         with repo() as r:
-            ids = r.resolve_pending(profile)
-        return {"resolved_pending": ids} if ids else {}
+            found = r.resolve_pending_detail(profile)
+        return {**({"resolved_pending": found["ids"]} if found["ids"] else {}),
+                **({"resume": found["resume"]} if found["resume"] else {})}
 
     @server.tool()
     def diff_master(items: dict[str, Any]) -> dict[str, Any]:

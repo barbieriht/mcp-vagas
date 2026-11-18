@@ -130,3 +130,53 @@ def conn_for_jobs(db_path):
     conn = connect(db_path)
     yield conn
     conn.close()
+
+
+# --- vaga parada numa etapa do formulário ----------------------------------------------------------
+
+STALLED_SHIRT = {**SHIRT, "blocks_form": True}
+
+
+def test_a_stalled_form_is_marked_and_grouped(repo):
+    a = pending_app(repo, 1, [STALLED_SHIRT])
+    b = pending_app(repo, 2, [SHIRT, ATTACH])
+
+    groups = {g["label"]: g for g in repo.pending_groups()}
+
+    assert a["pending_items"] == [STALLED_SHIRT]
+    assert repo.update_application(b["id"], pending_items=[{**SHIRT, "blocks_form": False}])["pending_items"] == [SHIRT]
+    shirt = groups[f"responder: {SHIRT['field']}"]
+    assert shirt["ids"] == [a["id"], b["id"]] and shirt["stalled_ids"] == [a["id"]]
+    assert "stalled_ids" not in groups["anexar currículo"]
+
+
+async def test_a_missing_answer_already_seen_elsewhere_is_asked_now(db_path, repo, skill):
+    first = repo.add_application(company="Empresa A", role="Cientista", source="gupy", status="a_aplicar")["application"]
+    second = repo.add_application(company="Empresa B", role="Cientista", source="gupy", status="a_aplicar")["application"]
+    question = {"question": "Tamanho de camiseta", "options": ["P", "M"]}
+    async with Client(build_server(db_path, vault=Vault(skill / "cofre.json", FakeBackend()))) as client:
+        alone = (await client.call_tool("resolve_form_answer", {**question, "application_id": first["id"]})).structured_content
+        repo.update_application(first["id"], status="pendente_usuario",
+                                pending_items=[{"kind": "resposta_aberta", "field": alone["missing_field"],
+                                                "blocks_form": True}])
+        again = (await client.call_tool("resolve_form_answer", {**question, "application_id": second["id"]})).structured_content
+        generic = (await client.call_tool("resolve_form_answer", {"question": "Foi indicado?", "options": ["Sim", "Não"],
+                                                                  "application_id": first["id"]})).structured_content
+
+    assert "ask_now" not in alone and "seen_in" not in alone
+    assert again["missing_field"] == alone["missing_field"]
+    assert again["seen_in"] == [first["id"]] and again["ask_now"] is True
+    assert generic["missing_field"] == "Foi indicado por alguém da empresa" and generic["ask_now"] is True
+
+
+async def test_answering_resumes_the_jobs_stalled_on_that_field(db_path, repo, skill):
+    stalled = pending_app(repo, 1, [STALLED_SHIRT])
+    waiting = pending_app(repo, 2, [SHIRT, ATTACH])
+    both = pending_app(repo, 3, [STALLED_SHIRT, {**DISABILITY, "blocks_form": True}])
+    async with Client(build_server(db_path, vault=Vault(skill / "cofre.json", FakeBackend()))) as client:
+        saved = (await client.call_tool("add_profile_field", {"label": SHIRT["field"], "value": "M"})).structured_content
+        listed = (await client.call_tool("list_applications", {"status": "pendente_usuario"})).structured_content
+
+    assert sorted(saved["resolved_pending"]) == sorted([stalled["id"], waiting["id"], both["id"]])
+    assert saved["resume"] == [stalled["id"]]  # a outra ainda espera "Possui deficiência"
+    assert [g["stalled_ids"] for g in listed["pending_groups"] if g["kind"] == "diversidade"] == [[both["id"]]]

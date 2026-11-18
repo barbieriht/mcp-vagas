@@ -355,9 +355,14 @@ class Repo:
     def resolve_pending(self, profile: dict[str, Any]) -> list[int]:
         """Tira das vagas pendente_usuario os itens que o perfil já responde; devolve as vagas mexidas. O status
         não muda: o formulário ainda espera o resto."""
-        from vagas.pending import answered, unresolved
+        return self.resolve_pending_detail(profile)["ids"]
 
-        done, changed = answered(profile), []
+    def resolve_pending_detail(self, profile: dict[str, Any]) -> dict[str, list[int]]:
+        """resolve_pending, com {ids, resume}: resume são as vagas que estavam paradas numa etapa do formulário
+        (blocks_form) e não estão mais, para retomar o preenchimento."""
+        from vagas.pending import answered, stalled, unresolved
+
+        done, changed, resume = answered(profile), [], []
         for app in self.list_applications(status="pendente_usuario")["applications"]:
             items = app.get("pending_items") or []
             remaining = unresolved(items, done)
@@ -365,7 +370,16 @@ class Repo:
                 text = None if remaining or app.get("pending") else RESOLVED_PENDING
                 self.update_application(app["id"], pending_items=remaining, pending=text)
                 changed.append(app["id"])
-        return changed
+                if stalled(items) and not stalled(remaining):
+                    resume.append(app["id"])
+        return {"ids": changed, "resume": resume}
+
+    def waiting_for(self, label: str, exclude: int | None = None) -> list[int]:
+        """As vagas pendente_usuario com um item do perfil para esse campo (o mesmo missing_field)."""
+        from vagas.pending import same_field
+
+        return [app["id"] for app in self.list_applications(status="pendente_usuario")["applications"]
+                if app["id"] != exclude and same_field(app.get("pending_items") or [], label)]
 
     def get_state(self, key: str) -> str | None:
         row = self.conn.execute("SELECT value FROM app_state WHERE key = ?", (key,)).fetchone()

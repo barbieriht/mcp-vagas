@@ -82,6 +82,11 @@ def kind(question: str, company: str | None = None) -> str | None:
     return None
 
 
+def is_generic_label(label: str) -> bool:
+    """O campo é um dos genéricos (vale para todas as empresas): pergunta que se repete em toda vaga."""
+    return _norm(label) in {_norm(v) for v in LABELS.values()}
+
+
 def yes_no(value: str) -> str | None:
     """"Sim", "Não" ou None: a primeira palavra da resposta do perfil ("Não atuei" -> "Não")."""
     word = _norm(value).split(" ")[0] if value and not value.strip().startswith("<") else ""

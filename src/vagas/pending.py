@@ -9,7 +9,7 @@ o field é o rótulo do campo, a caixa ou o arquivo, nunca o valor.
 import re
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from vagas import diversity, generic_questions
 from vagas.models import PENDING_KINDS, PendingKind
@@ -31,6 +31,8 @@ class PendingItem(BaseModel):
     kind: PendingKind
     field: str
     options: list[str] | None = None
+    blocks_form: bool | None = Field(None, description=(
+        "true: a etapa do formulário não avança sem esta resposta, e o resto do formulário ainda não foi visto"))
 
 
 def key(label: str) -> str:
@@ -55,12 +57,16 @@ def clean_items(items: list[Any]) -> list[dict[str, Any]]:
         options = [str(o).strip() for o in item.get("options") or [] if str(o).strip()]
         if options:
             row["options"] = options
+        if item.get("blocks_form") is True:
+            row["blocks_form"] = True
         cleaned.append(row)
     return cleaned
 
 
 def groups(apps: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Pendências iguais entre as vagas, as mais frequentes primeiro: {kind, field?, label, count, ids}."""
+    """Pendências iguais entre as vagas, as mais frequentes primeiro: {kind, field?, label, count, ids, stalled_ids?}.
+    stalled_ids: as vagas paradas numa etapa do formulário por esse item (blocks_form), para retomar quando ele
+    for respondido."""
     found: dict[tuple[str, str], dict[str, Any]] = {}
     for app in apps:
         for item in app.get("pending_items") or []:
@@ -72,8 +78,12 @@ def groups(apps: list[dict[str, Any]]) -> list[dict[str, Any]]:
             if app["id"] not in group["ids"]:
                 group["ids"].append(app["id"])
                 group["count"] += 1
+            if item.get("blocks_form") and app["id"] not in group.setdefault("stalled_ids", []):
+                group["stalled_ids"].append(app["id"])
     for group in found.values():
         group["ids"].sort()
+        if "stalled_ids" in group:
+            group["stalled_ids"].sort()
     return sorted(found.values(), key=lambda g: (-g["count"], g["label"]))
 
 
@@ -94,3 +104,14 @@ def _generic_done(field: str, done: set[str]) -> bool:
 def unresolved(items: list[dict[str, Any]], done: set[str]) -> list[dict[str, Any]]:
     return [i for i in items if not (i["kind"] in FROM_PROFILE
                                      and (key(i["field"]) in done or _generic_done(i["field"], done)))]
+
+
+def stalled(items: list[dict[str, Any]]) -> bool:
+    """A vaga está parada numa etapa do formulário por algum item."""
+    return any(i.get("blocks_form") for i in items)
+
+
+def same_field(items: list[dict[str, Any]], label: str) -> bool:
+    """Algum item do perfil (diversidade, resposta aberta) é esse campo."""
+    wanted = key(label)
+    return any(i["kind"] in FROM_PROFILE and key(i["field"]) == wanted for i in items)
