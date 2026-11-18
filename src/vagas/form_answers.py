@@ -287,11 +287,13 @@ def _by_label(profile: dict[str, Any], question: str) -> tuple[str, dict[str, An
 
 
 def resolve(profile: dict[str, Any], question: str, options: list[str] | None = None, years: float | None = None,
-            salary: float | None = None, company: str | None = None, today: date | None = None) -> dict[str, Any]:
+            salary: float | None = None, company: str | None = None, today: date | None = None,
+            minimum: float | None = None) -> dict[str, Any]:
     """{answer, source} ou {blocked: true, reason, missing_field?, existing?, section?}.
 
     years: anos de experiência a informar (get_profile.experience.years_to_inform); salary: pretensão da
-    candidatura (salary_ask); company: a empresa da candidatura, para as perguntas sobre ela ("Você trabalha na
+    candidatura (salary_ask); minimum: o menor salário aceito para a vaga (o piso da faixa da política salarial, na
+    avaliação salarial dela), para "Minimum Pay"; company: a empresa da candidatura, para as perguntas sobre ela ("Você trabalha na
     empresa X?", "Foi indicado?"), comparada com get_profile.experience.periods. missing_field com existing
     false: o campo a criar no perfil (o rótulo da pergunta, com as opções vistas)."""
     options = [o.strip() for o in options or [] if o and o.strip()]
@@ -311,6 +313,8 @@ def resolve(profile: dict[str, Any], question: str, options: list[str] | None = 
         return first
     if (language := _language_of(question)) and (result := _language(profile, question, language, options)):
         return result
+    if generic_questions.kind(question) == generic_questions.MIN_PAY:
+        return _minimum_pay(minimum, options)
     if any(w in norm for w in _YEARS):
         if years is None:
             return {"blocked": True, "reason": "Anos de experiência não calculados: aprove o currículo geral ou "
@@ -338,6 +342,19 @@ def resolve(profile: dict[str, Any], question: str, options: list[str] | None = 
     if options:
         label = f"{label} (opções {', '.join(o.replace(':', ' -') for o in options)})"
     return _missing(label, None)
+
+
+def _minimum_pay(minimum: float | None, options: list[str]) -> dict[str, Any]:
+    """"Minimum Pay", "salário mínimo aceitável": o piso da faixa da política salarial que vale para a vaga."""
+    if minimum is None:
+        return {"blocked": True, "reason": "Sem avaliação salarial para esta vaga: passe o application_id e, se ainda "
+                                           "não houver, chame evaluate_salary (o mínimo vem da faixa da política "
+                                           "salarial)."}
+    value = int(minimum) if float(minimum).is_integer() else minimum
+    chosen = pick_number(value, options)
+    if chosen is None:
+        return {"blocked": True, "reason": f"Nenhuma opção cobre o mínimo {value:g}. Opções: {', '.join(options)}."}
+    return {"answer": chosen, "number": value, "source": {"kind": "politica_salarial", "field": "mínimo da faixa"}}
 
 
 # --- perguntas sobre a empresa da vaga -------------------------------------------------------------

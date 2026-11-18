@@ -148,3 +148,35 @@ def test_the_salary_does_not_need_the_resume(skill):
     result = resolve(profile(skill, []), "Salário atual", [], today=TODAY)
 
     assert result["answer"] == "R$ 10.500 mensais (PJ)" and result["number"] == 10500
+
+
+# --- salário mínimo aceito -------------------------------------------------------------------------
+
+@pytest.mark.parametrize("question", ["Minimum Pay", "Minimum salary", "Pretensão mínima", "Salário mínimo aceitável",
+                                      "What is the lowest salary you would accept?"])
+def test_minimum_pay_is_recognized(question):
+    assert gq.kind(question) == gq.MIN_PAY
+
+
+def test_minimum_pay_comes_from_the_policy_floor(skill):
+    free = resolve(profile(skill, LAST), "Minimum Pay", [], today=TODAY, minimum=11900.0)
+    ranged = resolve(profile(skill, LAST), "Pretensão mínima", ["Até R$ 10.000", "Acima de R$ 10.000"], today=TODAY,
+                     minimum=11900.0, salary=14000)
+    missing = resolve(profile(skill, LAST), "Minimum Pay", [], today=TODAY)
+
+    assert free == {"answer": "11900", "number": 11900,
+                    "source": {"kind": "politica_salarial", "field": "mínimo da faixa"}}
+    assert ranged["answer"] == "Acima de R$ 10.000"  # o mínimo, não a pretensão
+    assert missing["blocked"] and "evaluate_salary" in missing["reason"] and "missing_field" not in missing
+
+
+@pytest.mark.parametrize("evaluation, floor", [
+    ({"floor": 11900.0, "policy": {"my_min": 8500.0}}, 11900.0),
+    ({"contract": "clt", "policy": {"my_min": 8500.0, "pj_multiplier": 1.4}}, 8500.0),
+    ({"contract": "pj", "policy": {"my_min": 8500.0, "pj_multiplier": 1.4}}, 11900.0),  # avaliação antiga, sem floor
+    (None, None),
+])
+def test_the_floor_comes_from_the_salary_evaluation(evaluation, floor):
+    from vagas.server import _floor
+
+    assert _floor(evaluation) == floor

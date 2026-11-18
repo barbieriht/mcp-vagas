@@ -79,6 +79,20 @@ def _without_titles(node: Any, in_properties: bool = False) -> Any:
 _MIGRATION_DECLINED = "profile_migration_declined"
 
 
+def _floor(evaluation: dict[str, Any] | None) -> float | None:
+    """O menor salário aceito para a vaga: o piso da faixa da política na avaliação salarial (no regime da vaga).
+    Avaliações anteriores ao campo "floor": o mínimo da política, multiplicado para PJ."""
+    if not evaluation or not evaluation.get("policy"):
+        return None
+    if evaluation.get("floor") is not None:
+        return evaluation["floor"]
+    policy = evaluation["policy"]
+    if policy.get("my_min") is None:
+        return None
+    scale = policy.get("pj_multiplier") or 1 if evaluation.get("contract") == "pj" else 1
+    return round(policy["my_min"] * scale, 2)
+
+
 def declined_migrations(r: Repo) -> set[str]:
     """Ids das propostas de migração do perfil que o usuário recusou (lista JSON; antes, um id só)."""
     value = r.get_state(_MIGRATION_DECLINED)
@@ -677,7 +691,8 @@ def build_server(
         indicado?") saem do currículo geral e de campos genéricos do perfil, nunca de um campo por empresa.
         Empresa, cargo e salário atuais ("Current company", "Cargo atual", "Salário atual"): a experiência em
         andamento ou, sem nenhuma, o último emprego (em texto livre, com "último emprego, até <mês/ano>"); o
-        salário vem de "Valor da última remuneração", e number traz só o valor, para campo numérico.
+        salário vem de "Valor da última remuneração", e number traz só o valor, para campo numérico. "Minimum Pay"
+        e "salário mínimo aceitável": o piso da faixa da política salarial para a vaga (avaliação salarial dela).
         Retorna {answer, source} (a opção exata a escolher, ou o texto a digitar) ou {blocked: true, reason}.
         Com missing_field, o perfil não tem a resposta: o campo já foi criado (created true) ou estava a
         preencher; pergunte ao usuário uma vez e grave com add_profile_field (label = missing_field, value);
@@ -694,14 +709,15 @@ def build_server(
         if checkbox:
             result = resolve_checkbox(profile, question, str(paths_config.resolve("consent_mode", db_path)[0]))
             return _with_missing_field(result, application_id)
-        salary = company = None
+        salary = company = minimum = None
         if application_id is not None:
             with repo() as r:
                 application = r.get(application_id)
             salary, company = application.get("salary_ask"), application.get("company")
+            minimum = _floor(application.get("salary_evaluation"))
         return _with_missing_field(
             resolve(profile, question, options, years=profile["experience"]["years_to_inform"], salary=salary,
-                    company=company), application_id)
+                    company=company, minimum=minimum), application_id)
 
     def _with_missing_field(result: dict[str, Any], application_id: int | None = None) -> dict[str, Any]:
         """Campo que o perfil não tem: cria com <PREENCHER> (created); a preencher: created false. seen_in e

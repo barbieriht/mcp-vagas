@@ -24,10 +24,6 @@ Este arquivo guarda só o que não está no currículo ou respostas padrão de f
 - Experiência CLT: nenhuma (apenas PJ e estágio)
 - Área de atuação/estudo: escolher a opção ligada a inteligência artificial, se houver
 - Parentes na empresa: não
-- Trabalha atualmente na empresa da vaga: pelo currículo geral
-  - Sim quando o currículo geral tem uma experiência em andamento na empresa da vaga; senão, Não. Vale para "Você trabalha na empresa X?", "É colaborador X?" e "Are you a current employee?".
-- Já trabalhou na empresa da vaga: pelo currículo geral
-  - Sim quando alguma experiência do currículo geral é na empresa da vaga; senão, Não. Empresas adquiridas por ela não entram na comparação.
 - Foi indicado por alguém da empresa: <...>
   - Valores aceitos: Sim ou Não. Vale para todas as empresas ("Foi indicado?", "Alguém que trabalha nesta empresa indicou você?", "Were you referred?").
 - Cargo público: nunca ocupou
@@ -66,7 +62,6 @@ Campos pedidos por formulários que não se encaixam nas seções acima. Dados s
 - Are you willing to take a drug test, in accordance with local law/regulations? (opções Yes, No): <...>
 - Travel Domestically (opções No, Yes): <...>
 - Travel Internationally (opções No, Yes): <...>
-- Minimum Pay: <...>
 - Informe seu último salário Bruto: <...>
 - Atua/atuava com plano de bônus no último emprego? (opções Sim, Não): <...>
 - Você possui atualmente qualquer compromisso contratual com empregador anterior que possa impedir ou restringir sua contratação imediata, tais como cláusula de non-compete, garden leave ou obrigação similar? (opções Sim, Não): <...>
