@@ -139,7 +139,8 @@ class ProfileFiles:
         `migration` é a próxima proposta de mudança de formato, para o usuário confirmar (uma por vez, `kind`):
         "diversidade" (respostas no formato antigo, subitens de "Diversidade", que nunca saem como observações: o
         campo fica "migrar"), "idiomas" (nível declarado e certificado na mesma linha de "Idiomas") ou
-        "campos_genericos" (campos criados um por empresa, trocados pelos genéricos; `removed` lista os que saem). `declined`
+        "campos_genericos" (campos que o MCP passou a responder sozinho, como os criados um por empresa; `removed`
+        lista os que saem). `declined`
         são os ids das propostas que ele recusou: elas não voltam (o campo antigo de diversidade fica
         "preencher")."""
         from vagas.sensitive import ALLOWED_FIELDS
@@ -253,45 +254,54 @@ class ProfileFiles:
             {"label": languages.CERTIFICATIONS_LABEL, "value": ", ".join(merged), "from": old}]}
 
     def _generic_migration(self, perfil: "_Profile") -> dict[str, Any] | None:
-        """Campos criados um por empresa ("Você trabalha na empresa X?", "É colaborador X?", "Foi indicado?") e os
-        de emprego atual ainda sem resposta ("Salário Atual"): propõe tirá-los e usar os campos genéricos. Fica um "Sim" de trabalha ou trabalhou (pode não estar no currículo);
-        a resposta de indicação passa para o campo genérico quando todas concordam."""
+        """Campos que o MCP passou a responder sozinho: os criados um por empresa ("Você trabalha na empresa X?",
+        "É colaborador X?", "Foi indicado?"), "Trabalha atualmente" e "Já trabalhou na empresa da vaga" (currículo
+        geral), "Minimum Pay" (política salarial) e os de emprego atual ainda sem resposta ("Salário Atual").
+        Propõe tirá-los; fica um "Sim" de trabalha ou trabalhou numa empresa (pode não estar no currículo). A
+        resposta de indicação passa para "Foi indicado por alguém da empresa" quando todas concordam."""
         removed, referrals = [], []
-        for index, line in enumerate(perfil.lines):
+        keep = {_key(generic_questions.REFERRAL_LABEL), _key(generic_questions.LAST_PAY_LABEL)}
+        derived = {_key(generic_questions.CURRENT_LABEL), _key(generic_questions.PAST_LABEL)}
+        for line in perfil.lines:
             item = _ITEM.match(line)
             if not item or line.startswith((" ", "\t")):
                 continue
             label, value = item["label"].strip(), item["value"].strip()
-            if _key(label) in {_key(v) for v in generic_questions.LABELS.values()}:
+            if _key(label) in keep:
+                continue
+            filled = None if value.startswith("<") else value
+            if _key(label) in derived:
+                removed.append({"label": label, "value": filled})
                 continue
             kind = generic_questions.kind(re.sub(r"\s*\(op[cç][oõ]es\b.*$", "", label))
             if kind is None:
                 continue
+            if kind == generic_questions.MIN_PAY:
+                removed.append({"label": label, "value": filled})
+                continue
             if kind in generic_questions.JOB_KINDS:  # "Salário Atual": sai só o que ainda não tem resposta
-                if value.startswith("<"):
+                if filled is None:
                     removed.append({"label": label, "value": None})
                 continue
             answer = generic_questions.yes_no(value)
             if kind != generic_questions.REFERRAL and answer == "Sim":
                 continue
-            removed.append({"label": label, "value": None if value.startswith("<") else value})
+            removed.append({"label": label, "value": filled})
             if kind == generic_questions.REFERRAL and answer:
                 referrals.append(answer)
         if not removed:
             return None
         fields = []
-        for kind, label in generic_questions.LABELS.items():
-            if perfil.find(label) is not None:
-                continue
-            value = generic_questions.FROM_RESUME if kind != generic_questions.REFERRAL else (
-                referrals[0] if referrals and len(set(referrals)) == 1 else None)
-            fields.append({"label": label, "value": value, "from": None})
+        if perfil.find(generic_questions.REFERRAL_LABEL) is None:
+            value = referrals[0] if referrals and len(set(referrals)) == 1 else None
+            fields.append({"label": generic_questions.REFERRAL_LABEL, "value": value, "from": None})
         block = "\n".join(f"{r['label']}: {r['value']}" for r in removed)
         return {"kind": "campos_genericos", "id": _digest(block), "section": generic_questions.SECTION,
                 "fields": fields, "removed": removed}
 
     def _apply_generic(self, migration: dict[str, Any]) -> dict[str, Any]:
         labels = {_key(r["label"]) for r in migration["removed"]}
+        label = generic_questions.REFERRAL_LABEL
         for name, filled in (("perfil.md", True), ("perfil.example.md", False)):
             profile = _Profile(self.dir / name)
             index = 0
@@ -301,16 +311,12 @@ class ProfileFiles:
                     del profile.lines[index:profile.block_end(index)]
                 else:
                     index += 1
-            header, _ = profile.section(generic_questions.SECTION, create=True)
-            fields = {f["label"]: f["value"] for f in migration["fields"]} if filled else {}
-            for kind, label in generic_questions.LABELS.items():
-                if profile.find(label) is not None:
-                    continue
-                value = fields.get(label) if filled else "<...>"
-                if filled and label not in fields:
-                    continue
-                profile.insert(header, f"- {label}: {value or PLACEHOLDER}")
-                profile.insert(header, f"  - {generic_questions.NOTES[kind]}")
+            fields = {f["label"]: f["value"] for f in migration["fields"]}
+            if profile.find(label) is None and (label in fields or not filled):
+                header, _ = profile.section(generic_questions.SECTION, create=True)
+                value = (fields.get(label) or PLACEHOLDER) if filled else "<...>"
+                profile.insert(header, f"- {label}: {value}")
+                profile.insert(header, f"  - {generic_questions.REFERRAL_NOTE}")
             profile.save()
         return {"written": [f["label"] for f in migration["fields"] if f["value"]],
                 "to_fill": [f["label"] for f in migration["fields"] if not f["value"]],

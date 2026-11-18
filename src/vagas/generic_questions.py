@@ -18,27 +18,29 @@ REFERRAL = "indicacao"  # foi indicado por alguém de lá
 COMPANY_NOW = "empresa_atual"  # empresa atual (ou a do último emprego)
 TITLE_NOW = "cargo_atual"  # cargo atual (ou o último)
 SALARY_NOW = "salario_atual"  # salário atual (ou a última remuneração)
+MIN_PAY = "salario_minimo"  # menor salário aceito: o mínimo da faixa da política salarial para a vaga
 JOB_KINDS = (COMPANY_NOW, TITLE_NOW, SALARY_NOW)
 
 SECTION = "Respostas padrão"
 LAST_PAY_LABEL = "Valor da última remuneração"
 LAST_PAY_NOTE = ("Valor mensal e regime (ex.: 10500, PJ). Responde também \"Salário atual\" e \"Current salary\"; "
                  "empresa e cargo atuais saem do currículo geral (sem emprego atual, o último).")
-FROM_RESUME = "pelo currículo geral"
+# Nomes das respostas (source). Trabalha e trabalhou saem do currículo geral, empresa por empresa, e não são campos
+# do perfil; se estiverem lá (versão anterior), saem na migração. A indicação é o único campo: só o usuário sabe.
 CURRENT_LABEL = "Trabalha atualmente na empresa da vaga"
 PAST_LABEL = "Já trabalhou na empresa da vaga"
 REFERRAL_LABEL = "Foi indicado por alguém da empresa"
 LABELS = {CURRENT: CURRENT_LABEL, PAST: PAST_LABEL, REFERRAL: REFERRAL_LABEL}
-NOTES = {
-    CURRENT: "Sim quando o currículo geral tem uma experiência em andamento na empresa da vaga; senão, Não. "
-             "Vale para \"Você trabalha na empresa X?\", \"É colaborador X?\" e \"Are you a current employee?\".",
-    PAST: "Sim quando alguma experiência do currículo geral é na empresa da vaga; senão, Não. Empresas adquiridas "
-          "por ela não entram na comparação.",
-    REFERRAL: "Valores aceitos: Sim ou Não. Vale para todas as empresas (\"Foi indicado?\", \"Alguém que trabalha "
-              "nesta empresa indicou você?\", \"Were you referred?\").",
-}
+REFERRAL_NOTE = ("Valores aceitos: Sim ou Não. Vale para todas as empresas (\"Foi indicado?\", \"Alguém que trabalha "
+                 "nesta empresa indicou você?\", \"Were you referred?\").")
 
 _JOB = {
+    MIN_PAY: tuple(re.compile(p) for p in (
+        r"\bminimum (pay|salary|compensation|acceptable salary|expected salary|base salary|monthly salary)\b",
+        r"\b(salario|remuneracao|pretensao|valor) (mensal )?minim[ao]\b",
+        r"\b(menor|minimo) (salario|valor|remuneracao)\b.*\baceit",
+        r"\blowest (salary|pay|compensation)\b",
+    )),
     SALARY_NOW: tuple(re.compile(p) for p in (
         r"\b(salario|remuneracao|renda|ganho) (bruto |bruta |mensal )?atual\b",
         r"\bultim[ao] (salario|remuneracao)\b",
@@ -92,7 +94,7 @@ def _norm(text: str) -> str:
 
 
 def kind(question: str, company: str | None = None) -> str | None:
-    """CURRENT, PAST, REFERRAL, COMPANY_NOW, TITLE_NOW, SALARY_NOW ou None. company: a empresa da candidatura, que também conta como empresa à vista."""
+    """CURRENT, PAST, REFERRAL, COMPANY_NOW, TITLE_NOW, SALARY_NOW, MIN_PAY ou None. company: a empresa da candidatura, que também conta como empresa à vista."""
     norm = _norm(question)
     if any(p.search(norm) for p in _REFERRAL):
         return REFERRAL
@@ -113,7 +115,7 @@ def kind(question: str, company: str | None = None) -> str | None:
 
 def is_generic_label(label: str) -> bool:
     """O campo é um dos genéricos (vale para todas as empresas): pergunta que se repete em toda vaga."""
-    return _norm(label) in {_norm(v) for v in (*LABELS.values(), LAST_PAY_LABEL)}
+    return _norm(label) in {_norm(v) for v in (REFERRAL_LABEL, LAST_PAY_LABEL)}
 
 
 def yes_no(value: str) -> str | None:

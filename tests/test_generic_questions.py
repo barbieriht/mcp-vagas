@@ -203,8 +203,7 @@ def test_company_fields_become_a_proposal(skill):
     assert [r["label"].split("?")[0] for r in migration["removed"]] == [
         "Alguém que trabalha nesta empresa indicou você para esta vaga", "Você trabalha na empresa Vibra Energia",
         "É colaborador Luza Group", "Foi indicado", "Have you previously worked at Nubank or any company acquired by Nubank"]
-    assert {f["label"]: f["value"] for f in migration["fields"]} == {
-        gq.CURRENT_LABEL: gq.FROM_RESUME, gq.PAST_LABEL: gq.FROM_RESUME, gq.REFERRAL_LABEL: "Não"}
+    assert migration["fields"] == [{"label": gq.REFERRAL_LABEL, "value": "Não", "from": None}]  # o único campo
 
 
 def test_applying_it_drops_the_company_fields_and_keeps_a_yes(skill):
@@ -220,12 +219,35 @@ def test_applying_it_drops_the_company_fields_and_keeps_a_yes(skill):
         assert not any(gone in line for line in labels)
     assert "- Você já trabalhou na Ambev? (opções Sim, Não): Sim" in text  # pode não estar no currículo
     assert "- Possui participação societária" in text
-    assert (f"- {gq.CURRENT_LABEL}: {gq.FROM_RESUME}\n  - {gq.NOTES[gq.CURRENT]}\n"
-            f"- {gq.PAST_LABEL}: {gq.FROM_RESUME}\n  - {gq.NOTES[gq.PAST]}\n"
-            f"- {gq.REFERRAL_LABEL}: Não\n  - {gq.NOTES[gq.REFERRAL]}\n") in text
+    assert f"- {gq.REFERRAL_LABEL}: Não\n  - {gq.REFERRAL_NOTE}\n" in text
+    assert gq.CURRENT_LABEL not in text and gq.PAST_LABEL not in text  # respondidos pelo currículo, sem campo
     example = (skill / "perfil.example.md").read_text(encoding="utf-8")
     assert "Vibra" not in example and f"- {gq.REFERRAL_LABEL}: <...>" in example
     assert "migration" not in ProfileFiles(skill).get_profile(vault_fields=[])
+
+
+def test_fields_the_mcp_now_answers_by_itself_leave_too(skill):
+    text = PERFIL.replace("- Já trabalhou na empresa da vaga: pelo currículo geral\n",
+                          "- Já trabalhou na empresa da vaga: Sim\n") + "- Minimum Pay: <PREENCHER>\n"
+    (skill / "perfil.md").write_text(text, encoding="utf-8")
+
+    migration = ProfileFiles(skill).get_profile(vault_fields=[])["migration"]
+    ProfileFiles(skill).apply_migration()
+
+    assert [r["label"] for r in migration["removed"]] == [gq.CURRENT_LABEL, gq.PAST_LABEL, "Minimum Pay"]
+    assert migration["fields"] == []  # "Foi indicado por alguém da empresa" já existe
+    after = (skill / "perfil.md").read_text(encoding="utf-8")
+    assert "Minimum Pay" not in after and gq.PAST_LABEL not in after and f"- {gq.REFERRAL_LABEL}: Não" in after
+
+
+def test_the_example_profile_has_no_field_the_mcp_answers_by_itself():
+    from pathlib import Path
+
+    example = (Path(__file__).resolve().parents[1] / "skill" / "candidaturas" / "perfil.example.md").read_text(
+        encoding="utf-8")
+    for label in (gq.CURRENT_LABEL, gq.PAST_LABEL, "Minimum Pay", "Salário Atual"):
+        assert f"- {label}:" not in example
+    assert f"- {gq.REFERRAL_LABEL}:" in example
 
 
 def test_old_pending_items_of_company_fields_are_resolved():
