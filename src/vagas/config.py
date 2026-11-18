@@ -88,6 +88,10 @@ SETTINGS: dict[str, Setting] = {
                                   "empresas, separadas por vírgula; \"-dominio\" tira uma padrão. Nas demais, a "
                                   "confirmação é por empresa",
                                   ask_at_setup=False),
+    "auto_update": Setting("VAGAS_AUTO_UPDATE", "choice", "Atualização automática do MCP a cada conversa: puxa a "
+                           "versão nova do GitHub para o clone (só na main, sem mudanças locais), reinstala o servidor "
+                           "e acrescenta aos seus arquivos de perfil, critérios e política os campos novos",
+                           choices=("sim", "nao"), default_literal="sim", ask_at_setup=False, aliases=_YES_NO),
     "salary_rule": Setting("VAGAS_SALARY_RULE", "choice", "Regra da pretensão salarial a partir do valor de mercado "
                            "(perguntada depois da primeira busca de vagas)", choices=SALARY_RULES,
                            default_literal="teto", ask_at_setup=False, aliases=_SALARY_RULE_ALIASES),

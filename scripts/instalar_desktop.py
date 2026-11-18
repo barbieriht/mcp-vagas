@@ -252,7 +252,17 @@ def update_stable_install(venv: Path = STABLE_VENV) -> Path:
     subprocess.run(["uv", "pip", "install", "-q", "--reinstall-package", "vagas", "--python", str(python),
                     f"{REPO}[linkedin]"], check=True)
     subprocess.run([str(python), "-m", "playwright", "install", "chromium"], check=True, capture_output=True)
+    record_install(venv.parent)
     return python
+
+
+def record_install(data_dir: Path, repo: Path = REPO) -> None:
+    """Grava o commit instalado (instalado.json, ao lado do venv), lido pela atualização automática do
+    servidor (vagas.auto_update) para saber se a cópia estável está em dia com o clone."""
+    done = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True)
+    if done.returncode == 0:
+        data_dir.mkdir(parents=True, exist_ok=True)
+        (data_dir / "instalado.json").write_text(json.dumps({"commit": done.stdout.strip()}), encoding="utf-8")
 
 
 SMOKE_CODE = ("import asyncio\nfrom vagas.server import build_server\nfrom mcp import Client\n"

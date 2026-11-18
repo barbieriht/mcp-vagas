@@ -27,6 +27,7 @@ login_method = "linkedin"                                    # primeira opção 
 login_email = "<usuário>@gmail.com"                          # conta Google (segunda opção, quando o site não tem LinkedIn)
 auto_submit = "nao"                                          # "sim": envia sozinho as candidaturas que cumprem todas as condições
 max_open_tabs = 12                                           # abas de candidatura deixadas abertas esperando você (1 a 30)
+auto_update = "sim"                                          # "nao": desliga a atualização automática a cada conversa
 ```
 
 Você não precisa criar o arquivo: no primeiro uso o Claude pergunta cada caminho (sugerindo uma pasta) e o grava com a tool `set_config`. Para ver o que está configurado, peça *"mostre a configuração do vagas"* (`get_config`). Valores aceitos: caminho absoluto do Linux ou do Windows (`C:\Users\...`); a pasta é criada se não existir. `login_method` aceita `linkedin` ou `google` (`gmail` vale como google); `login_email` só é perguntado a quem escolheu `google`.
@@ -47,6 +48,8 @@ As demais opções continuam por variável de ambiente:
 | `VAGAS_SALARY_POLICY` | política salarial lida por `evaluate_salary` | `politica-salarial.md` ao lado do banco (o instalador cria um symlink para o da Skill) |
 | `VAGAS_SENSITIVE_FILE` | cofre de dados sensíveis (CPF, RG...): cifrado pela DPAPI no Windows e no WSL; no Linux, só identificadores, e os valores ficam no chaveiro do sistema | `cofre.json` ao lado do banco |
 | `VAGAS_AUTO_SUBMIT` | sobrepõe `auto_submit` do `config.toml` (`sim` envia sozinho as candidaturas sem pendências, com os campos da extensão preenchidos, a pretensão da avaliação e sem texto livre escrito pelo Claude) | `nao` |
+| `VAGAS_AUTO_UPDATE` | sobrepõe `auto_update` do `config.toml` (`nao` desliga a [atualização automática](#atualização-automática)) | `sim` |
+| `VAGAS_REPO` | clone do repositório que a atualização automática puxa e reinstala | dois níveis acima da pasta da Skill (`skill/candidaturas`) |
 | `VAGAS_AUTOFILL_DOMAINS` | sobrepõe `autofill_domains` do `config.toml` (domínios extras da extensão do Chrome) | nenhum |
 | `VAGAS_AUTOFILL_PLATFORMS` | sobrepõe `autofill_platforms` do `config.toml` (plataformas, como `gupy.io`, em que um "Permitir sempre" da extensão vale para todas as empresas) | nenhuma |
 | `VAGAS_SKILL_DIR` | pasta `skill/candidaturas` do repositório, onde `add_profile_field` grava os campos novos do perfil | a pasta para onde aponta o symlink da política salarial (criado pelo instalador) |
@@ -60,6 +63,16 @@ As demais opções continuam por variável de ambiente:
 | `VAGAS_JOB_SEARCH_MIN_HOURS` | intervalo mínimo para repetir a mesma busca de vagas, em horas | `24` |
 
 Mantenha o banco no filesystem do WSL (`~/...`), nunca em `/mnt/c`, que é lento e sujeito a locks. Já a pasta dos PDFs pode ficar no Windows, por exemplo `/mnt/c/Users/<usuário>/Curriculos`, para anexá-los no navegador.
+
+## Atualização automática
+
+A cada conversa nova, o servidor confere o GitHub em segundo plano, sem atrasar a conversa ([ADR 0006](adr/0006-atualizacao-automatica.md)):
+
+1. Se o clone está na `main`, sem arquivos editados e sem commits que não estão no GitHub, puxa a versão nova (`git pull --ff-only`). Clone com trabalho local nunca é mexido: o Claude avisa e você atualiza à mão.
+2. Se a cópia estável não é a versão do clone (registrada em `instalado.json`, ao lado do venv), reinstala com o `uv`. A versão nova vale a partir da próxima conversa.
+3. Acrescenta a `perfil.md`, `criterios-triagem.md` e `politica-salarial.md` os campos que os `.example.md` ganharam: no perfil com `<PREENCHER>`, nos critérios e na política vazios (campo vazio vale o padrão, como sem a linha). Seus valores nunca mudam, e um campo que você apagou não volta.
+
+O resultado aparece no `get_config` (campo `update`), e o Claude conta o que mudou e o que falta fazer: recarregar a extensão do Chrome, reenviar o zip da Skill no Claude Desktop ou rodar os instaladores de novo, quando eles mudaram. Para desligar, `auto_update = "nao"` no `config.toml` (ou no painel).
 
 ## Instalação manual nos clientes
 

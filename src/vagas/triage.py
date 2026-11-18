@@ -158,6 +158,8 @@ def parse_criteria(text: str, source: str = "criterios-triagem.md") -> TriageCri
         if not item or (field := _KEYS.get(normalize_text(item["key"]))) is None:
             continue
         value = _clean(item["value"])
+        if not value:
+            continue  # campo vazio vale o padrão, como sem a linha
         items = [_clean(v) for v in value.split(",") if _clean(v)]
         if field in ("target_roles", "conditional_roles"):
             found = _roles(value)

@@ -26,7 +26,7 @@ _TITLES = {
     "resume_out": "Pasta dos currículos em PDF", "export_dir": "Pasta dos CSVs exportados",
     "master_resume": "Arquivo do currículo geral (YAML)", "login_method": "Login preferido nos sites de vagas",
     "login_email": "Conta Google para login", "max_open_tabs": "Abas de candidatura abertas, no máximo",
-    "auto_submit": "Envio automático", "autofill_domains": "Domínios extras da extensão do Chrome",
+    "auto_submit": "Envio automático", "auto_update": "Atualização automática", "autofill_domains": "Domínios extras da extensão do Chrome",
     "consent_mode": "Quem marca os termos de uso e privacidade",
     "autofill_platforms": "Plataformas com permissão para todas as empresas",
     "salary_rule": "Regra da pretensão salarial",

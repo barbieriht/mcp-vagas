@@ -19,7 +19,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from vagas import config as paths_config
-from vagas import panel, system
+from vagas import auto_update, panel, system
 from vagas.db import connect, default_db_path
 from vagas.experience import years_to_declare
 from vagas.generic_questions import is_generic_label
@@ -136,9 +136,11 @@ def build_server(
     job_search_fetcher: Any = None,
     vault: Any = None,
     search_launcher: Callable[[int], int] | None = None,
+    update_status: Callable[[], dict[str, Any] | None] | None = None,
 ) -> MCPServer:
     server = MCPServer("vagas", instructions=(
-        "No primeiro uso, chame get_config: se needs_setup trouxer chaves, chame settings_link e mande ao "
+        "No começo de cada conversa, chame get_config: se trouxer update, conte ao usuário em uma frase o que "
+        "a atualização do MCP mudou e o que ele precisa fazer (actions, files_adjusted). Se needs_setup trouxer chaves, chame settings_link e mande ao "
         "usuário o link do painel, onde ele configura pastas, perfil, critérios e currículo sem editar arquivos. "
         "Se ele preferir responder no chat, pergunte onde guardar cada coisa (pasta dos currículos em PDF, pasta "
         "dos CSVs, arquivo do currículo geral), sugerindo uma das suggestions (ou o default), e grave a resposta "
@@ -239,11 +241,19 @@ def build_server(
         needs_setup lista as chaves que o usuário nunca definiu: pergunte uma por vez (para pastas,
         ofereça a melhor das suggestions, ou o default; para login_email, o e-mail da conta Google, que
         pode estar no perfil como "E-mail / login Google") e grave com set_config.
+        update (só com novidade): a atualização automática desta conversa, que puxa a versão nova do
+        GitHub e reinstala o MCP. status "verificando" (ainda rodando), "atualizado" (from, to; actions: o que o
+        usuário precisa fazer, como abrir conversa nova, recarregar a extensão ou reenviar o zip da Skill;
+        files_adjusted: campos novos acrescentados aos arquivos pessoais, a preencher no painel), "pulado" ou
+        "erro" (reason: por que não atualizou e o que fazer). Conte ao usuário uma vez, em poucas linhas.
         """
         try:
-            return config_view(paths_config.describe(db_path))
+            view = config_view(paths_config.describe(db_path))
         except VagasError as exc:
             raise ToolError(str(exc)) from exc
+        if update_status is not None and (report := update_status()):
+            view["update"] = report
+        return view
 
     @server.tool()
     def set_config(key: str, value: str | None = None) -> dict[str, Any]:
@@ -1412,7 +1422,12 @@ server = build_server()
 
 def main() -> None:
     logging.basicConfig(stream=sys.stderr, level=logging.INFO)
-    server.run("stdio")
+    try:
+        update_status = auto_update.start()
+    except Exception:  # a atualização nunca impede o servidor de subir
+        logging.getLogger(__name__).exception("atualização automática não iniciou")
+        update_status = None
+    (build_server(update_status=update_status) if update_status else server).run("stdio")
 
 
 if __name__ == "__main__":

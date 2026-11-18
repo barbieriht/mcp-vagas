@@ -130,6 +130,8 @@ O Claude nunca envia uma candidatura sem a sua confirmação; o envio automátic
 
 ## Atualizar
 
+O MCP se atualiza sozinho: a cada conversa nova, ele puxa a versão do GitHub, reinstala o servidor e acrescenta aos seus arquivos de perfil, critérios e política os campos novos (veja [Atualização automática](docs/referencia.md#atualização-automática)). O Claude avisa o que mudou e o que você precisa fazer. Para atualizar à mão (ou se você desligou com `auto_update = "nao"`):
+
 ```bash
 cd ~/projects/mcp-vagas && git pull      # no Windows: cd $HOME\projects\mcp-vagas; git pull
 ```
