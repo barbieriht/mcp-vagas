@@ -12,7 +12,7 @@ import re
 from datetime import date
 from typing import Any
 
-from vagas import diversity, generic_questions, languages
+from vagas import diversity, experience, generic_questions, languages
 from vagas.normalize import normalize_text
 
 LANGUAGES_LABEL = languages.LANGUAGES_LABEL
@@ -343,7 +343,10 @@ def resolve(profile: dict[str, Any], question: str, options: list[str] | None = 
 # --- perguntas sobre a empresa da vaga -------------------------------------------------------------
 
 def _english(question: str) -> bool:
-    return bool(set(_norm(question).split()) & {"you", "your", "are", "have", "were", "did", "do"})
+    return bool(set(_norm(question).split()) & {"you", "your", "are", "have", "were", "did", "do", "what", "which",
+                                                 "the", "is", "current", "present", "company", "employer", "title",
+                                                 "job", "role", "position", "salary", "compensation", "pay", "last",
+                                                 "latest", "previous", "most", "recent"})
 
 
 def _yes_no(value: str, question: str, options: list[str]) -> str | None:
@@ -364,6 +367,8 @@ def _generic(profile: dict[str, Any], question: str, options: list[str], company
     kind = generic_questions.kind(question, company)
     if kind is None:
         return None
+    if kind in generic_questions.JOB_KINDS:
+        return _current_job(profile, kind, question, options, today)
     label = generic_questions.LABELS[kind]
     if kind == generic_questions.REFERRAL:
         return _referral(profile, question, options)
@@ -381,6 +386,75 @@ def _generic(profile: dict[str, Any], question: str, options: list[str], company
     source = {"kind": "curriculo", "field": label,
               "experiences": [f"{p.get('title')} — {p.get('company')}" for p in found]}
     return {"answer": chosen, "source": source}
+
+
+def _join(items: list[str], english: bool) -> str:
+    unique = list(dict.fromkeys(i for i in items if i))
+    return (" and " if english else " e ").join(unique)
+
+
+def _last_job_note(job: dict[str, Any], english: bool, today: date, extra: str | None = None) -> str:
+    """"(PJ, último emprego, até set/2025)"; com emprego atual, só o extra."""
+    parts = [extra] if extra else []
+    if job["roles"] and not job["current"]:
+        until = experience.month_label(job["end"], today, "en" if english else "pt")
+        parts.append(("last job" if english else "último emprego") + (f", until {until}" if english and until else
+                                                                       f", até {until}" if until else ""))
+    return f" ({', '.join(parts)})" if parts else ""
+
+
+def _current_job(profile: dict[str, Any], kind: str, question: str, options: list[str],
+                 today: date) -> dict[str, Any]:
+    """Empresa, cargo ou salário atuais: a experiência em andamento ou, sem nenhuma, a de término mais recente
+    (empatadas: as mais longas primeiro, títulos juntos). O salário vem de "Valor da última remuneração"."""
+    periods = (profile.get("experience") or {}).get("periods") or []
+    job = experience.latest_roles(periods, today)
+    english = _english(question)
+    source = {"kind": "curriculo", "field": "experience", "current": job["current"],
+              "experiences": [f"{p.get('title')} — {p.get('company')}" for p in job["roles"]]}
+    if kind == generic_questions.SALARY_NOW:  # o valor vem do perfil; o currículo só diz se é o último emprego
+        return _last_pay(profile, job, options, english, today, source)
+    if not job["roles"]:
+        return {"blocked": True, "reason": "Sem experiências no currículo geral aprovado: aprove o currículo geral "
+                                           "(approve_master) para responder empresa e cargo atuais."}
+    field = "company" if kind == generic_questions.COMPANY_NOW else "title"
+    value = _join([p.get(field) or "" for p in job["roles"]], english)
+    if options:
+        chosen = pick(value, options)
+        if chosen is None:
+            return {"blocked": True, "reason": f"Nenhuma opção do formulário equivale a {value!r}. "
+                                               f"Opções: {', '.join(options)}."}
+        return {"answer": chosen, "source": source}
+    return {"answer": value + _last_job_note(job, english, today), "source": source}
+
+
+def _last_pay(profile: dict[str, Any], job: dict[str, Any], options: list[str], english: bool, today: date,
+              job_source: dict[str, Any]) -> dict[str, Any]:
+    label = generic_questions.LAST_PAY_LABEL
+    found = _find(profile, label)
+    if found is None:
+        return _missing(label, generic_questions.SECTION)
+    section, field = found
+    if blocked := _blocked_by_status(section, field):
+        return blocked
+    numbers = re.findall(r"\d[\d.,]*", field["value"])
+    if not numbers:
+        return {"blocked": True, "reason": f"O campo {label!r} do perfil não tem um valor: peça ao usuário o valor "
+                                           "mensal e o regime (ex.: 10500, PJ) e grave com add_profile_field."}
+    amount = _number(numbers[0].rstrip(".,"))
+    amount = int(amount) if float(amount).is_integer() else amount
+    regime = next((w.upper() for w in _norm(field["value"]).split() if w in ("pj", "clt")), None)
+    source = {"kind": "perfil", "field": label, "section": section, "current": job_source["current"],
+              "experiences": job_source["experiences"]}
+    if options:
+        chosen = pick_number(amount, options)
+        if chosen is None:
+            return {"blocked": True, "reason": f"Nenhuma opção cobre {amount:g} ({label}). Opções: {', '.join(options)}."}
+        return {"answer": chosen, "number": amount, "source": source}
+    whole = f"{amount:,.0f}" if isinstance(amount, int) else f"{amount:,.2f}"
+    money = f"R$ {whole}" if english else "R$ " + whole.replace(",", "X").replace(".", ",").replace("X", ".")
+    money += " per month" if english else " mensais"
+    return {"answer": money + _last_job_note(job, english, today, regime), "number": amount, "source": source}
 
 
 def _referral(profile: dict[str, Any], question: str, options: list[str]) -> dict[str, Any]:

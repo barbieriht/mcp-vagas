@@ -36,6 +36,36 @@ def is_current(end: str | None, today: date) -> bool:
     return month is not None and month > today.year * 12 + today.month - 1
 
 
+_MONTH_NAMES = {"pt": ("jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"),
+                "en": ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")}
+
+
+def month_label(end: str | None, today: date, language: str = "pt") -> str | None:
+    """"Sep 2025" -> "set/2025" (pt) ou "Sep 2025" (en); None sem data."""
+    month = _month(end, today, True)
+    if month is None:
+        return None
+    name = _MONTH_NAMES[language][month % 12]
+    return f"{name}/{month // 12}" if language == "pt" else f"{name} {month // 12}"
+
+
+def latest_roles(periods: list[dict[str, Any]], today: date) -> dict[str, Any]:
+    """O emprego a citar como atual: as experiências em andamento ou, sem nenhuma, as de término mais recente.
+    {current, roles (as mais longas primeiro), end (fim das últimas; None se em andamento)}."""
+    current = [p for p in periods if is_current(p.get("end"), today)]
+    if current:
+        chosen, end = current, None
+    else:
+        ends = [(m, p) for p in periods if (m := _month(p.get("end"), today, True)) is not None]
+        if not ends:
+            return {"current": False, "roles": [], "end": None}
+        last = max(m for m, _ in ends)
+        chosen = [p for m, p in ends if m == last]
+        end = chosen[0].get("end")
+    chosen = sorted(chosen, key=lambda p: _month(p.get("start"), today, False) or 0)
+    return {"current": bool(current), "roles": chosen, "end": end}
+
+
 def experience_years(resume: dict[str, Any], today: date) -> float | None:
     """Soma dos meses das experiências profissionais (mês de início e de fim inclusos), com uma casa decimal."""
     periods = []

@@ -93,11 +93,13 @@ def answered(profile: dict[str, Any]) -> set[str]:
 
 
 def _generic_done(field: str, done: set[str]) -> bool:
-    """Item de um campo criado por empresa ("Você trabalha na empresa X?"): o currículo geral responde trabalha e
-    trabalhou; a indicação, o campo genérico do perfil."""
+    """Item de um campo criado por empresa ("Você trabalha na empresa X?") ou de emprego atual: o currículo geral
+    responde trabalha, trabalhou, empresa e cargo; a indicação e o salário, os campos genéricos do perfil."""
     kind = generic_questions.kind(re.sub(r"\s*\(op[cç][oõ]es\b.*$", "", field))
     if kind == generic_questions.REFERRAL:
         return key(generic_questions.REFERRAL_LABEL) in done
+    if kind == generic_questions.SALARY_NOW:
+        return key(generic_questions.LAST_PAY_LABEL) in done
     return kind is not None
 
 

@@ -253,8 +253,8 @@ class ProfileFiles:
             {"label": languages.CERTIFICATIONS_LABEL, "value": ", ".join(merged), "from": old}]}
 
     def _generic_migration(self, perfil: "_Profile") -> dict[str, Any] | None:
-        """Campos criados um por empresa ("Você trabalha na empresa X?", "É colaborador X?", "Foi indicado?"): propõe
-        tirá-los e usar os campos genéricos. Fica um "Sim" de trabalha ou trabalhou (pode não estar no currículo);
+        """Campos criados um por empresa ("Você trabalha na empresa X?", "É colaborador X?", "Foi indicado?") e os
+        de emprego atual ainda sem resposta ("Salário Atual"): propõe tirá-los e usar os campos genéricos. Fica um "Sim" de trabalha ou trabalhou (pode não estar no currículo);
         a resposta de indicação passa para o campo genérico quando todas concordam."""
         removed, referrals = [], []
         for index, line in enumerate(perfil.lines):
@@ -266,6 +266,10 @@ class ProfileFiles:
                 continue
             kind = generic_questions.kind(re.sub(r"\s*\(op[cç][oõ]es\b.*$", "", label))
             if kind is None:
+                continue
+            if kind in generic_questions.JOB_KINDS:  # "Salário Atual": sai só o que ainda não tem resposta
+                if value.startswith("<"):
+                    removed.append({"label": label, "value": None})
                 continue
             answer = generic_questions.yes_no(value)
             if kind != generic_questions.REFERRAL and answer == "Sim":

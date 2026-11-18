@@ -34,6 +34,7 @@ Este arquivo guarda só o que não está no currículo ou respostas padrão de f
 - Aceita contratação no modelo PJ?: <...>
 - Disponibilidade e interesse em contratação temporária (projeto de 2 meses)?: <...>
 - Valor da última remuneração: <...>
+  - Valor mensal e regime (ex.: 10500, PJ). Responde também "Salário atual" e "Current salary"; empresa e cargo atuais saem do currículo geral (sem emprego atual, o último).
 
 ## Diversidade e inclusão
 Respostas usadas nos formulários; "Prefiro não responder" vale em todas. O Claude responde por estes campos e nunca deduz a resposta por nome, foto ou contexto.
@@ -74,7 +75,6 @@ Campos pedidos por formulários que não se encaixam nas seções acima. Dados s
 - Considere-me para outras posições e permita que minhas informações possam ser pesquisadas (banco de talentos) (opções Sim, Não): <...>
 - Étnico/Racial | Você se autodeclara como uma pessoa (opções Amarela, Branca, Indígena, Não branca, Parda (Negra), Preta (Negra), Prefiro não informar, Outra): <...>
 - Como ficou sabendo de nossas oportunidades? (opções Eventos, Indicação, Linkedin, Instagram, Outros): <...>
-- Salário Atual: <...>
 - How familiar are you with modeling in general? (opções I have never trained an ML model and I don’t know what is involved in the process, I understand the basics of modeling but I never trained a model myself, I have trained basic models myself and I’m familiar with learning theory, I have experience training models and I’m familiar with the details and possible pitfalls): <...>
 - What is your experience working on different stages in the lifecycle of a machine learning model? (opções I do not have experience working with ML models, I have experience training and validating ML models, I have experience training, validating and deploying ML models, I have experience training, validating, deploying and operating ML models): <...>
 - What is your experience with machine learning models used in a production environment, to drive business decisions? (opções I have experience working with ML models but not in a production environment, I have worked with ML models in a production environment in small to mid-sized companies or organizations, I have worked with ML models in a production environment in large-scale companies or organizations): <...>

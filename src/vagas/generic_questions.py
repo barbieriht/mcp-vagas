@@ -15,7 +15,15 @@ CURRENT = "atual"  # trabalha hoje na empresa da vaga
 PAST = "anterior"  # já trabalhou nela
 REFERRAL = "indicacao"  # foi indicado por alguém de lá
 
+COMPANY_NOW = "empresa_atual"  # empresa atual (ou a do último emprego)
+TITLE_NOW = "cargo_atual"  # cargo atual (ou o último)
+SALARY_NOW = "salario_atual"  # salário atual (ou a última remuneração)
+JOB_KINDS = (COMPANY_NOW, TITLE_NOW, SALARY_NOW)
+
 SECTION = "Respostas padrão"
+LAST_PAY_LABEL = "Valor da última remuneração"
+LAST_PAY_NOTE = ("Valor mensal e regime (ex.: 10500, PJ). Responde também \"Salário atual\" e \"Current salary\"; "
+                 "empresa e cargo atuais saem do currículo geral (sem emprego atual, o último).")
 FROM_RESUME = "pelo currículo geral"
 CURRENT_LABEL = "Trabalha atualmente na empresa da vaga"
 PAST_LABEL = "Já trabalhou na empresa da vaga"
@@ -30,6 +38,24 @@ NOTES = {
               "nesta empresa indicou você?\", \"Were you referred?\").",
 }
 
+_JOB = {
+    SALARY_NOW: tuple(re.compile(p) for p in (
+        r"\b(salario|remuneracao|renda|ganho) (bruto |bruta |mensal )?atual\b",
+        r"\bultim[ao] (salario|remuneracao)\b",
+        r"\b(current|present|most recent|last|latest|previous) (base |monthly |annual )?(salary|compensation|pay|ctc)\b",
+    )),
+    TITLE_NOW: tuple(re.compile(p) for p in (
+        r"\b(cargo|posicao|funcao|titulo do cargo|ocupacao) atual\b",
+        r"\bultim[ao] (cargo|posicao|funcao)\b",
+        r"\b(current|present|most recent|last|latest) (job title|title|position|role|job)\b",
+    )),
+    COMPANY_NOW: tuple(re.compile(p) for p in (
+        r"\b(empresa|empregador|companhia|organizacao|instituicao) atual\b",
+        r"\bultim[ao] (empresa|empregador)\b",
+        r"\b(current|present|most recent|last|latest|previous) (company|employer|organization|organisation)\b",
+        r"\b(qual|em qual|em que) (empresa|companhia)\b.*\b(trabalha|atua)\b",
+    )),
+}
 _EMPLOYEE = r"(colaborador|colaboradora|funcionario|funcionaria|empregado|empregada|servidor|servidora)"
 _PAST = tuple(re.compile(p) for p in (
     rf"\bja (trabalhou|atuou|trabalhava|foi( um| uma)? {_EMPLOYEE})\b",
@@ -66,12 +92,15 @@ def _norm(text: str) -> str:
 
 
 def kind(question: str, company: str | None = None) -> str | None:
-    """CURRENT, PAST, REFERRAL ou None. company: a empresa da candidatura, que também conta como empresa à vista."""
+    """CURRENT, PAST, REFERRAL, COMPANY_NOW, TITLE_NOW, SALARY_NOW ou None. company: a empresa da candidatura, que também conta como empresa à vista."""
     norm = _norm(question)
     if any(p.search(norm) for p in _REFERRAL):
         return REFERRAL
     if _SOMEONE_ELSE.search(norm):  # "Algum parente trabalha na empresa?" é sobre outra pessoa
         return None
+    for job_kind, patterns in _JOB.items():
+        if any(p.search(norm) for p in patterns):
+            return job_kind
     if any(p.search(norm) for p in _PAST):
         return PAST
     if any(p.search(norm) for p in _CURRENT_STRONG):
@@ -84,7 +113,7 @@ def kind(question: str, company: str | None = None) -> str | None:
 
 def is_generic_label(label: str) -> bool:
     """O campo é um dos genéricos (vale para todas as empresas): pergunta que se repete em toda vaga."""
-    return _norm(label) in {_norm(v) for v in LABELS.values()}
+    return _norm(label) in {_norm(v) for v in (*LABELS.values(), LAST_PAY_LABEL)}
 
 
 def yes_no(value: str) -> str | None:

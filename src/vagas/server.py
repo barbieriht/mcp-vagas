@@ -675,6 +675,9 @@ def build_server(
         de texto); application_id: a candidatura, para a pretensão salarial e a empresa dela. Perguntas com o nome
         da empresa ("Você trabalha na empresa X?", "É colaborador X?", "Have you previously worked at X?", "Foi
         indicado?") saem do currículo geral e de campos genéricos do perfil, nunca de um campo por empresa.
+        Empresa, cargo e salário atuais ("Current company", "Cargo atual", "Salário atual"): a experiência em
+        andamento ou, sem nenhuma, o último emprego (em texto livre, com "último emprego, até <mês/ano>"); o
+        salário vem de "Valor da última remuneração", e number traz só o valor, para campo numérico.
         Retorna {answer, source} (a opção exata a escolher, ou o texto a digitar) ou {blocked: true, reason}.
         Com missing_field, o perfil não tem a resposta: o campo já foi criado (created true) ou estava a
         preencher; pergunte ao usuário uma vez e grave com add_profile_field (label = missing_field, value);
