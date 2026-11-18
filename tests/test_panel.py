@@ -260,7 +260,7 @@ def test_enter_moves_to_the_next_field_and_diversity_offers_other(skill, db_path
             name = page.get_by_label("Nome", exact=True)
             name.fill("Maria Teste")
             name.press("Enter")
-            assert page.evaluate("document.activeElement.id") == page.get_by_label("Telefone").get_attribute("id")
+            assert page.evaluate("document.activeElement.id") == page.get_by_label("Telefone", exact=True).get_attribute("id")
             page.wait_for_timeout(300)
             assert requests == ["GET"] and not (skill / "perfil.md").exists()  # Enter não salva
 
@@ -335,7 +335,7 @@ def test_profile_subsections_fold_and_only_the_pending_ones_start_open(skill, db
             page.locator("#secao-criteria details.grupo-dobravel").wait_for(state="detached")  # grupo sem nome não dobra
 
             contact.locator("summary").click()
-            page.get_by_label("Telefone").fill("+55 (11) 91234-5678")
+            page.get_by_label("Telefone", exact=True).fill("+55 (11) 91234-5678")
             answers.locator("summary").click()
             assert answers.get_attribute("open") is None
             page.get_by_role("button", name="Salvar tudo").click()
@@ -343,7 +343,7 @@ def test_profile_subsections_fold_and_only_the_pending_ones_start_open(skill, db
             assert contact.get_attribute("open") is not None and answers.get_attribute("open") is None  # depois de salvar
 
             page.get_by_label("Nome", exact=True).press("Enter")  # Enter não pula subseção fechada
-            assert page.evaluate("document.activeElement.id") == page.get_by_label("Telefone").get_attribute("id")
+            assert page.evaluate("document.activeElement.id") == page.get_by_label("Telefone", exact=True).get_attribute("id")
             browser.close()
     finally:
         server.shutdown()
@@ -1124,3 +1124,36 @@ def test_whole_first_use_from_the_link_the_claude_sends(skill, db_path, tmp_path
     assert "- Nome: Maria Teste" in (skill / "perfil.md").read_text(encoding="utf-8")
     assert parse_criteria((skill / "criterios-triagem.md").read_text(encoding="utf-8")).min_match == 65
     assert "mínimo 9000" in policy.read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(not _chromium(), reason="Playwright com Chromium não instalado")
+def test_referrals_are_added_and_removed_in_the_page(skill, db_path):
+    from playwright.sync_api import sync_playwright
+
+    from vagas.db import connect
+    from vagas.referrals import ReferralStore
+
+    server = panel.make_server(db_path, token="t0k3n")
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            page.goto(server.url)
+            section = page.locator("#secao-referrals")
+            section.get_by_text("Nenhuma indicação cadastrada.").wait_for()
+            section.get_by_label("Empresa *").fill("Itaú")
+            section.get_by_role("button", name="Adicionar indicação").click()
+            section.get_by_text("Informe 'name'").wait_for()  # obrigatório: nada é gravado
+            section.get_by_label("Quem indicou *").fill("Ana Lima")
+            section.get_by_label("Vale para (vagas ou áreas)").fill("dados")
+            section.get_by_role("button", name="Adicionar indicação").click()
+            section.get_by_text("Ana Lima — Itaú (vale para: dados)").wait_for()
+            with connect(db_path) as conn:
+                assert [r["name"] for r in ReferralStore(conn).entries()] == ["Ana Lima"]
+            section.get_by_role("button", name="Remover indicação de Ana Lima na Itaú").click()
+            section.get_by_text("Nenhuma indicação cadastrada.").wait_for()
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()

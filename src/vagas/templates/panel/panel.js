@@ -722,6 +722,72 @@ function renderBands(section, field, name, help) {
   return box;
 }
 
+// Indicações: ficam no banco, não num arquivo. Cada uma entra ("Adicionar indicação") ou sai ("Remover") na
+// hora, por POST /api/referrals, fora do "Salvar tudo".
+function renderReferrals(section, box) {
+  const area = el("div", { class: "indicacoes" });
+  box.append(el("p", { class: "ajuda", text: section.help }), area);
+  const message = el("p", { class: "nota", role: "status" });
+
+  async function send(body) {
+    const response = await fetch("/api/referrals", { method: "POST", headers: { "X-Panel-Token": token, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || `O painel respondeu ${response.status}.`);
+    return result.referrals;
+  }
+
+  function describe(row) {
+    const extra = [row.role, row.scope ? `vale para: ${row.scope}` : "", row.referred_on, row.email, row.phone, row.note].filter(Boolean);
+    return `${row.name} — ${row.company}${extra.length ? ` (${extra.join("; ")})` : ""}`;
+  }
+
+  function draw(current) {
+    area.replaceChildren();
+    if (current.rows.length) {
+      const list = el("ul", { class: "lista-indicacoes" });
+      for (const row of current.rows) {
+        const remove = el("button", { type: "button", class: "remover", text: "Remover", "aria-label": `Remover indicação de ${row.name} na ${row.company}` });
+        remove.addEventListener("click", async () => {
+          remove.disabled = true;
+          try {
+            draw(await send({ action: "remove", id: row.id }));
+            message.textContent = `Indicação de ${row.name} removida.`;
+          } catch (error) {
+            message.textContent = error.message;
+            remove.disabled = false;
+          }
+        });
+        list.append(el("li", {}, el("span", { text: describe(row) }), remove));
+      }
+      area.append(list);
+    } else {
+      area.append(el("p", { class: "nota", text: "Nenhuma indicação cadastrada." }));
+    }
+    const inputs = {};
+    const fields = el("div", { class: "indicacao-nova" });
+    for (const spec of current.fields) {
+      const id = `indicacao-${spec.key}`;
+      inputs[spec.key] = el("input", { type: spec.type, id, autocomplete: "off", required: spec.required });
+      fields.append(el("div", { class: "celula" }, el("label", { for: id, text: spec.required ? `${spec.label} *` : spec.label }), inputs[spec.key]));
+    }
+    const add = el("button", { type: "button", class: "adicionar", text: "Adicionar indicação" });
+    add.addEventListener("click", async () => {
+      const referral = Object.fromEntries(Object.entries(inputs).map(([k, input]) => [k, input.value.trim()]));
+      add.disabled = true;
+      try {
+        draw(await send({ action: "add", referral }));
+        message.textContent = `Indicação de ${referral.name} na ${referral.company} salva.`;
+      } catch (error) {
+        message.textContent = error.message;
+        add.disabled = false;
+      }
+    });
+    area.append(el("fieldset", { class: "campo" }, el("legend", { text: "Nova indicação" }), fields, add), message);
+  }
+
+  draw(section);
+}
+
 function sectionPending(key, section) {
   if (section.error) return true;
   if (key === "config") return (section.needs_setup || []).length > 0;
@@ -758,6 +824,8 @@ function render(data) {
       box.append(el("p", { class: "erro", text: section.error }));
     } else if (key === "resume") {
       renderResume(section, box);
+    } else if (key === "referrals") {
+      renderReferrals(section, box);
     } else if (key === "config") {
       for (const field of section.fields) box.append(renderConfigField(field, (section.needs_setup || []).includes(field.key)));
     } else {

@@ -143,7 +143,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._denied()
             return self._discard(size)
         route = urlsplit(self.path).path
-        if route not in ("/api/settings", "/api/resume/approve", "/api/jobs/action"):
+        if route not in ("/api/settings", "/api/resume/approve", "/api/jobs/action", "/api/referrals"):
             self.close_connection = True
             self._send(404, b"", "text/plain")
             return self._discard(size)
@@ -161,6 +161,8 @@ class _Handler(BaseHTTPRequestHandler):
                     return self._approve(data)
                 if route == "/api/jobs/action":
                     return self._job_action(data)
+                if route == "/api/referrals":
+                    return self._referral(data)
                 return self._json(200, settings_form.save(data, self.server.db_path))
             except VagasError as exc:
                 return self._json(500, {"error": str(exc)})
@@ -219,6 +221,13 @@ class _Handler(BaseHTTPRequestHandler):
             return self._json(400, {"error": str(exc)})
         finally:
             conn.close()
+
+    def _referral(self, data: Any) -> None:
+        """Indicações: {action: add|remove, ...}; erro de validação volta com a mensagem, para o formulário."""
+        try:
+            return self._json(200, settings_form.referral_action(data, self.server.db_path))
+        except VagasError as exc:
+            return self._json(400, {"error": str(exc)})
 
     def _approve(self, data: Any) -> None:
         """Aprova o rascunho do currículo geral que o usuário viu (mesma impressão digital)."""

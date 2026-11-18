@@ -130,6 +130,7 @@ def test_migration_backfills_kinds_from_batch_summaries(db_path):
                  (now,))
     conn.commit()
     conn.execute("ALTER TABLE applications DROP COLUMN needs")
+    conn.execute("DROP TABLE referrals")  # v19
     conn.execute("PRAGMA user_version = 17")
     conn.commit()
     conn.close()

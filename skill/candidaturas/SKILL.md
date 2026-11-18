@@ -36,6 +36,7 @@ Grave cada resposta com `set_config` (sem `value` para aceitar o `default`) e le
 - O usuário traz uma vaga e quer se candidatar: siga [candidatar.md](candidatar.md).
 - Ele pede para buscar vagas: siga [buscar.md](buscar.md).
 - Ele só quer saber se uma vaga vale a pena: faça a **triagem** abaixo e informe o resultado.
+- Ele conta que alguém de uma empresa o indicou (ou pede para registrar, conferir ou apagar uma indicação): chame `add_referral` com a empresa, o nome de quem indicou e o que ele disser (contato, cargo ou área da pessoa, áreas a que vale, data); `list_referrals` confere e `remove_referral` apaga, só a pedido dele. Ele também pode cadastrar pelo painel, na seção "Indicações".
 - Ele pediu para montar ou atualizar o currículo geral (pelo PDF, pelo LinkedIn ou pelos dois): siga [curriculo.md](curriculo.md). Esse fluxo roda só a pedido dele.
 
 ## Várias vagas

@@ -261,6 +261,24 @@ MIGRATIONS = [
     """,
     # v18: o que a triagem não decidiu ([{kind, detail}] em JSON), recuperado dos resumos das buscas em lote
     _add_needs,
+    # v19: indicações (quem indicou o usuário em cada empresa); e-mail e telefone são de terceiros e não saem no CSV
+    """
+    CREATE TABLE referrals (
+        id INTEGER PRIMARY KEY,
+        company TEXT NOT NULL,
+        company_norm TEXT NOT NULL,
+        name TEXT NOT NULL,
+        email TEXT,
+        phone TEXT,
+        role TEXT,
+        scope TEXT,
+        referred_on TEXT,
+        note TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX referrals_company ON referrals (company_norm);
+    """,
 ]
 LATEST_VERSION = len(MIGRATIONS)
 

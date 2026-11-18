@@ -288,14 +288,17 @@ def _by_label(profile: dict[str, Any], question: str) -> tuple[str, dict[str, An
 
 def resolve(profile: dict[str, Any], question: str, options: list[str] | None = None, years: float | None = None,
             salary: float | None = None, company: str | None = None, today: date | None = None,
-            minimum: float | None = None) -> dict[str, Any]:
+            minimum: float | None = None, referrals: dict[str, list[dict[str, Any]]] | None = None,
+            referral_id: int | None = None) -> dict[str, Any]:
     """{answer, source} ou {blocked: true, reason, missing_field?, existing?, section?}.
 
     years: anos de experiência a informar (get_profile.experience.years_to_inform); salary: pretensão da
     candidatura (salary_ask); minimum: o menor salário aceito para a vaga (o piso da faixa da política salarial, na
     avaliação salarial dela), para "Minimum Pay"; company: a empresa da candidatura, para as perguntas sobre ela ("Você trabalha na
     empresa X?", "Foi indicado?"), comparada com get_profile.experience.periods. missing_field com existing
-    false: o campo a criar no perfil (o rótulo da pergunta, com as opções vistas)."""
+    false: o campo a criar no perfil (o rótulo da pergunta, com as opções vistas). referrals: as indicações na
+    empresa da candidatura ({fits, other_scope}, de ReferralStore.for_application); referral_id: a escolhida pelo
+    usuário quando há mais de uma."""
     options = [o.strip() for o in options or [] if o and o.strip()]
     norm = _norm(question)
     if questions := _diversity_questions(question):
@@ -333,7 +336,8 @@ def resolve(profile: dict[str, Any], question: str, options: list[str] | None = 
         return {"answer": chosen, "source": {"kind": "pretensao", "field": "salary_ask"}}
     if found := _answered_label(profile, question):
         return _answer(*found, options)
-    if (result := _generic(profile, question, options, company, today or date.today())) is not None:
+    if (result := _generic(profile, question, options, company, today or date.today(), referrals,
+                           referral_id)) is not None:
         return result
     if found := _by_label(profile, question):
         return _answer(*found, options)
@@ -377,8 +381,9 @@ def _is_yes_no(options: list[str]) -> bool:
     return bool(options) and pick("Sim", options) is not None and pick("Não", options) is not None
 
 
-def _generic(profile: dict[str, Any], question: str, options: list[str], company: str | None,
-             today: date) -> dict[str, Any] | None:
+def _generic(profile: dict[str, Any], question: str, options: list[str], company: str | None, today: date,
+             referrals: dict[str, list[dict[str, Any]]] | None = None,
+             referral_id: int | None = None) -> dict[str, Any] | None:
     """Perguntas que repetem o nome de cada empresa: pelo currículo geral (trabalha ou trabalhou lá) ou pelo campo
     genérico de indicação. None quando a pergunta não é uma delas."""
     kind = generic_questions.kind(question, company)
@@ -388,6 +393,8 @@ def _generic(profile: dict[str, Any], question: str, options: list[str], company
         return _current_job(profile, kind, question, options, today)
     label = generic_questions.LABELS[kind]
     if kind == generic_questions.REFERRAL:
+        if referrals and (found := _registered_referral(question, options, referrals, referral_id)) is not None:
+            return found
         return _referral(profile, question, options)
     if company is None and generic_questions.points_here(question):
         return {"blocked": True, "reason": "A pergunta é sobre a empresa da vaga: chame de novo com o application_id."}
@@ -472,6 +479,64 @@ def _last_pay(profile: dict[str, Any], job: dict[str, Any], options: list[str], 
     money = f"R$ {whole}" if english else "R$ " + whole.replace(",", "X").replace(".", ",").replace("X", ".")
     money += " per month" if english else " mensais"
     return {"answer": money + _last_job_note(job, english, today, regime), "number": amount, "source": source}
+
+
+_REFERRER_DETAILS = (  # o dado de quem indicou que a pergunta pede
+    ("email", re.compile(r"\b(e mail|email)\b")),
+    ("phone", re.compile(r"\b(telefone|phone|celular|whatsapp|mobile)\b")),
+    ("name", re.compile(r"\b(nome|name|quem|who)\b")),
+    ("role", re.compile(r"\b(cargo|area|setor|departamento|role|position|department|team|time)\b")),
+)
+
+
+def _choice(referral: dict[str, Any]) -> dict[str, Any]:
+    return {k: referral[k] for k in ("id", "name", "role", "scope") if referral.get(k)}
+
+
+def _registered_referral(question: str, options: list[str], referrals: dict[str, list[dict[str, Any]]],
+                         referral_id: int | None) -> dict[str, Any] | None:
+    """Pergunta de indicação com indicação cadastrada na empresa da vaga: "Sim" e, se pedido, o dado de quem
+    indicou. Mais de uma pessoa (ou só de outra área): bloqueia com as opções. None sem indicação na empresa."""
+    fits, other = referrals.get("fits") or [], referrals.get("other_scope") or []
+    if referral_id is not None:
+        chosen = next((r for r in [*fits, *other] if r["id"] == referral_id), None)
+        if chosen is None:
+            return {"blocked": True, "reason": f"A indicação {referral_id} não é da empresa desta vaga. Opções: "
+                                               f"{', '.join(str(r['id']) for r in [*fits, *other]) or 'nenhuma'}."}
+    elif len(fits) == 1:
+        chosen = fits[0]
+    elif fits:
+        return {"blocked": True, "choices": [_choice(r) for r in fits],
+                "reason": "Há mais de uma pessoa que indicou você nesta empresa: pergunte ao usuário qual vale e "
+                          "chame de novo com o referral_id dela."}
+    elif other:
+        return {"blocked": True, "choices": [_choice(r) for r in other],
+                "reason": "A indicação nesta empresa é para outra área (scope): pergunte ao usuário se vale para "
+                          "esta vaga; se valer, chame de novo com o referral_id."}
+    else:
+        return None
+    source = {"kind": "indicacao", "referral_id": chosen["id"]}
+    if generic_questions.asks_details(question) and not _is_yes_no(options):
+        norm = _norm(question)
+        wanted = [field for field, pattern in _REFERRER_DETAILS if pattern.search(norm)]
+        if "name" in wanted and len(wanted) > 1 and not re.search(r"\b(nome|name)\b", norm):
+            wanted.remove("name")  # "E-mail de quem indicou": o "quem" não pede o nome
+        wanted = wanted or ["name"]
+        if "codigo" in norm.split() or "code" in norm.split():
+            return {"blocked": True, "reason": "A pergunta pede um código de indicação, que não fica cadastrado: "
+                                               "pergunte ao usuário."}
+        missing = [f for f in wanted if not chosen.get(f)]
+        if missing:
+            labels = {"email": "e-mail", "phone": "telefone", "name": "nome", "role": "cargo ou área"}
+            return {"blocked": True, "reason": f"A indicação de {chosen['name']} não tem "
+                                               f"{', '.join(labels[f] for f in missing)}: pergunte ao usuário e "
+                                               "complete com add_referral (mesma empresa e nome)."}
+        return {"answer": " — ".join(chosen[f] for f in wanted), "source": source}
+    chosen_option = _yes_no("Sim", question, options)
+    if chosen_option is None:
+        return {"blocked": True, "reason": f"Há indicação nesta empresa, mas nenhuma opção equivale a 'Sim'. "
+                                           f"Opções: {', '.join(options)}."}
+    return {"answer": chosen_option, "source": source}
 
 
 def _referral(profile: dict[str, Any], question: str, options: list[str]) -> dict[str, Any]:
