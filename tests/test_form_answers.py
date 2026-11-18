@@ -20,8 +20,8 @@ PERFIL = """\
 - Nome: Maria Teste
 
 ## Respostas padrão
-- Idiomas: português (nativo), inglês intermediário-avançado (B2, certificado), espanhol básico (A2.3, certificado)
-  - Em formulários com escala fixa, escolher a opção mais próxima de B2 / A2 sem arredondar para cima.
+- Idiomas: português (nativo), inglês (avançado), espanhol (intermediário)
+- Certificações de idiomas: inglês (B2, certificado), espanhol (A2.3, certificado)
 - Experiência CLT: nenhuma (apenas PJ e estágio)
 - Aceita contratação no modelo PJ?: sim
 - Como soube da vaga?: LinkedIn
@@ -96,20 +96,83 @@ def test_other_profile_fields_answer_by_label(profile, question, options, answer
     assert resolve(profile, question, options)["answer"] == answer
 
 
+ASHBY = ["I don't speak English", "I can understand and communicate using basic words and phrases",
+         "I can have conversations in English about familiar topics",
+         "I can participate in meetings and communicate in English, with only minor limitations",
+         "I can communicate fluently in English in any situation"]
+LINKEDIN = ["Elementary proficiency", "Limited working proficiency", "Professional working proficiency",
+            "Full professional proficiency", "Native or bilingual proficiency"]
+
+
 @pytest.mark.parametrize("question, options, answer", [
-    ("Nível de inglês", ["Básico", "Intermediário", "Avançado", "Fluente"], "Intermediário"),  # B2: não sobe a C1
-    ("English level", ["A1", "A2", "B1", "B2", "C1", "C2"], "B2"),
-    ("Nível de espanhol", ["Básico", "Intermediário", "Avançado"], "Básico"),
-    ("Inglês", ["Intermediário", "Intermediário avançado", "Avançado"], "Intermediário avançado"),
+    ("Nível de inglês", ["Básico", "Intermediário", "Avançado", "Fluente"], "Avançado"),
+    ("English proficiency", ["Basic", "Intermediate", "Advanced", "Fluent"], "Advanced"),
+    ("Inglês", ["Intermediário", "Intermediário avançado", "Avançado"], "Avançado"),
+    ("What is your English level?", ASHBY, ASHBY[3]),
+    ("English", LINKEDIN, "Professional working proficiency"),
+    ("Nível de espanhol", ["Básico", "Intermediário", "Avançado"], "Intermediário"),
+    ("Spanish level", ["Basic", "Intermediate", "Advanced", "Fluent"], "Intermediate"),
+    ("Nível de inglês", [], "avançado"),
 ])
-def test_language_scales_take_the_closest_level_without_rounding_up(profile, question, options, answer):
+def test_proficiency_questions_use_the_declared_level(profile, question, options, answer):
     result = resolve(profile, question, options)
 
     assert result["answer"] == answer and result["source"]["field"] == "Idiomas"
 
 
+@pytest.mark.parametrize("question, options, answer", [
+    ("English level", ["A1", "A2", "B1", "B2", "C1", "C2"], "B2"),  # escala CEFR: o certificado, sem subir a C1
+    ("Nível de espanhol (QECR)", ["A1", "A2", "B1", "B2"], "A2"),
+    ("Nível de espanhol", ["A1 - Iniciante", "A2 - Básico", "B1 - Intermediário"], "A2 - Básico"),
+    ("Qual a sua certificação de inglês?", [], "B2, certificado"),
+    ("Possui certificação em inglês?", ["Sim", "Não"], "Sim"),
+    ("Possui certificação em francês?", ["Sim", "Não"], "Não"),
+    ("Nível da sua certificação de inglês", ["Básico", "Intermediário", "Avançado"], "Intermediário"),
+])
+def test_certification_only_when_the_question_asks_for_it_or_the_scale_is_cefr(profile, question, options, answer):
+    result = resolve(profile, question, options)
+
+    assert result["answer"] == answer and result["source"]["field"] == "Certificações de idiomas"
+
+
+def test_a_cefr_scale_without_a_certification_takes_the_declared_level(skill):
+    text = PERFIL.replace("- Certificações de idiomas: inglês (B2, certificado), espanhol (A2.3, certificado)\n", "")
+    (skill / "perfil.md").write_text(text, encoding="utf-8")
+    profile = ProfileFiles(skill).get_profile(vault_fields=[])
+
+    assert resolve(profile, "English level", ["A1", "A2", "B1", "B2", "C1", "C2"])["answer"] == "C1"
+    assert "missing_field" in resolve(profile, "Possui certificação em inglês?", ["Sim", "Não"])
+
+
+def test_the_old_combined_line_answers_by_the_declared_level_until_migrated(skill):
+    old = PERFIL.replace("- Idiomas: português (nativo), inglês (avançado), espanhol (intermediário)\n"
+                         "- Certificações de idiomas: inglês (B2, certificado), espanhol (A2.3, certificado)\n",
+                         "- Idiomas: português (nativo), inglês avançado (B2, certificado), espanhol básico (A2.3, certificado)\n"
+                         "  - Em formulários com escala fixa, escolher a opção mais próxima de B2 / A2 sem arredondar para cima.\n")
+    (skill / "perfil.md").write_text(old, encoding="utf-8")
+    profile = ProfileFiles(skill).get_profile(vault_fields=[])
+
+    assert resolve(profile, "English level", ["Basic", "Intermediate", "Advanced"])["answer"] == "Advanced"
+    assert resolve(profile, "English level", ["A1", "A2", "B1", "B2", "C1"])["answer"] == "B2"
+    assert resolve(profile, "Nível de espanhol", ["Básico", "Intermediário"])["answer"] == "Básico"
+
+
 def test_a_level_below_every_option_blocks(profile):
     assert resolve(profile, "Nível de espanhol", ["Avançado", "Fluente"])["blocked"]
+
+
+@pytest.mark.parametrize("options", [
+    ["Advanced", "Avançado"],  # duas opções no mesmo nível
+    ["Basic", "Advanced", "Conversação técnica"],  # opção que não é nível
+])
+def test_an_unreadable_or_tied_scale_blocks_instead_of_guessing(profile, options):
+    result = resolve(profile, "Nível de inglês", options)
+
+    assert result["blocked"] and "missing_field" not in result
+
+
+def test_a_yes_no_question_about_a_language_is_not_read_as_a_scale(profile):
+    assert resolve(profile, "Você aceita fazer a entrevista em inglês?", ["Sim", "Não"])["missing_field"]
 
 
 def test_fields_still_to_fill_and_documents_block_without_creating_anything(profile):

@@ -1,6 +1,7 @@
 """Tools MCP finas sobre o repo. Nunca escrever no stdout: no stdio ele é o canal do protocolo."""
 
 import inspect
+import json
 import logging
 import os
 import sqlite3
@@ -75,6 +76,14 @@ def _without_titles(node: Any, in_properties: bool = False) -> Any:
 
 
 _MIGRATION_DECLINED = "profile_migration_declined"
+
+
+def declined_migrations(r: Repo) -> set[str]:
+    """Ids das propostas de migração do perfil que o usuário recusou (lista JSON; antes, um id só)."""
+    value = r.get_state(_MIGRATION_DECLINED)
+    if not value:
+        return set()
+    return set(json.loads(value)) if value.startswith("[") else {value}
 
 # Anotações das tools: o Claude Desktop e o claude.ai agrupam as tools por elas ("só leitura" e "escrita") e o
 # usuário aprova cada grupo de uma vez. Sem anotação, toda tool conta como escrita destrutiva.
@@ -611,7 +620,7 @@ def build_server(
 
     def load_profile() -> dict[str, Any]:
         with repo() as r:
-            declined = r.get_state(_MIGRATION_DECLINED)
+            declined = declined_migrations(r)
         try:
             fields = (vault or Vault(default_vault_path(db_path), default_backend())).list()
             profile = ProfileFiles(default_skill_dir(db_path)).get_profile(vault_fields=fields, declined=declined)
@@ -641,9 +650,9 @@ def build_server(
         cadastrado: o usuário cadastra com python -m vagas.sensitive set <vault_field>) ou "migrar"
         (respostas no formato antigo: não use; veja migration). notes: só orientações de como responder
         (ex.: como escolher em escala fixa), nunca respostas.
-        migration (só quando há o que migrar): {id, section, fields: [{label, value, from}]}: os campos novos
-        propostos, com o texto de origem. Antes de preencher formulários, mostre-os ao usuário uma vez e chame
-        apply_profile_migration com a resposta dele. warnings: o que no perfil precisa da atenção dele.
+        migration (só quando há o que migrar): {kind, id, section, fields: [{label, value, from}]}: os campos novos
+        propostos, com o texto de origem (kind "diversidade" ou "idiomas"). Antes de preencher formulários, mostre-os
+        ao usuário uma vez e chame apply_profile_migration com a resposta dele. warnings: o que no perfil precisa da atenção dele.
         experience: {years_to_inform, years_computed, years_exact, years_declared, periods}. Quando o
         formulário pedir anos de experiência, informe years_to_inform: o valor que o usuário declarou no
         perfil ou, sem ele, os anos do currículo geral aprovado (somados sem sobreposição, arredondados).
@@ -663,7 +672,8 @@ def build_server(
         Retorna {answer, source} (a opção exata a escolher, ou o texto a digitar) ou {blocked: true, reason}.
         Com missing_field, o perfil não tem a resposta: o campo já foi criado (created true) ou estava a
         preencher; pergunte ao usuário uma vez e grave com add_profile_field (label = missing_field, value);
-        as próximas vagas já saem preenchidas. Escalas de idioma: o nível mais próximo sem arredondar para cima.
+        as próximas vagas já saem preenchidas. Idiomas: o nível declarado (campo "Idiomas"); a certificação só quando
+        a pergunta pede certificação ou as opções são níveis CEFR; sempre o mais próximo sem arredondar para cima.
         Nunca deduz diversidade por nome, foto ou contexto.
 
         checkbox true: caixa de marcar avulsa (termos de uso, privacidade, LGPD, banco de talentos, marketing),
@@ -710,22 +720,26 @@ def build_server(
 
     @server.tool()
     def apply_profile_migration(accept: bool) -> dict[str, Any]:
-        """Responde à proposta `migration` do get_profile, depois de mostrá-la ao usuário: accept true grava os
-        campos novos da seção "Diversidade e inclusão" (sem resposta, ficam a preencher) e tira o campo antigo;
-        false guarda a recusa, e a proposta não volta. Chame só com a resposta dele, nunca por conta própria.
-        Retorna {written, to_fill} ou {declined: true}."""
+        """Responde à proposta `migration` do get_profile, depois de mostrá-la ao usuário. accept true grava a
+        proposta: "diversidade" cria os campos da seção "Diversidade e inclusão" (sem resposta, ficam a preencher)
+        e tira o campo antigo; "idiomas" deixa em "Idiomas" só o nível declarado e passa o certificado para
+        "Certificações de idiomas". false guarda a recusa, e essa proposta não volta. Depois, chame get_profile:
+        pode haver outra proposta. Chame só com a resposta dele, nunca por conta própria.
+        Retorna {kind, written, to_fill} ou {declined: true, kind}."""
         try:
             files = ProfileFiles(default_skill_dir(db_path))
+            with repo() as r:
+                declined = declined_migrations(r)
             if accept:
-                return {**files.apply_diversity_migration(), **resolved_pending()}
-            migration = files.get_profile(vault_fields=[]).get("migration")
+                return {**files.apply_migration(declined), **resolved_pending()}
+            migration = files.get_profile(vault_fields=[], declined=declined).get("migration")
         except VagasError as exc:
             raise ToolError(str(exc)) from exc
         if migration is None:
             raise ToolError("Não há proposta de migração no perfil.")
         with repo() as r:
-            r.set_state(_MIGRATION_DECLINED, migration["id"])
-        return {"declined": True}
+            r.set_state(_MIGRATION_DECLINED, json.dumps(sorted({*declined, migration["id"]})))
+        return {"declined": True, "kind": migration["kind"]}
 
     @server.tool()
     def add_profile_field(label: str, section: str | None = None, value: str | None = None,

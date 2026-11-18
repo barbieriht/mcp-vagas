@@ -8,10 +8,11 @@ sensíveis (documentos, senhas, dados bancários) nunca são guardados: ficam co
 import hashlib
 import os
 import re
+from collections.abc import Collection
 from pathlib import Path
 from typing import Any
 
-from vagas import diversity
+from vagas import diversity, languages
 from vagas.normalize import normalize_text
 from vagas.repo import VagasError
 from vagas.salary_policy import default_policy_path
@@ -38,6 +39,10 @@ def default_skill_dir(db_path: Path | str | None = None) -> Path:
 
 def _key(label: str) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", normalize_text(label)))
+
+
+def _digest(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
 def _label(line: str) -> str:
@@ -127,13 +132,15 @@ class ProfileFiles:
     def __init__(self, skill_dir: Path | str):
         self.dir = Path(skill_dir)
 
-    def get_profile(self, vault_fields: list[str], declined: str | None = None) -> dict[str, Any]:
+    def get_profile(self, vault_fields: list[str], declined: Collection[str] = ()) -> dict[str, Any]:
         """Perfil estruturado: seções e campos com status (ok, preencher, manual, cofre, cofre_vazio, migrar),
         subitens como observações. Campos do cofre nunca trazem o valor, só a indicação.
 
-        Respostas de diversidade no formato antigo (subitens de "Diversidade") nunca saem como observações:
-        o campo fica "migrar" e `migration` propõe os campos novos, para o usuário confirmar. `declined` é o
-        id de uma proposta que ele recusou: ela não volta, e o campo fica "preencher"."""
+        `migration` é a próxima proposta de mudança de formato, para o usuário confirmar (uma por vez, `kind`):
+        "diversidade" (respostas no formato antigo, subitens de "Diversidade", que nunca saem como observações: o
+        campo fica "migrar") ou "idiomas" (nível declarado e certificado na mesma linha de "Idiomas"). `declined`
+        são os ids das propostas que ele recusou: elas não voltam (o campo antigo de diversidade fica
+        "preencher")."""
         from vagas.sensitive import ALLOWED_FIELDS
 
         by_label = {_key(label): field for field, label in ALLOWED_FIELDS.items()}
@@ -144,8 +151,9 @@ class ProfileFiles:
         current = None
         old = perfil.old_diversity()
         old_line = perfil.lines[old[0]] if old and old[2] else None
-        migration = self._migration(perfil) if old_line else None
-        offered = migration is not None and migration["id"] != declined
+        proposals = self._migrations(perfil)
+        migration = next((m for m in proposals if m["id"] not in declined), None)
+        offered = any(m["kind"] == "diversidade" and m["id"] not in declined for m in proposals)
         for line in perfil.lines:
             if line.startswith("## "):
                 sections.append({"name": line[3:].strip(), "fields": []})
@@ -180,17 +188,30 @@ class ProfileFiles:
                 if current["status"] not in ("migrar",) and not (old_line and current["label"] == _label(old_line)):
                     current["notes"].append(line.strip()[2:].strip())
         result: dict[str, Any] = {"sections": sections, "to_fill": to_fill, "vault_missing": vault_missing}
-        if old_line and offered:
+        if migration is not None:
             result["migration"] = migration
-            result["warnings"] = [
+        warnings = []
+        if old_line and offered:
+            warnings.append(
                 "As respostas de diversidade estão no formato antigo (subitens do campo \"Diversidade\") e não valem "
                 "nos formulários. Mostre ao usuário os campos de 'migration' (valor proposto e o texto de origem) e "
-                "pergunte se confirma; com a resposta dele, chame apply_profile_migration (accept true ou false)."]
+                "pergunte se confirma; com a resposta dele, chame apply_profile_migration (accept true ou false).")
         elif old_line:
-            result["warnings"] = [
+            warnings.append(
                 "O usuário recusou migrar as respostas de diversidade do formato antigo: elas não valem nos formulários. "
-                f"Pergunte cada uma quando um formulário pedir e grave com add_profile_field (section \"{diversity.SECTION}\")."]
+                f"Pergunte cada uma quando um formulário pedir e grave com add_profile_field (section \"{diversity.SECTION}\").")
+        if migration is not None and migration["kind"] == "idiomas":
+            warnings.append(
+                "\"Idiomas\" junta o nível declarado e o certificado (formato antigo). Mostre ao usuário os campos de "
+                "'migration' (valor proposto e o texto de origem) e pergunte se confirma; com a resposta dele, chame "
+                "apply_profile_migration (accept true ou false).")
+        if warnings:
+            result["warnings"] = warnings
         return result
+
+    def _migrations(self, perfil: "_Profile") -> list[dict[str, Any]]:
+        """Propostas de mudança de formato, na ordem em que são oferecidas."""
+        return [m for m in (self._migration(perfil), self._languages_migration(perfil)) if m is not None]
 
     def _migration(self, perfil: "_Profile") -> dict[str, Any] | None:
         old = perfil.old_diversity()
@@ -199,8 +220,72 @@ class ProfileFiles:
         present = {m["label"].strip() for line in perfil.lines if (m := _ITEM.match(line))}
         fields = diversity.proposal(old[2], present)
         block = "\n".join(perfil.lines[old[0]:old[1]])
-        return {"id": hashlib.sha256(block.encode("utf-8")).hexdigest()[:16], "section": diversity.SECTION,
-                "fields": fields}
+        return {"kind": "diversidade", "id": _digest(block), "section": diversity.SECTION, "fields": fields}
+
+    def _languages_migration(self, perfil: "_Profile") -> dict[str, Any] | None:
+        """"Idiomas" no formato antigo ("inglês avançado (B2, certificado)"): propõe o nível declarado em "Idiomas" e
+        o certificado em "Certificações de idiomas" (somado ao que esse campo já tiver)."""
+        index = perfil.find(languages.LANGUAGES_LABEL)
+        if index is None:
+            return None
+        old = _ITEM.match(perfil.lines[index])["value"].strip()
+        found = languages.split(old) if not old.startswith("<") else None
+        if found is None:
+            return None
+        declared, certifications = found
+        cert_index = perfil.find(languages.CERTIFICATIONS_LABEL)
+        current = _ITEM.match(perfil.lines[cert_index])["value"].strip() if cert_index is not None else ""
+        kept = [] if current.startswith("<") else languages.split_top(current)
+        known = {languages.key(r["language"]) for r in languages.parse_languages(", ".join(kept))}
+        merged = kept + [c for c in certifications if languages.key(c) not in known or languages.key(c) is None]
+        block = "\n".join(perfil.lines[index:perfil.block_end(index)])
+        section = next((n for i, n in reversed(perfil.sections()) if i < index), "")
+        return {"kind": "idiomas", "id": _digest(block + current), "section": section, "fields": [
+            {"label": languages.LANGUAGES_LABEL, "value": declared, "from": old},
+            {"label": languages.CERTIFICATIONS_LABEL, "value": ", ".join(merged), "from": old}]}
+
+    def apply_migration(self, declined: Collection[str] = ()) -> dict[str, Any]:
+        """Grava a proposta que get_profile mostra (a primeira não recusada; sem ela, a primeira recusada, que o
+        usuário pediu para aplicar depois). Retorna {kind, written, to_fill}."""
+        perfil = _Profile(self.dir / "perfil.md")
+        proposals = self._migrations(perfil)
+        if not proposals:
+            raise VagasError("Não há proposta de migração no perfil.")
+        chosen = next((m for m in proposals if m["id"] not in declined), proposals[0])
+        if chosen["kind"] == "idiomas":
+            return {"kind": "idiomas", **self._apply_languages(perfil, chosen)}
+        return {"kind": "diversidade", **self.apply_diversity_migration()}
+
+    def _apply_languages(self, perfil: "_Profile", migration: dict[str, Any]) -> dict[str, Any]:
+        declared, certifications = (f["value"] for f in migration["fields"])
+        index = perfil.find(languages.LANGUAGES_LABEL)
+        end = perfil.block_end(index)
+        notes = [line for line in perfil.lines[index + 1:end]
+                 if not languages.is_legacy_note(line.strip().removeprefix("- "))]
+        if not any(languages.LANGUAGES_NOTE in line for line in notes):
+            notes.insert(0, f"  - {languages.LANGUAGES_NOTE}")
+        label = _ITEM.match(perfil.lines[index])["label"].strip()
+        perfil.lines[index:end] = [f"- {label}: {declared}", *notes]
+        cert_index = perfil.find(languages.CERTIFICATIONS_LABEL)
+        if cert_index is not None:
+            cert_label = _ITEM.match(perfil.lines[cert_index])["label"].strip()
+            perfil.lines[cert_index] = f"- {cert_label}: {certifications}"
+        else:
+            at = perfil.block_end(index)
+            perfil.lines[at:at] = [f"- {languages.CERTIFICATIONS_LABEL}: {certifications}",
+                                   f"  - {languages.CERTIFICATIONS_NOTE}"]
+        perfil.save()
+        example = _Profile(self.dir / "perfil.example.md")
+        if example.find(languages.CERTIFICATIONS_LABEL) is None:
+            anchor = example.find(languages.LANGUAGES_LABEL)
+            at = example.block_end(anchor) if anchor is not None else None
+            if at is None:
+                header, _ = example.section("Respostas padrão", create=True)
+                example.insert(header, f"- {languages.CERTIFICATIONS_LABEL}: <...>")
+            else:
+                example.lines[at:at] = [f"- {languages.CERTIFICATIONS_LABEL}: <...>"]
+            example.save()
+        return {"written": [languages.LANGUAGES_LABEL, languages.CERTIFICATIONS_LABEL], "to_fill": []}
 
     def apply_diversity_migration(self) -> dict[str, Any]:
         """Grava a proposta de `migration`: um campo por pergunta na seção "Diversidade e inclusão" (sem resposta,

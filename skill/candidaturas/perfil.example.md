@@ -15,8 +15,10 @@ Este arquivo guarda só o que não está no currículo ou respostas padrão de f
 - Data de nascimento: <PREENCHER: DD/MM/AAAA>
 
 ## Respostas padrão
-- Idiomas: português (nativo), inglês intermediário-avançado (B2, certificado), espanhol básico (A2.3, certificado)
-  - Em formulários com escala fixa, escolher a opção mais próxima de B2 / A2 sem arredondar para cima.
+- Idiomas: português (nativo), inglês (avançado), espanhol (básico)
+  - Nível que você declara nos formulários (nativo, fluente, avançado, intermediário ou básico). A certificação fica em "Certificações de idiomas".
+- Certificações de idiomas: inglês (B2, certificado), espanhol (A2.3, certificado)
+  - Certificado e nível CEFR (A1 a C2). Vale para o currículo e para as perguntas que pedem certificação ou nível CEFR; as demais usam o nível de "Idiomas".
 - Anos de experiência a declarar: calculado
   - "calculado" usa os anos somados das experiências do currículo geral, arredondados para o ano mais próximo. Escreva um número para declarar outro valor.
 - Experiência CLT: nenhuma (apenas PJ e estágio)
