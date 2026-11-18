@@ -311,6 +311,48 @@ def test_old_diversity_answers_are_saved_in_the_new_fields_with_one_click(skill,
 
 
 @pytest.mark.skipif(not _chromium(), reason="Playwright com Chromium não instalado")
+def test_profile_subsections_fold_and_only_the_pending_ones_start_open(skill, db_path):
+    from playwright.sync_api import sync_playwright
+
+    example = (skill / "perfil.example.md").read_text(encoding="utf-8")
+    filled = re.sub(r"(- Portfólio|- Data de nascimento): <[^\n]*", r"\1: não tenho", example)
+    (skill / "perfil.md").write_text(filled, encoding="utf-8")  # contato completo; o resto com <...>
+    server = panel.make_server(db_path, token="t0k3n")
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            page.goto(server.url)
+            page.get_by_role("heading", name="Perfil para formulários").wait_for()
+            profile = page.locator("#secao-profile")
+            assert profile.locator("details.grupo-dobravel").count() == 5
+            contact = profile.locator("details.grupo-dobravel", has=page.get_by_role("heading", name="Contato e identificação"))
+            answers = profile.locator("details.grupo-dobravel", has=page.get_by_role("heading", name="Respostas padrão"))
+            assert contact.get_attribute("open") is None and not page.get_by_label("Nome", exact=True).is_visible()
+            assert contact.locator(".selo").count() == 0
+            assert answers.get_attribute("open") is not None and "a preencher" in answers.locator("summary").inner_text()
+            page.locator("#secao-criteria details.grupo-dobravel").wait_for(state="detached")  # grupo sem nome não dobra
+
+            contact.locator("summary").click()
+            page.get_by_label("Telefone").fill("+55 (11) 91234-5678")
+            answers.locator("summary").click()
+            assert answers.get_attribute("open") is None
+            page.get_by_role("button", name="Salvar tudo").click()
+            page.get_by_text("Tudo salvo").wait_for()
+            assert contact.get_attribute("open") is not None and answers.get_attribute("open") is None  # depois de salvar
+
+            page.get_by_label("Nome", exact=True).press("Enter")  # Enter não pula subseção fechada
+            assert page.evaluate("document.activeElement.id") == page.get_by_label("Telefone").get_attribute("id")
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert "- Telefone: +55 (11) 91234-5678\n" in (skill / "perfil.md").read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(not _chromium(), reason="Playwright com Chromium não instalado")
 def test_salary_bands_are_built_from_job_types_and_places(skill, db_path, monkeypatch):
     from playwright.sync_api import sync_playwright
 
