@@ -885,7 +885,7 @@ def build_server(
         """Gera o PDF (em inglês, Typst, uma coluna, amigável a ATS) do currículo geral aprovado completo.
 
         O arquivo vai para a pasta de currículos configurada (VAGAS_RESUME_OUT), com nome
-        "<Nome>_<Sobrenome>_Resume[_<label>].pdf"; nunca sobrescreve: acrescenta _2, _3...
+        "Curriculo[_<label>].pdf"; nunca sobrescreve: acrescenta _2, _3...
         Retorna {"path", "pages", "warnings"}; warnings avisa se passar de 2 páginas.
         """
         with resumes() as s:
@@ -943,8 +943,9 @@ def build_server(
 
         application_id: candidatura à qual o currículo fica vinculado (opcional; também pode ser
         vinculado depois com add_application/update_application e resume_id). Passe-o sempre que o
-        currículo for para uma vaga: o arquivo se chama "<Nome>_<Sobrenome>_Resume_<Empresa>_<Cargo>.pdf"
-        (cargo longo é encurtado), para distinguir vagas da mesma empresa. Sem ele, o nome usa o label.
+        currículo for para uma vaga: o arquivo se chama "<Empresa>_<sigla do cargo>_<ID da candidatura>.pdf"
+        (ex.: "Banco_Bradesco_DS_III_403.pdf"), curto para os sites que limitam o nome do arquivo. O nome
+        é dado pelo MCP: não renomeie nem copie o PDF. Sem application_id, o nome é "Curriculo_<label>.pdf".
 
         form_url: endereço https da aba do formulário aberto, como está no navegador. Passe-o sempre (com
         application_id): é por ele que a extensão do Chrome reconhece o formulário e anexa este PDF quando o
