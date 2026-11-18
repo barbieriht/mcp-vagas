@@ -347,6 +347,27 @@ def test_accepted_city_is_matched_against_the_city_not_the_state(triage, fetcher
     assert "local" in kinds(result)  # Campinas não está entre os locais aceitos (só São Paulo)
 
 
+def test_grouped_places_check_the_state_of_the_city(conn, files, fetcher, approved, monkeypatch):
+    monkeypatch.delenv("VAGAS_SALARY_TTL_DAYS", raising=False)
+    (files / "criterios-triagem.md").write_text(CRITERIA.replace(
+        "- Locais aceitos para híbrido e presencial: São Paulo",
+        "- Locais aceitos para híbrido e presencial: SP: São Paulo, São Carlos; MG:"), encoding="utf-8")
+    triage = Triage(conn, fetcher=fetcher, criteria_path=files / "criterios-triagem.md",
+                    policy_path=files / "politica-salarial.md", draft_path=files / "curriculo.yaml")
+
+    def at(job_id, city, state):
+        page_url, page = gupy(job_id, city=city, company=f"Empresa {job_id}")
+        return triage.triage_job(fetcher.add((page_url, page.replace('"addressState": "SP"', f'"addressState": "{state}"'))))
+
+    sp = at(60, "São Carlos", "SP")
+    sc = at(61, "São Carlos", "Santa Catarina")
+    mg = at(62, "Belo Horizonte", "MG")
+
+    assert sp["decision"] == "a_aplicar" and "local" not in kinds(sp)
+    assert sc["decision"] == "descartada" and "SC" in sc["application"]["discard_reason"]  # outro São Carlos
+    assert mg["decision"] == "a_aplicar" and "local" in kinds(mg)  # estado aceito, cidade para julgar
+
+
 @pytest.mark.parametrize("job_type, contract", [("vacancy_type_effective", "clt"), ("vacancy_type_legal_entity", "pj")])
 def test_contract_of_the_posting_is_registered(triage, fetcher, job_type, contract):
     url = fetcher.add(gupy(1, job_type=job_type))

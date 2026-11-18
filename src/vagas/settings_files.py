@@ -6,6 +6,7 @@ em md_fields, que preserva o resto do arquivo; a validação dos critérios usa 
 triagem. Arquivo inexistente nasce do .example.md. Não depende de HTTP nem de MCP.
 """
 
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -513,7 +514,8 @@ def _affirmative_label(key: str) -> str:
 
 # Campos dos critérios que o painel não mostra: os termos de vaga exclusiva PcD são conhecimento da
 # ferramenta (triage.DEFAULT_PCD_TERMS); uma linha antiga no arquivo continua valendo.
-HIDDEN_CRITERIA = {"pcd_terms"}
+HIDDEN_CRITERIA = {"pcd_terms", "accepted_states"}  # os estados aceitos ficam nos grupos de locais
+PLACES_LABEL = "Locais aceitos para híbrido e presencial"
 
 _MULTI = {
     "target_roles": lambda: [{"value": k, "label": ROLE_NAMES[k][0].capitalize()} for k in ROLE_KEYS if k in ROLE_NAMES],
@@ -529,8 +531,9 @@ _HELP = {
     "ignored_companies": "Separadas por vírgula. Maiúsculas, acentos, Ltda e S.A. são ignorados.",
     "affirmative_ok": ("Grupos cujas vagas afirmativas você quer disputar. Nenhum marcado: nenhuma. PcD: com "
                        "\"Possui deficiência\" preenchido no perfil, é ele que decide."),
-    "accepted_locations": "Cidades aceitas para vagas híbridas e presenciais, separadas por vírgula. Remotas são "
-                          "sempre aceitas.",
+    "accepted_locations": ("Cidades aceitas para vagas híbridas e presenciais, por estado. Vaga em estado fora da "
+                           "lista é descartada; num estado da lista mas em outra cidade, você julga. Remotas são "
+                           "sempre aceitas."),
     "search_seniorities": "Níveis a que você se candidata. Nenhum marcado: todos.",
     "years_by_level": "Faixa de anos de cada nível, como \"pleno 2-5\", separadas por vírgula.",
     "accepted_states": "Siglas ou nomes de estados, separados por vírgula. Vazio: não filtra por estado.",
@@ -562,6 +565,86 @@ def _as_line_value(field: str, chosen: list[str]) -> str:
     return ", ".join(chosen)
 
 
+def _state_choices() -> list[dict[str, str]]:
+    from vagas.places import STATES
+
+    return [{"value": uf, "label": f"{uf} — {name}"} for uf, name in STATES.items()]
+
+
+def _places_of(text: str) -> tuple[list[dict[str, Any]], bool]:
+    """Grupos de locais aceitos ({state, cities}; state "" = qualquer estado) e se vieram da linha antiga
+    "Estados aceitos", que some ao salvar. Com um estado só nela, as cidades sem estado passam a ser dele."""
+    from vagas.places import parse_places, state_code
+
+    items = {_criteria_field(i.label): i for i in md_fields.parse(text) if not i.parent}
+    raw = items["accepted_locations"].value.strip() if "accepted_locations" in items else ""
+    groups = [{"state": g.state or "", "cities": list(g.cities)}
+              for g in parse_places("" if raw.startswith("<") else raw, PLACES_LABEL)]
+    old = items.get("accepted_states")
+    legacy = []
+    for value in _items_of(old.value if old and not old.value.strip().startswith("<") else ""):
+        if (uf := state_code(value)) is None:
+            raise VagasError(f"Estado desconhecido em 'Estados aceitos para híbrido e presencial': {value!r}.")
+        legacy.append(uf)
+    if not legacy:
+        return groups, False
+    states = list(dict.fromkeys([g["state"] for g in groups if g["state"]] + legacy))
+    loose = next((g for g in groups if not g["state"]), None)
+    if loose and len(states) == 1:
+        own = next((g for g in groups if g["state"] == states[0]), None)
+        if own:
+            own["cities"] = list(dict.fromkeys(loose["cities"] + own["cities"]))
+            groups.remove(loose)
+        else:
+            loose["state"] = states[0]
+    groups += [{"state": uf, "cities": []} for uf in states if not any(g["state"] == uf for g in groups)]
+    return groups, True
+
+
+def _places_field(text: str, item_id: str) -> dict[str, Any]:
+    field: dict[str, Any] = {"id": item_id, "title": PLACES_LABEL, "help": _HELP["accepted_locations"],
+                             "kind": "places", "value": [], "states": _state_choices(), "hint": "", "notes": [],
+                             "parent": None, "status": None}
+    try:
+        field["value"], field["migrated"] = _places_of(text)
+    except VagasError as exc:
+        field["error"] = f"{exc} Corrija o arquivo ou cadastre os locais de novo."
+    return field
+
+
+def accepted_places(db_path: Path | str | None) -> list[dict[str, Any]]:
+    """Grupos de locais aceitos dos critérios, como o painel os mostra; [] se não der para ler."""
+    try:
+        return _places_of(_source(*_criteria_paths(db_path))[0])[0]
+    except VagasError:
+        return []
+
+
+def _check_places(raw: Any) -> tuple[str | None, str | None]:
+    """Valor da linha de locais ("SP: São Carlos, Barueri; MG:") a partir dos grupos do painel, ou o erro."""
+    from vagas.places import PlaceGroup, format_places, state_code
+
+    if not isinstance(raw, list) or not all(isinstance(g, dict) for g in raw):
+        return None, "Envie os locais como uma lista de grupos {state, cities}."
+    groups: list[PlaceGroup] = []
+    for group in raw:
+        state, cities = group.get("state") or "", group.get("cities") or []
+        if not isinstance(state, str) or not isinstance(cities, list) or not all(isinstance(c, str) for c in cities):
+            return None, "Cada grupo precisa de um estado e de uma lista de cidades."
+        names = list(dict.fromkeys(c.strip().rstrip(".").strip() for c in cities if c.strip().rstrip(".").strip()))
+        if any(re.search(r"[,;:\n\r]", c) for c in names):
+            return None, "Uma cidade por item, sem vírgula, ponto e vírgula ou dois-pontos."
+        uf = state_code(state) if state.strip() else None
+        if state.strip() and uf is None:
+            return None, f"Estado desconhecido: {state!r}. Escolha um estado da lista."
+        if uf is None and not names:
+            continue  # grupo vazio, sem estado: nada a gravar
+        if any(g.state == uf for g in groups):
+            return None, f"O estado {uf or 'sem estado'} aparece duas vezes: junte as cidades num grupo só."
+        groups.append(PlaceGroup(uf, tuple(names)))
+    return format_places(groups), None
+
+
 def load_criteria(db_path: Path | str | None) -> dict[str, Any]:
     try:
         path, example = _criteria_paths(db_path)
@@ -569,9 +652,14 @@ def load_criteria(db_path: Path | str | None) -> dict[str, Any]:
     except VagasError as exc:
         return _error_section("criteria", CRITERIA_TITLE, str(exc))
     fields = []
+    has_places = False
     for item in md_fields.parse(text):
         name = _criteria_field(item.label)
         if name is None or item.parent or name in HIDDEN_CRITERIA:
+            continue
+        if name == "accepted_locations":
+            fields.append(_places_field(text, item.id))
+            has_places = True
             continue
         raw = item.value.strip()
         field: dict[str, Any] = {"id": item.id, "title": item.label, "help": _HELP.get(name, ""), "kind": "text",
@@ -586,6 +674,8 @@ def load_criteria(db_path: Path | str | None) -> dict[str, Any]:
         elif name == "min_match":
             field.update(kind="int", bounds=[0, 100], value=raw.rstrip("%").strip())
         fields.append(field)
+    if not has_places:  # arquivo sem a linha: o campo aparece mesmo assim e a linha é criada ao salvar
+        fields.append(_places_field(text, PLACES_LABEL))
     return {"key": "criteria", "title": CRITERIA_TITLE, "file": str(path), "new": from_example,
             "groups": [{"name": "", "fields": fields}], "pending": [] if not from_example else ["criteria"]}
 
@@ -617,11 +707,17 @@ def plan_criteria(values: Any, db_path: Path | str | None) -> tuple[Pending | No
     by_key = {md_fields._key(item.id): item for item in md_fields.parse(text) if not item.parent}
     updates: dict[str, str] = {}
     errors: dict[str, str] = {}
+    places: str | None = None
     for field_id, raw in values.items():
         name = f"criteria.{field_id}"
+        if _criteria_field(str(field_id)) == "accepted_locations":
+            places, problem = _check_places(raw)
+            if problem:
+                errors[name] = problem
+            continue
         item = by_key.get(md_fields._key(str(field_id)))
         field = _criteria_field(item.label) if item else None
-        if field is None:
+        if field is None or field in HIDDEN_CRITERIA:
             errors[name] = "Campo desconhecido nos critérios."
             continue
         if field in _MULTI:
@@ -641,9 +737,11 @@ def plan_criteria(values: Any, db_path: Path | str | None) -> tuple[Pending | No
         updates[item.id] = value
     if errors:
         return None, errors
-    if not updates:
+    if not updates and places is None:
         return None, {}
     new_text = md_fields.apply(text, updates)
+    if places is not None:
+        new_text = _write_places(new_text, places)
     try:
         parse_criteria(new_text, source=path.name)
     except VagasError as exc:
@@ -651,11 +749,38 @@ def plan_criteria(values: Any, db_path: Path | str | None) -> tuple[Pending | No
     return Pending(path, new_text), {}
 
 
+def _write_places(text: str, value: str) -> str:
+    """Grava a linha de locais (criando-a se faltar) e tira a linha antiga "Estados aceitos"."""
+    items = {_criteria_field(i.label): i for i in md_fields.parse(text) if not i.parent}
+    if "accepted_locations" in items:
+        text = md_fields.apply(text, {items["accepted_locations"].id: value})
+    else:
+        text = md_fields.insert_item(text, None, f"- {PLACES_LABEL}: {value}".rstrip())
+    if "accepted_states" in items:
+        text = md_fields.remove_item(text, items["accepted_states"].id)
+    return text
+
+
 # --- política salarial -------------------------------------------------------------------------
 
 POLICY_TITLE = "Política salarial"
 _MODE_LABELS = {"minimo": "Mínimo", "faixa": "Faixa"}
 _BAND_LINE = re.compile(r"^(?P<label>.+?)\s*\((?P<tags>[^)]*)\)$")
+# Cidades da faixa: o que vem depois de "em" no nome, como o evaluate_salary lê ("e região" é ignorado).
+_BAND_CITIES = re.compile(r"^(?P<name>.*?)\s*\bem\s+(?P<cities>.+?)(?:\s+e\s+regi[aã]o)?$", re.IGNORECASE)
+
+
+def _split_band_label(label: str) -> tuple[str, list[str]]:
+    """"Híbrido/presencial em São Paulo, Barueri e região" -> ("Híbrido/presencial", ["São Paulo", "Barueri"])."""
+    match = _BAND_CITIES.match(label.strip())
+    if not match:
+        return label.strip(), []
+    cities = [c.strip() for c in re.split(r",\s*|\s+e\s+", match["cities"]) if c.strip()]
+    return match["name"].strip(), list(dict.fromkeys(cities))
+
+
+def _band_label(name: str, cities: list[str]) -> str:
+    return f"{name} em {', '.join(cities)}" if cities else name
 
 
 def _policy_paths(db_path: Path | str | None) -> tuple[Path, Path]:
@@ -686,7 +811,8 @@ def _band_items(text: str) -> list[tuple[md_fields.Item, dict[str, Any]]]:
         if currency is None:
             continue
         alias, lo, hi = _ALIAS.search(item.value), _MIN.search(item.value), _MAX.search(item.value)
-        rows.append((item, {"name": key["label"].strip(), "currency": currency, "clt": "CLT" in tags,
+        name, cities = _split_band_label(key["label"])
+        rows.append((item, {"name": name, "cities": cities, "currency": currency, "clt": "CLT" in tags,
                             "min": _number_text(lo["n"]) if lo and not alias else "",
                             "max": _number_text(hi["n"]) if hi and not alias else "",
                             "alias": alias["target"].strip() if alias else ""}))
@@ -743,16 +869,16 @@ def load_policy(db_path: Path | str | None) -> dict[str, Any]:
                            "help": "Converte as faixas marcadas como CLT para vagas PJ (ex.: 1.4 = 40% a mais)."})
     rows = []
     for _, row in _band_items(text):
-        row["applies"] = _applies(row["name"])
+        row["applies"] = _applies(_band_label(row["name"], row["cities"]))
         row["hint_min"], row["hint_max"] = row["min"], row["max"]
         if from_example:
             row["min"] = row["max"] = ""  # salário é pessoal: o exemplo só sugere as faixas
         rows.append(row)
     fields.append({"id": "Faixas", "title": "Faixas", "kind": "bands", "value": rows, "currencies": list(CURRENCIES),
-                   "hint": "", "notes": [], "parent": None, "status": None,
+                   "places": accepted_places(db_path), "hint": "", "notes": [], "parent": None, "status": None,
                    "help": "Valores mensais. A faixa vale para as modalidades citadas no nome (remoto, híbrido, "
-                           "presencial; nenhuma = todas) e para as cidades depois de \"em\" (nenhuma = qualquer local). "
-                           "Moedas nunca são convertidas entre si."})
+                           "presencial; nenhuma = todas) e para as cidades marcadas, escolhidas entre os locais "
+                           "aceitos dos critérios (nenhuma = qualquer local). Moedas nunca são convertidas entre si."})
     pending = ["Faixas"] if from_example or not rows else []
     return {"key": "policy", "title": POLICY_TITLE, "file": str(path), "new": from_example,
             "groups": [{"name": "", "fields": fields}], "pending": pending}
@@ -760,12 +886,20 @@ def load_policy(db_path: Path | str | None) -> dict[str, Any]:
 
 def _band_line(row: dict[str, Any]) -> str:
     tags = row["currency"] + (", CLT" if row["clt"] else "")
+    label = _band_label(row["name"], row["cities"])
     if row["alias"]:
-        return f"- {row['name']} ({tags}): usar a faixa do {row['alias']}"
+        return f"- {label} ({tags}): usar a faixa do {row['alias']}"
     value = f"mínimo {_number_text(row['min'])}"
     if row["max"].strip():
         value += f", máximo {_number_text(row['max'])}"
-    return f"- {row['name']} ({tags}): {value}"
+    return f"- {label} ({tags}): {value}"
+
+
+def _same_band(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """A faixa voltou do painel como foi carregada (as cidades em qualquer ordem)."""
+    keys = ("name", "currency", "clt", "min", "max", "alias")
+    return (all(a[k] == b[k] for k in keys)
+            and sorted(normalize_text(c) for c in a["cities"]) == sorted(normalize_text(c) for c in b["cities"]))
 
 
 def _check_bands(rows: Any, mode: str) -> tuple[list[dict[str, Any]], dict[str, str]]:
@@ -777,20 +911,30 @@ def _check_bands(rows: Any, mode: str) -> tuple[list[dict[str, Any]], dict[str, 
     if not rows:
         return [], {"policy.Faixas": "Cadastre pelo menos uma faixa."}
     clean, errors = [], {}
-    names = [normalize_text(str(r.get("name", "")).strip()) if isinstance(r, dict) else "" for r in rows]
+    cities_of = [_row_cities(r) for r in rows]
+    names = [normalize_text(_band_label(str(r.get("name", "")).strip(), cities_of[i] or []))
+             if isinstance(r, dict) else "" for i, r in enumerate(rows)]
     for index, row in enumerate(rows):
         where = f"policy.Faixas.{index}"
         if not isinstance(row, dict):
             errors[where] = "Faixa inválida."
             continue
         text = {k: str(row.get(k, "") or "").strip() for k in ("name", "currency", "min", "max", "alias")}
+        cities = cities_of[index]
         if any("\n" in v or "\r" in v for v in text.values()):
             errors[where] = "Use uma linha só em cada campo."
             continue
+        if cities is None:
+            errors[f"{where}.cities"] = "Uma cidade por item, sem vírgula, ponto e vírgula ou dois-pontos."
+            cities = []
         if not text["name"]:
             errors[f"{where}.name"] = "Dê um nome à faixa (ex.: Remoto nacional)."
-        elif re.search(r"[():]", text["name"]):
-            errors[f"{where}.name"] = "O nome não pode ter parênteses nem dois-pontos."
+        elif re.search(r"[():;]", text["name"]):
+            errors[f"{where}.name"] = "O nome não pode ter parênteses, dois-pontos nem ponto e vírgula."
+        elif cities and _split_band_label(text["name"])[1]:
+            errors[f"{where}.name"] = "Tire o \"em …\" do nome: as cidades da faixa são as marcadas abaixo."
+        elif names[index] in names[:index]:
+            errors[f"{where}.name"] = "Já existe uma faixa com este nome e estas cidades."
         if text["currency"].upper() not in CURRENCIES:
             errors[f"{where}.currency"] = f"Escolha a moeda: {', '.join(CURRENCIES)}."
         numbers = {}
@@ -812,8 +956,21 @@ def _check_bands(rows: Any, mode: str) -> tuple[list[dict[str, Any]], dict[str, 
             errors[f"{where}.max"] = "O máximo não pode ser menor que o mínimo."
         if mode == "faixa" and not text["alias"] and not text["max"]:
             errors[f"{where}.max"] = "No modo faixa, toda faixa precisa de máximo."
-        clean.append({**text, "currency": text["currency"].upper(), "clt": bool(row.get("clt"))})
+        clean.append({**text, "cities": cities, "currency": text["currency"].upper(), "clt": bool(row.get("clt"))})
     return clean, errors
+
+
+def _row_cities(row: Any) -> list[str] | None:
+    """Cidades de uma faixa vinda do painel (sem a chave: as do nome, como antes); None se inválidas."""
+    if not isinstance(row, dict):
+        return []
+    cities = row.get("cities", [])
+    if not isinstance(cities, list) or not all(isinstance(c, str) for c in cities):
+        return None
+    names = [c.strip() for c in cities if c.strip()]
+    if any(re.search(r"[,;:()\n\r]", c) for c in names):
+        return None
+    return list(dict.fromkeys(names))
 
 
 def plan_policy(values: Any, db_path: Path | str | None) -> tuple[Pending | None, dict[str, str]]:
@@ -850,7 +1007,8 @@ def plan_policy(values: Any, db_path: Path | str | None) -> tuple[Pending | None
             updates[items[norm].id] = _norm(raw)
     mode = _norm(values.get("Modo", "")) if isinstance(values.get("Modo"), str) else ""
     mode = mode or (_norm(items["modo"].value).split(" ")[0] if "modo" in items else "minimo")
-    current_rows = [row for _, row in _band_items(text)]
+    current = _band_items(text)
+    current_rows = [row for _, row in current]
     if from_example and "Faixas" not in values:
         return None, {**errors, "policy.Faixas": "Preencha os valores das faixas."}
     rows, band_errors = _check_bands(values.get("Faixas", current_rows), mode)
@@ -859,7 +1017,15 @@ def plan_policy(values: Any, db_path: Path | str | None) -> tuple[Pending | None
         return None, errors
     new_text = md_fields.apply(text, updates)
     if "Faixas" in values or from_example:
-        new_text = _replace_bands(new_text, [_band_line(row) for row in rows])
+        lines = text.splitlines()
+        kept = {}  # faixa sem mudança: a linha fica como estava (grafia dos números, "e região")
+        for item, old in current:
+            kept.setdefault(json.dumps(old, sort_keys=True), lines[item.line].rstrip())
+        band_lines = []
+        for row in rows:
+            same = next((key for key, line in kept.items() if _same_band(json.loads(key), row)), None)
+            band_lines.append(kept.pop(same) if same and not from_example else _band_line(row))
+        new_text = _replace_bands(new_text, band_lines)
     try:
         parse_policy(new_text, source=path.name)
     except VagasError as exc:
