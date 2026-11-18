@@ -25,7 +25,7 @@ _FAMILIES = (
     ("DE", r"\bdata engineer\w*|\bengenheir\w* de dados\b"),
     ("DA", r"\bdata analy\w*|\banalista de dados\b"),
 )
-_SENIORITY = (("Est", ("estagio", "estagiario", "estagiaria", "intern", "internship")),
+_SENIORITY = (("Trainee", ("trainee",)), ("Est", ("estagio", "estagiario", "estagiaria", "intern", "internship")),
               ("Jr", ("junior", "jr")), ("Pl", ("pleno", "pl", "mid")), ("Sr", ("senior", "sr")),
               ("Esp", ("especialista", "specialist")), ("Staff", ("staff",)), ("Princ", ("principal",)),
               ("Lead", ("lead", "lider")))

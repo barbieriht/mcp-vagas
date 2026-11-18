@@ -70,4 +70,4 @@ O fluxo termina num destes estados:
 
    Peça que ele revise e edite o arquivo.
 9. **Erros na fonte.** Quando a leitura revelar erros no próprio LinkedIn ou no PDF (credenciais duplicadas, datas inconsistentes, títulos divergentes), sugira ao usuário corrigi-los lá, além de resolver no rascunho.
-10. **Aprovação.** Quando o usuário disser que revisou e aprova, chame `approve_master`.
+10. **Aprovação.** Quando o usuário disser que revisou e aprova, chame `approve_master`. Se for a primeira aprovação, ou se os critérios ainda não tiverem cargos alvo, siga "Cargos alvo" do [SKILL.md](SKILL.md): mostre as sugestões de `suggest_target_roles` para ele confirmar no painel.

@@ -31,10 +31,14 @@ def test_lists_are_parsed_and_normalized():
     assert c.places == (PlaceGroup(None, ("São Carlos", "São Paulo")),)
 
 
-def test_versioned_example_parses():
-    c = parse_criteria(EXAMPLE.read_text(encoding="utf-8"))
+def test_versioned_example_asks_for_the_users_own_roles():
+    text = EXAMPLE.read_text(encoding="utf-8")
 
-    assert "data_scientist" in c.target_roles and c.min_match == 50
+    with pytest.raises(VagasError, match="PREENCHER"):  # ninguém herda os cargos de outra pessoa
+        parse_criteria(text)
+    filled = text.replace("<PREENCHER: os cargos do seu currículo que você busca>", "Desenvolvedor Backend")
+    c = parse_criteria(filled)
+    assert c.target_roles == ("desenvolvedor_backend",) and c.conditional_roles == () and c.min_match == 50
 
 
 def test_optional_lines_have_safe_defaults():
@@ -46,7 +50,6 @@ def test_optional_lines_have_safe_defaults():
 
 @pytest.mark.parametrize("text, message", [
     ("- Cargos condicionados à aderência: data_engineer\n", "Cargos alvo"),
-    ("- Cargos alvo: data_scientist, astronauta\n", "astronauta"),
     ("- Cargos alvo: data_scientist\n- Aderência mínima: alta\n", "Aderência mínima"),
     ("- Cargos alvo: data_scientist\n- Aderência mínima: 120\n", "Aderência mínima"),
     ("- Cargos alvo: data_scientist\n- Empresas ignoradas: <PREENCHER>\n", r"linha 2.*PREENCHER"),
@@ -98,8 +101,6 @@ def test_values_are_read_the_way_people_write_them():
 
 
 def test_errors_list_the_accepted_values():
-    with pytest.raises(VagasError, match=r"astronauta.*data_scientist.*data_analyst"):
-        parse_criteria("- Cargos alvo: astronauta\n")
     with pytest.raises(VagasError, match=r"mestre.*estagio.*especialista"):
         parse_criteria("- Cargos alvo: data_scientist\n- Senioridades buscadas: mestre\n")
 
@@ -110,6 +111,7 @@ def test_example_documents_every_accepted_value():
     text = EXAMPLE.read_text(encoding="utf-8")
     values = text[text.index("## Valores aceitos"):]
     assert all(f"`{v}`" in values for v in (*ROLE_KEYS, *SENIORITIES) if v != "outro")
+    assert "suggest_target_roles" in values and "Product Manager (PM, Gerente de Produto)" in values
     assert "0 a 100" in values
 
 
@@ -174,3 +176,18 @@ def test_affirmative_groups_the_user_can_compete_for():
     assert parse_criteria(base + "- Vagas afirmativas que posso disputar: nenhuma\n").affirmative_ok == ()
     with pytest.raises(VagasError, match="astronautas"):
         parse_criteria(base + "- Vagas afirmativas que posso disputar: astronautas\n")
+
+
+def test_roles_are_free_text_with_synonyms_and_known_families_still_count():
+    c = parse_criteria("- Cargos alvo: data_scientist, Product Manager (PM, Gerente de Produto), Astronauta\n"
+                       "- Cargos condicionados à aderência: cientista de dados, Analista de BI\n")
+
+    assert c.target_roles == ("data_scientist", "product_manager", "astronauta")
+    assert c.conditional_roles == ("data_scientist", "analista_de_bi")
+    pm = next(r for r in c.roles if r.key == "product_manager")
+    assert pm.names == ("Product Manager", "PM", "Gerente de Produto")
+
+
+def test_without_target_roles_the_error_points_to_the_suggestions():
+    with pytest.raises(VagasError, match="suggest_target_roles"):
+        parse_criteria("- Aderência mínima: 50\n")

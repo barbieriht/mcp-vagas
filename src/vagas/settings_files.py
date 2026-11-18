@@ -12,9 +12,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from vagas import affirmative, consents, diversity, md_fields
+from vagas import affirmative, consents, diversity, md_fields, roles
 from vagas.languages import CERTIFICATIONS_LABEL, LANGUAGES_LABEL, parse_languages
-from vagas.models import ROLE_KEYS, ROLE_NAMES, SENIORITIES, SENIORITY_LABELS
+from vagas.models import SENIORITIES, SENIORITY_LABELS
 from vagas.normalize import normalize_text
 from vagas.experience import DECLARED_LABEL
 from vagas.profile_fields import MANUAL, OTHER_SECTION, TALENT_POOL, default_skill_dir, is_sensitive
@@ -494,16 +494,15 @@ def _affirmative_label(key: str) -> str:
 HIDDEN_CRITERIA = {"pcd_terms", "accepted_states"}  # os estados aceitos ficam nos grupos de locais
 PLACES_LABEL = "Locais aceitos para híbrido e presencial"
 
+ROLE_FIELDS = ("target_roles", "conditional_roles")  # texto livre, com sugestões do currículo geral
 _MULTI = {
-    "target_roles": lambda: [{"value": k, "label": ROLE_NAMES[k][0].capitalize()} for k in ROLE_KEYS if k in ROLE_NAMES],
-    "conditional_roles": lambda: [{"value": k, "label": ROLE_NAMES[k][0].capitalize()} for k in ROLE_KEYS
-                                  if k in ROLE_NAMES],
     "search_seniorities": lambda: [{"value": k, "label": SENIORITY_LABELS.get(k, k).capitalize()} for k in SENIORITIES],
     "affirmative_ok": lambda: [{"value": k, "label": _affirmative_label(k)} for k in affirmative.GROUPS],
 }
 _HELP = {
-    "target_roles": "Cargos que seguem na triagem.",
-    "conditional_roles": "Cargos que só seguem com aderência igual ou maior que a mínima.",
+    "target_roles": ("Cargos que seguem na triagem, como estão no seu currículo ou como as vagas os chamam. Sinônimos "
+                     "entre parênteses: Product Manager (PM, Gerente de Produto)."),
+    "conditional_roles": "Cargos que só seguem com aderência igual ou maior que a mínima. Mesmo formato.",
     "min_match": "De 0 a 100: quanto da vaga precisa bater com o seu currículo geral.",
     "ignored_companies": "Separadas por vírgula. Maiúsculas, acentos, Ltda e S.A. são ignorados.",
     "affirmative_ok": ("Grupos cujas vagas afirmativas você quer disputar. Nenhum marcado: nenhuma. PcD: com "
@@ -522,11 +521,7 @@ def _items_of(value: str) -> list[str]:
 
 
 def _as_choices(field: str, value: str) -> list[str]:
-    from vagas.triage import _roles
-
     items = _items_of(value)
-    if field in ("target_roles", "conditional_roles"):
-        return list(_roles(items, "critérios"))
     if field == "search_seniorities":
         levels = [normalize_text(v) for v in items]
         unknown = [v for v, level in zip(items, levels) if level not in SENIORITIES]
@@ -534,6 +529,37 @@ def _as_choices(field: str, value: str) -> list[str]:
             raise VagasError(f"Senioridade desconhecida: {', '.join(unknown)}.")
         return list(dict.fromkeys(levels))
     return list(affirmative.parse_groups(items, "critérios"))
+
+
+def _role_suggestions(db_path: Path | str | None, chosen: list[str]) -> dict[str, Any]:
+    """Cargos do currículo geral aprovado que ainda não estão escolhidos (o painel mostra desmarcados)."""
+    from vagas.db import connect
+    from vagas.resume_repo import ResumeStore, default_draft_path
+
+    conn = connect(db_path) if db_path is not None else connect()
+    try:
+        master = ResumeStore(conn, default_draft_path(db_path)).get_master_resume()  # o aprovado, do banco
+    except VagasError:
+        return {"suggestions": [], "suggestions_note": "Aprove o currículo geral para ver aqui os cargos dele como "
+                                                     "sugestão."}
+    finally:
+        conn.close()
+    have = {roles.parse(c).key for c in chosen if roles.parse(c)}
+    found = [s["name"] for s in roles.suggest_from_resume(master["resume"])
+             if (r := roles.parse(s["name"])) and r.key not in have]
+    return {"suggestions": found, "suggestions_note": "Sugestões do seu currículo geral: marque as que você busca."}
+
+
+def _check_roles(raw: Any) -> tuple[str, str | None]:
+    """Lista de cargos em texto livre -> a linha do arquivo, ou o erro."""
+    if not isinstance(raw, list) or not all(isinstance(v, str) for v in raw):
+        return "", "Envie os cargos como uma lista de textos."
+    items = [" ".join(v.split()) for v in raw if v.strip()]
+    for item in items:
+        if item.count("(") != item.count(")") or "," in item.split("(")[0]:
+            return "", (f"Cargo inválido: {item!r}. Um cargo por linha; sinônimos entre parênteses, separados por "
+                        "vírgula: Product Manager (PM, Gerente de Produto).")
+    return ", ".join(dict.fromkeys(items)), None
 
 
 def _as_line_value(field: str, chosen: list[str]) -> str:
@@ -642,7 +668,10 @@ def load_criteria(db_path: Path | str | None) -> dict[str, Any]:
         field: dict[str, Any] = {"id": item.id, "title": item.label, "help": _HELP.get(name, ""), "kind": "text",
                                  "value": "" if raw.startswith("<") else raw, "hint": _hint(raw) if raw.startswith("<")
                                  else "", "notes": [], "parent": None, "status": None}
-        if name in _MULTI:
+        if name in ROLE_FIELDS:
+            chosen = [] if from_example or raw.startswith("<") else [roles.label(r) for r in roles.parse_list(raw)]
+            field.update(kind="roles", value=chosen, hint="", **_role_suggestions(db_path, chosen))
+        elif name in _MULTI:
             field["choices"] = _MULTI[name]()
             try:
                 field.update(kind="multi", value=_as_choices(name, raw))
@@ -697,7 +726,12 @@ def plan_criteria(values: Any, db_path: Path | str | None) -> tuple[Pending | No
         if field is None or field in HIDDEN_CRITERIA:
             errors[name] = "Campo desconhecido nos critérios."
             continue
-        if field in _MULTI:
+        if field in ROLE_FIELDS:
+            value, problem = _check_roles(raw)
+            if problem:
+                errors[name] = problem
+                continue
+        elif field in _MULTI:
             valid = {c["value"] for c in _MULTI[field]()}
             if not isinstance(raw, list) or not all(isinstance(v, str) and v in valid for v in raw):
                 errors[name] = "Escolha entre as opções da lista."
@@ -722,6 +756,9 @@ def plan_criteria(values: Any, db_path: Path | str | None) -> tuple[Pending | No
     try:
         parse_criteria(new_text, source=path.name)
     except VagasError as exc:
+        roles_item = next((i for i in by_key.values() if _criteria_field(i.label) == "target_roles"), None)
+        if roles_item is not None and ("Cargos alvo" in str(exc) or "cargos alvo" in str(exc)):
+            return None, {f"criteria.{roles_item.id}": "Escolha ou escreva ao menos um cargo alvo."}
         return None, {"criteria": str(exc)}
     return Pending(path, new_text), {}
 

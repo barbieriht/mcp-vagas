@@ -12,7 +12,7 @@ WorkMode = Literal["remoto", "hibrido", "presencial"]
 
 # Estimativas salariais
 RoleKey = Literal["data_scientist", "ml_engineer", "ai_engineer", "data_engineer", "data_analyst", "outro"]
-Seniority = Literal["estagio", "junior", "pleno", "senior", "especialista", "staff"]
+Seniority = Literal["estagio", "trainee", "junior", "pleno", "senior", "especialista", "staff"]
 Currency = Literal["BRL", "USD", "EUR"]
 Period = Literal["hora", "mes", "ano"]
 Contract = Literal["clt", "pj", "desconhecido"]
@@ -33,7 +33,7 @@ ROLE_NAMES: dict[str, tuple[str, str]] = {
 }
 
 # Senioridade como se escreve nas buscas.
-SENIORITY_LABELS: dict[str, str] = {"estagio": "estágio", "junior": "júnior", "pleno": "pleno", "senior": "sênior",
+SENIORITY_LABELS: dict[str, str] = {"estagio": "estágio", "trainee": "trainee", "junior": "júnior", "pleno": "pleno", "senior": "sênior",
                                     "especialista": "especialista", "staff": "staff"}
 
 # Pendências estruturadas de uma candidatura (pending_items)

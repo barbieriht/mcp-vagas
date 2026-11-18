@@ -25,7 +25,7 @@ from vagas.experience import years_to_declare
 from vagas.generic_questions import is_generic_label
 from vagas.app_query import ApplicationFilter
 from vagas.models import (
-    Contract, Currency, InitialStatus, LinkedInSection, QueryField, QueryOrder, ResumeSourceKind, RoleKey,
+    Contract, Currency, InitialStatus, LinkedInSection, QueryField, QueryOrder, ResumeSourceKind,
     SalaryMode, Seniority, Source, Status, WorkMode,
 )
 from vagas.referrals import ReferralStore
@@ -78,6 +78,10 @@ def _without_titles(node: Any, in_properties: bool = False) -> Any:
 
 
 _MIGRATION_DECLINED = "profile_migration_declined"
+# Cargo da pesquisa salarial: o role_key que a triagem devolve (família conhecida, como data_scientist, ou o cargo
+# livre dos critérios, como desenvolvedor_backend).
+RoleKeyParam = Annotated[str, Field(pattern=r"^[a-z0-9_]+$", description=(
+    "role_key da triagem (posting.role_key ou suggest_target_roles), ex.: data_scientist, desenvolvedor_backend"))]
 
 
 def _floor(evaluation: dict[str, Any] | None) -> float | None:
@@ -107,7 +111,7 @@ READ_ONLY_TOOLS = frozenset({
     "settings_link", "get_config", "find_application", "list_applications", "get_history", "extract_resume_text",
     "get_profile", "extension_status", "diff_master", "get_master_resume", "suggest_tailored_selection",
     "read_job_posting", "score_job_match", "list_resumes", "get_resume", "find_salary_estimate", "find_job_search",
-    "work_list", "get_search_run", "suggest_job_searches", "query_applications", "list_referrals",
+    "work_list", "get_search_run", "suggest_job_searches", "query_applications", "suggest_target_roles", "list_referrals",
 })
 # Escritas que sobrescrevem ou tiram algo (as demais só acrescentam: registro, versão, arquivo novo).
 DESTRUCTIVE_TOOLS = frozenset({"update_application", "bulk_update_applications", "discard_salary_estimate",
@@ -1053,7 +1057,7 @@ def build_server(
 
     @server.tool()
     def find_salary_estimate(
-        role_key: RoleKey, seniority: Seniority, currency: Currency, company: str | None = None,
+        role_key: RoleKeyParam, seniority: Seniority, currency: Currency, company: str | None = None,
     ) -> dict[str, Any]:
         """Consulta o cache de salários para família de cargo + senioridade + moeda.
 
@@ -1073,7 +1077,7 @@ def build_server(
 
     @server.tool()
     def save_salary_estimate(
-        role_key: RoleKey,
+        role_key: RoleKeyParam,
         seniority: Seniority,
         currency: Currency,
         points: list[SalaryPoint],
@@ -1124,7 +1128,7 @@ def build_server(
 
     @server.tool()
     def evaluate_salary(
-        role_key: RoleKey,
+        role_key: RoleKeyParam,
         seniority: Seniority,
         currency: Currency,
         contract: Contract,
@@ -1298,6 +1302,38 @@ def build_server(
         """
         with store(SearchRunStore) as runs:
             return runs.get(run_id)
+
+    @server.tool()
+    def suggest_target_roles() -> dict[str, Any]:
+        """Cargos alvo sugeridos pelo currículo geral aprovado (títulos das experiências, outros títulos e a
+        headline, sem o nível), para o usuário escolher os que busca. Chame no primeiro uso, depois de aprovar o
+        currículo geral, e quando ele quiser rever os cargos. Não grava nada: mostre as sugestões e peça que ele
+        confirme na seção de critérios do painel (settings_link); ele também pode escrever outros cargos.
+        Retorna {suggestions: [{name, key, from}], current: [{name, key, target}], note?}: current são os cargos
+        já nos critérios (target false = condicionado à aderência); sem currículo aprovado, note diz o que fazer."""
+        from vagas import roles as roles_
+        from vagas.triage import load_criteria
+
+        try:
+            with resumes() as s:
+                master = s.get_master_resume()["resume"]
+        except ToolError:
+            master = None
+        try:
+            criteria = load_criteria(default_criteria_path(db_path))
+            current = [{"name": roles_.label(r), "key": r.key, "target": r.key in criteria.target_roles}
+                       for r in criteria.roles]
+        except VagasError:
+            current = []
+        have = {c["key"] for c in current}
+        suggestions = [{"name": s["name"], "key": role.key, "from": s["from"]}
+                       for s in roles_.suggest_from_resume(master)
+                       if (role := roles_.parse(s["name"])) is not None and role.key not in have]
+        result: dict[str, Any] = {"suggestions": suggestions, "current": current}
+        if master is None:
+            result["note"] = ("Sem currículo geral aprovado: monte e aprove o currículo geral (curriculo.md) para "
+                              "sugerir cargos; até lá, pergunte ao usuário quais cargos ele busca.")
+        return result
 
     @server.tool()
     def suggest_job_searches() -> dict[str, Any]:

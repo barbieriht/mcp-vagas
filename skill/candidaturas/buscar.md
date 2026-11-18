@@ -7,6 +7,8 @@ A busca termina quando:
 
 ## Passos
 
+Se a busca disser que faltam os cargos alvo nos critérios, siga "Cargos alvo" do [SKILL.md](SKILL.md) antes de buscar.
+
 1. **Disparar a busca em lote.** Chame `start_search_run`. Ela executa em segundo plano as buscas sugeridas (`suggest_job_searches`, sem as feitas há pouco) na Gupy e no LinkedIn e a triagem (`triage_job`) de cada vaga nova. Padrão: no LinkedIn, só as buscas remotas e uma página por busca. Se o usuário pediu algo específico (só um site, mais páginas, buscas por cidade no LinkedIn), ajuste `sources`, `max_pages` ou `linkedin_remote_only`. Para uma consulta fora das sugeridas (cargo, empresa, local), use `search_jobs` e `triage_job` como no plano B.
 2. **Acompanhar.** Diga ao usuário que a busca está rodando e quanto ela deve levar (cerca de 20 s por requisição no LinkedIn). Consulte `get_search_run` de tempos em tempos e mostre o `progress`, sem repetir a consulta em sequência. Se o status for `error` ou `interrompida`, informe o erro e ofereça disparar de novo: as buscas já feitas ficam registradas e não se repetem.
 3. **Indeed e Glassdoor.** Eles bloqueiam a leitura automática: se o usuário quiser, busque pelo navegador. Antes, chame `find_job_search`; se `recent` for verdadeiro, pule. Registre com `save_job_search`, incluindo os filtros e `results_count`, também quando não houver resultados, e trie cada vaga com `triage_job` e o `search_id`.

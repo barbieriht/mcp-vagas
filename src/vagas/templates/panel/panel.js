@@ -132,6 +132,7 @@ function renderFileField(section, field, isNew) {
       () => [...group.querySelectorAll("input:checked")].map((box) => box.value), group);
     return group;
   }
+  if (field.kind === "roles") return renderRoles(section, field, name, id, classes, help, loadError, notes);
   if (field.kind === "choice_other") return renderChoiceOther(section, field, name, id, classes, help, notes);
   if (field.kind === "bands") return renderBands(section, field, name, help);
   if (field.kind === "places") return renderPlaces(section, field, name, help, loadError);
@@ -164,6 +165,46 @@ function renderFileField(section, field, isNew) {
     el("div", { class: "cabeca" }, el("label", { for: id, text: field.title }),
       badgeFor(control, pending, field.missing ? "Campo novo" : "Falta preencher")),
     help, control, loadError, ...notes);
+}
+
+// Cargos em texto livre: os escolhidos (marcados), as sugestões do currículo geral (desmarcadas) e um campo para
+// acrescentar outro. O valor enviado é a lista dos marcados, como estão escritos.
+function renderRoles(section, field, name, id, classes, help, loadError, notes) {
+  const options = el("div", { class: "opcoes" });
+  let n = 0;
+  function addOption(text, checked) {
+    const box = el("input", { type: "checkbox", value: text, id: `${id}-${++n}` });
+    box.checked = checked;
+    options.append(el("label", { class: "opcao", for: box.id }, box, el("span", { text })));
+    return box;
+  }
+  for (const role of field.value) addOption(role, true);
+  for (const role of field.suggestions || []) addOption(role, false);
+  const input = el("input", { type: "text", id: `${id}-novo`, autocomplete: "off", placeholder: "Ex.: Desenvolvedor Backend" });
+  const add = el("button", { type: "button", class: "adicionar", text: "Adicionar cargo" });
+  const addTyped = () => {
+    const text = input.value.trim();
+    if (!text) return input.focus();
+    const same = [...options.querySelectorAll("input")].find((box) => plain(box.value) === plain(text));
+    if (same) same.checked = true;
+    else addOption(text, true);
+    input.value = "";
+    input.focus();
+  };
+  add.addEventListener("click", addTyped);
+  input.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    event.stopPropagation();  // Enter aqui acrescenta o cargo, não pula de campo
+    addTyped();
+  });
+  const note = field.suggestions_note ? el("p", { class: "nota", text: field.suggestions_note }) : null;
+  const group = el("fieldset", { class: classes, "data-campo": name },
+    el("legend", { text: field.title }), help, note, options,
+    el("div", { class: "celula" }, el("label", { for: input.id, text: "Outro cargo" }), input), add, loadError, ...notes);
+  register(section.key, field.id, field.value,
+    () => [...options.querySelectorAll("input:checked")].map((box) => box.value), group);
+  return group;
 }
 
 const OTHER = "__outra__";

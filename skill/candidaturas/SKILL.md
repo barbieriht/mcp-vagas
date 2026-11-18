@@ -31,6 +31,10 @@ Se ele preferir responder no chat, ou se o painel não abrir, pergunte uma chave
 
 Grave cada resposta com `set_config` (sem `value` para aceitar o `default`) e leia o `warnings` do retorno: se uma variável de ambiente sobrepõe o valor, avise o usuário. Não escolha a pasta dos currículos sozinho. `max_open_tabs` (limite de abas de candidatura abertas) tem padrão e não é perguntado: só mude se o usuário pedir. Depois de configurado, `get_config` não pergunta de novo; para mudar depois, o usuário pede e você chama `set_config`.
 
+## Cargos alvo
+
+Os cargos que o usuário busca ficam nos critérios de triagem e são dele: nada vem preenchido de antemão. Quando a triagem ou `suggest_job_searches` disserem que faltam os cargos alvo, e logo depois da primeira aprovação do currículo geral, chame `suggest_target_roles` e mostre as sugestões (cargos tirados do currículo, com a origem de cada um) e os cargos que já estão nos critérios. Peça que ele marque os que busca, e acrescente outros se quiser, na seção de critérios do painel (`settings_link`); sinônimos vão entre parênteses, como "Product Manager (PM, Gerente de Produto)". Não escolha os cargos por ele.
+
 ## Escolha o fluxo
 
 - O usuário traz uma vaga e quer se candidatar: siga [candidatar.md](candidatar.md).
@@ -63,7 +67,7 @@ Toda vaga passa pela triagem antes de qualquer outra ação. Ela termina com a v
    - `a_aplicar`: resolva cada item de `needs`. O `detail` de cada item diz o que fazer.
 3. **Julgamento dos `needs`.**
    - `afirmativa`: a vaga se diz afirmativa sem citar um grupo reconhecido. Leia a descrição; se for para um grupo fora de "Vagas afirmativas que posso disputar" em [criterios-triagem.md](criterios-triagem.md), descarte com `update_application` (`descartada` e `discard_reason`).
-   - `cargo`: o título não foi reconhecido. Confirme a família pela descrição: Data Scientist (júnior a sênior) e AI/ML Engineer entram; analista ou engenheiro de dados, só com boa aderência ao currículo.
+   - `cargo`: o título não foi reconhecido. Confirme pela descrição se a vaga é de um dos cargos alvo do usuário (os nomes vêm no `detail`); um cargo condicionado só segue com boa aderência ao currículo.
    - `local`: híbrido com deslocamento viável a partir de São Carlos é aceito.
    - `pesquisa_salarial`: pesquise salários na web com as consultas de `queries`, na ordem: primeiro o cargo da vaga com a empresa e a cidade, depois a empresa no Levels.fyi, por último o mercado. Registre com `save_salary_estimate`, uma linha por dado, com fonte e URL:
      - dado da própria empresa: com `company`. Remuneração total anual (Levels.fyi) vai com período `ano`;
@@ -95,7 +99,7 @@ Use só quando `triage_job` der erro (o site bloqueou a leitura, a página não 
    Se a vaga reprovar aqui, chame `add_application` com status `descartada` e `discard_reason` explicando o critério, e encerre a vaga.
 4. **Aderência.** Chame `score_job_match` com a descrição. Os termos em `match_terms` (`matched`) guiam o currículo personalizado, e os de `missing` mostram lacunas. A nota é indicativa e complementa os critérios.
 5. **Registro.** Chame `add_application` com status `a_aplicar`, a descrição, `match_score`, `match_terms` e, se a vaga veio de uma busca, `search_id`.
-6. **Salário.** Mapeie o cargo para `role_key` (Data Scientist: `data_scientist`; ML Engineer: `ml_engineer`; AI Engineer: `ai_engineer`; engenheiro de dados: `data_engineer`; analista de dados: `data_analyst`) e a senioridade para o enum do MCP.
+6. **Salário.** Use como `role_key` o cargo alvo da vaga, como `suggest_target_roles` o mostra em `key` (uma família conhecida, como `data_scientist`, ou o cargo livre dos critérios), e a senioridade no enum do MCP.
    1. Se a vaga publica faixa salarial: chame `save_salary_estimate` com source "vaga", a empresa e o `application_id`.
    2. Senão, chame `find_salary_estimate` com a empresa. Para o escopo que não estiver fresco (`fresh_company`, `fresh_market`), pesquise salários na web (Glassdoor, LinkedIn Salary, guias salariais) e registre com `save_salary_estimate`, uma linha por dado, com fonte e URL. Se não encontrar nada, registre a pesquisa com a lista de pontos vazia.
    3. Chame `evaluate_salary` com o `application_id`, o regime (`contract`) e a moeda da vaga. O MCP lê a política salarial e escolhe a faixa pela modalidade e pelo local da candidatura; não passe valores da política. Se o local não estiver coberto pela política, o erro diz isso: confira o local com o usuário.

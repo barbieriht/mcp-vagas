@@ -18,8 +18,9 @@ from typing import Any
 
 from pydantic import Field, ValidationError, model_validator
 
+from vagas import roles as roles_
 from vagas.models import (
-    CONTRACTS, CURRENCIES, ROLE_KEYS, ROLE_NAMES, SALARY_MODES, SALARY_RULES, SENIORITIES, SENIORITY_LABELS,
+    CONTRACTS, CURRENCIES, SALARY_MODES, SALARY_RULES, SENIORITIES, SENIORITY_LABELS,
     Contract, Period,
 )
 from vagas.normalize import normalize_company, normalize_text
@@ -81,7 +82,8 @@ def research_queries(title: str | None, company: str | None, location: str | Non
                      seniority: str | None, company_scope: bool = True, market_scope: bool = True) -> list[str]:
     """Consultas de pesquisa salarial, da mais específica à mais geral: cargo da vaga + empresa + cidade,
     cargo + empresa, empresa no Levels.fyi, e mercado (família e senioridade) na cidade e no Brasil."""
-    pt, en = ROLE_NAMES.get(role_key, (None, None))
+    names = roles_.names(role_key)  # família conhecida: nome em português e em inglês; cargo livre: o nome dele
+    pt, en = names[0], names[1] if len(names) > 1 else None
     title = _short_title(title) if title else None
     city = _city(location)
     level = SENIORITY_LABELS.get(seniority or "", "")
@@ -522,7 +524,9 @@ class SalaryStore:
 
     @staticmethod
     def _check_key(role_key: str, seniority: str, currency: str) -> None:
-        _require_choice("role_key", role_key, ROLE_KEYS)
+        if not isinstance(role_key, str) or not roles_.KEY.fullmatch(role_key):
+            raise VagasError(f"'role_key' inválido: {role_key!r}. Use o role_key que a triagem devolve "
+                             "(posting.role_key; ex.: data_scientist, desenvolvedor_backend).")
         _require_choice("seniority", seniority, SENIORITIES)
         _require_choice("currency", currency, CURRENCIES)
 
