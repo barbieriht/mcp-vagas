@@ -552,12 +552,12 @@ def test_documents_are_stored_and_removed_without_showing_them(skill, db_path, f
             browser = p.chromium.launch()
             page = browser.new_page()
             page.goto(server.url)
-            languages = page.get_by_role("group", name="Idiomas")
+            languages = page.get_by_role("group", name="Idiomas", exact=True)
             languages.wait_for()
             rows = languages.locator(".idioma")
             assert rows.count() == 3
             assert rows.nth(0).get_by_label("Nível", exact=True).input_value() == "Nativo"
-            assert rows.nth(1).get_by_label("Nível: outro").input_value() == "intermediário-avançado (B2, certificado)"
+            assert rows.nth(1).get_by_label("Nível", exact=True).input_value() == "Avançado"
 
             rows.nth(2).get_by_role("button", name="Remover idioma").click()
             languages.get_by_role("button", name="Adicionar idioma").click()
@@ -597,7 +597,7 @@ def test_documents_are_stored_and_removed_without_showing_them(skill, db_path, f
         server.shutdown()
         server.server_close()
 
-    assert ("- Idiomas: português (nativo), inglês intermediário-avançado (B2, certificado), libras (básico (curso livre))\n"
+    assert ("- Idiomas: português (nativo), inglês (avançado), libras (básico (curso livre))\n"
             in (skill / "perfil.md").read_text(encoding="utf-8"))
 
 

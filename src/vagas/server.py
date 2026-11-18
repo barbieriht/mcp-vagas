@@ -1,6 +1,7 @@
 """Tools MCP finas sobre o repo. Nunca escrever no stdout: no stdio ele é o canal do protocolo."""
 
 import inspect
+import json
 import logging
 import os
 import sqlite3
@@ -21,6 +22,7 @@ from vagas import config as paths_config
 from vagas import panel, system
 from vagas.db import connect, default_db_path
 from vagas.experience import years_to_declare
+from vagas.generic_questions import is_generic_label
 from vagas.app_query import ApplicationFilter
 from vagas.models import (
     Contract, Currency, InitialStatus, LinkedInSection, QueryField, QueryOrder, ResumeSourceKind, RoleKey,
@@ -75,6 +77,28 @@ def _without_titles(node: Any, in_properties: bool = False) -> Any:
 
 
 _MIGRATION_DECLINED = "profile_migration_declined"
+
+
+def _floor(evaluation: dict[str, Any] | None) -> float | None:
+    """O menor salário aceito para a vaga: o piso da faixa da política na avaliação salarial (no regime da vaga).
+    Avaliações anteriores ao campo "floor": o mínimo da política, multiplicado para PJ."""
+    if not evaluation or not evaluation.get("policy"):
+        return None
+    if evaluation.get("floor") is not None:
+        return evaluation["floor"]
+    policy = evaluation["policy"]
+    if policy.get("my_min") is None:
+        return None
+    scale = policy.get("pj_multiplier") or 1 if evaluation.get("contract") == "pj" else 1
+    return round(policy["my_min"] * scale, 2)
+
+
+def declined_migrations(r: Repo) -> set[str]:
+    """Ids das propostas de migração do perfil que o usuário recusou (lista JSON; antes, um id só)."""
+    value = r.get_state(_MIGRATION_DECLINED)
+    if not value:
+        return set()
+    return set(json.loads(value)) if value.startswith("[") else {value}
 
 # Anotações das tools: o Claude Desktop e o claude.ai agrupam as tools por elas ("só leitura" e "escrita") e o
 # usuário aprova cada grupo de uma vez. Sem anotação, toda tool conta como escrita destrutiva.
@@ -369,7 +393,8 @@ def build_server(
           diversidade ou resposta_aberta (field = missing_field de resolve_form_answer), consentimento (field =
           texto da caixa), anexo_curriculo (field = nome do PDF), documento_cofre (CPF, RG...) ou login (site).
           Nunca o valor de um dado sensível. [] limpa. Os de diversidade e resposta aberta somem sozinhos
-          quando a resposta entra no perfil.
+          quando a resposta entra no perfil. blocks_form true: a etapa não avança sem esse item, e o resto do
+          formulário ainda não foi visto (a vaga é retomada quando ele for respondido).
 
         Mudança de status e nota ficam registradas como eventos (ver get_history).
         Retorna a candidatura atualizada, sem a descrição e sem campos vazios.
@@ -414,7 +439,8 @@ def build_server(
         last_event_at...), sem a descrição da vaga e sem campos vazios; o registro completo está em
         get_history. Retorna {"applications", "count" (total com os filtros), "next_offset"?}; com
         status "pendente_usuario" ou only_pending, também pending_groups: as pendências estruturadas iguais entre
-        as vagas ({kind, field?, label, count, ids}), para a revisão do lote ("12 vagas aguardam: anexar currículo").
+        as vagas ({kind, field?, label, count, ids, stalled_ids?}), para a revisão do lote ("12 vagas aguardam:
+        anexar currículo"); stalled_ids: as vagas paradas numa etapa do formulário por esse item.
         """
         with repo() as r:
             found = r.list_applications(
@@ -611,7 +637,7 @@ def build_server(
 
     def load_profile() -> dict[str, Any]:
         with repo() as r:
-            declined = r.get_state(_MIGRATION_DECLINED)
+            declined = declined_migrations(r)
         try:
             fields = (vault or Vault(default_vault_path(db_path), default_backend())).list()
             profile = ProfileFiles(default_skill_dir(db_path)).get_profile(vault_fields=fields, declined=declined)
@@ -641,9 +667,10 @@ def build_server(
         cadastrado: o usuário cadastra com python -m vagas.sensitive set <vault_field>) ou "migrar"
         (respostas no formato antigo: não use; veja migration). notes: só orientações de como responder
         (ex.: como escolher em escala fixa), nunca respostas.
-        migration (só quando há o que migrar): {id, section, fields: [{label, value, from}]}: os campos novos
-        propostos, com o texto de origem. Antes de preencher formulários, mostre-os ao usuário uma vez e chame
-        apply_profile_migration com a resposta dele. warnings: o que no perfil precisa da atenção dele.
+        migration (só quando há o que migrar): {kind, id, section, fields: [{label, value, from}]}: os campos novos
+        propostos, com o texto de origem (kind "diversidade", "idiomas" ou "campos_genericos", que traz também
+        removed: os campos criados um por empresa que saem). Antes de preencher formulários, mostre-os
+        ao usuário uma vez e chame apply_profile_migration com a resposta dele. warnings: o que no perfil precisa da atenção dele.
         experience: {years_to_inform, years_computed, years_exact, years_declared, periods}. Quando o
         formulário pedir anos de experiência, informe years_to_inform: o valor que o usuário declarou no
         perfil ou, sem ele, os anos do currículo geral aprovado (somados sem sobreposição, arredondados).
@@ -659,11 +686,20 @@ def build_server(
         perguntar qualquer coisa ao usuário. Não responda essas perguntas por conta própria.
 
         question: o texto da pergunta como está no formulário; options: as opções oferecidas (vazio em campo
-        de texto); application_id: a candidatura, para a pretensão salarial dela.
+        de texto); application_id: a candidatura, para a pretensão salarial e a empresa dela. Perguntas com o nome
+        da empresa ("Você trabalha na empresa X?", "É colaborador X?", "Have you previously worked at X?", "Foi
+        indicado?") saem do currículo geral e de campos genéricos do perfil, nunca de um campo por empresa.
+        Empresa, cargo e salário atuais ("Current company", "Cargo atual", "Salário atual"): a experiência em
+        andamento ou, sem nenhuma, o último emprego (em texto livre, com "último emprego, até <mês/ano>"); o
+        salário vem de "Valor da última remuneração", e number traz só o valor, para campo numérico. "Minimum Pay"
+        e "salário mínimo aceitável": o piso da faixa da política salarial para a vaga (avaliação salarial dela).
         Retorna {answer, source} (a opção exata a escolher, ou o texto a digitar) ou {blocked: true, reason}.
         Com missing_field, o perfil não tem a resposta: o campo já foi criado (created true) ou estava a
         preencher; pergunte ao usuário uma vez e grave com add_profile_field (label = missing_field, value);
-        as próximas vagas já saem preenchidas. Escalas de idioma: o nível mais próximo sem arredondar para cima.
+        as próximas vagas já saem preenchidas. seen_in: outras vagas pendente_usuario esperando o mesmo campo;
+        ask_now true (campo genérico ou já visto em outra vaga): em lote, pergunte já ao usuário, uma vez, e siga
+        com as outras vagas sem esperar. Idiomas: o nível declarado (campo "Idiomas"); a certificação só quando
+        a pergunta pede certificação ou as opções são níveis CEFR; sempre o mais próximo sem arredondar para cima.
         Nunca deduz diversidade por nome, foto ou contexto.
 
         checkbox true: caixa de marcar avulsa (termos de uso, privacidade, LGPD, banco de talentos, marketing),
@@ -672,16 +708,27 @@ def build_server(
         profile = load_profile()
         if checkbox:
             result = resolve_checkbox(profile, question, str(paths_config.resolve("consent_mode", db_path)[0]))
-            return _with_missing_field(result)
-        salary = None
+            return _with_missing_field(result, application_id)
+        salary = company = minimum = None
         if application_id is not None:
             with repo() as r:
-                salary = r.get(application_id).get("salary_ask")
+                application = r.get(application_id)
+            salary, company = application.get("salary_ask"), application.get("company")
+            minimum = _floor(application.get("salary_evaluation"))
         return _with_missing_field(
-            resolve(profile, question, options, years=profile["experience"]["years_to_inform"], salary=salary))
+            resolve(profile, question, options, years=profile["experience"]["years_to_inform"], salary=salary,
+                    company=company, minimum=minimum), application_id)
 
-    def _with_missing_field(result: dict[str, Any]) -> dict[str, Any]:
-        """Campo que o perfil não tem: cria com <PREENCHER> (created); a preencher: created false."""
+    def _with_missing_field(result: dict[str, Any], application_id: int | None = None) -> dict[str, Any]:
+        """Campo que o perfil não tem: cria com <PREENCHER> (created); a preencher: created false. seen_in e
+        ask_now dizem se a mesma pergunta já parou outras vagas (perguntar uma vez, logo)."""
+        if result.get("missing_field"):
+            with repo() as r:
+                seen = r.waiting_for(result["missing_field"], exclude=application_id)
+            if seen:
+                result["seen_in"] = seen
+            if seen or is_generic_label(result["missing_field"]):
+                result["ask_now"] = True
         if result.get("missing_field") and result.pop("existing") is False:
             try:
                 added = ProfileFiles(default_skill_dir(db_path)).add_profile_field(
@@ -710,22 +757,27 @@ def build_server(
 
     @server.tool()
     def apply_profile_migration(accept: bool) -> dict[str, Any]:
-        """Responde à proposta `migration` do get_profile, depois de mostrá-la ao usuário: accept true grava os
-        campos novos da seção "Diversidade e inclusão" (sem resposta, ficam a preencher) e tira o campo antigo;
-        false guarda a recusa, e a proposta não volta. Chame só com a resposta dele, nunca por conta própria.
-        Retorna {written, to_fill} ou {declined: true}."""
+        """Responde à proposta `migration` do get_profile, depois de mostrá-la ao usuário. accept true grava a
+        proposta: "diversidade" cria os campos da seção "Diversidade e inclusão" (sem resposta, ficam a preencher)
+        e tira o campo antigo; "idiomas" deixa em "Idiomas" só o nível declarado e passa o certificado para
+        "Certificações de idiomas"; "campos_genericos" tira os campos criados um por empresa e cria os genéricos
+        (trabalha, trabalhou e foi indicado). false guarda a recusa, e essa proposta não volta. Depois, chame get_profile:
+        pode haver outra proposta. Chame só com a resposta dele, nunca por conta própria.
+        Retorna {kind, written, to_fill, removed?} ou {declined: true, kind}."""
         try:
             files = ProfileFiles(default_skill_dir(db_path))
+            with repo() as r:
+                declined = declined_migrations(r)
             if accept:
-                return {**files.apply_diversity_migration(), **resolved_pending()}
-            migration = files.get_profile(vault_fields=[]).get("migration")
+                return {**files.apply_migration(declined), **resolved_pending()}
+            migration = files.get_profile(vault_fields=[], declined=declined).get("migration")
         except VagasError as exc:
             raise ToolError(str(exc)) from exc
         if migration is None:
             raise ToolError("Não há proposta de migração no perfil.")
         with repo() as r:
-            r.set_state(_MIGRATION_DECLINED, migration["id"])
-        return {"declined": True}
+            r.set_state(_MIGRATION_DECLINED, json.dumps(sorted({*declined, migration["id"]})))
+        return {"declined": True, "kind": migration["kind"]}
 
     @server.tool()
     def add_profile_field(label: str, section: str | None = None, value: str | None = None,
@@ -742,8 +794,9 @@ def build_server(
         "informar manualmente"; enviar value para eles é erro.
         A pasta da Skill vem de VAGAS_SKILL_DIR (ou do symlink da política salarial criado pelo
         instalador). No Claude Desktop, que usa uma cópia da Skill enviada em zip, reenvie o zip
-        depois. Retorna {created: {perfil, example}, updated, section, line, resolved_pending?}: com value, as
-        vagas pendentes cujos pending_items essa resposta resolveu (os itens saem sozinhos).
+        depois. Retorna {created: {perfil, example}, updated, section, line, resolved_pending?, resume?}: com value,
+        as vagas pendentes cujos pending_items essa resposta resolveu (os itens saem sozinhos) e, em resume, as que
+        estavam paradas numa etapa do formulário por ela (blocks_form): retome o preenchimento delas.
         """
         try:
             files = ProfileFiles(default_skill_dir(db_path))
@@ -756,8 +809,9 @@ def build_server(
         """Itens de pendência que o perfil passou a responder saem das vagas: {resolved_pending: [ids]} ou {}."""
         profile = load_profile()
         with repo() as r:
-            ids = r.resolve_pending(profile)
-        return {"resolved_pending": ids} if ids else {}
+            found = r.resolve_pending_detail(profile)
+        return {**({"resolved_pending": found["ids"]} if found["ids"] else {}),
+                **({"resume": found["resume"]} if found["resume"] else {})}
 
     @server.tool()
     def diff_master(items: dict[str, Any]) -> dict[str, Any]:

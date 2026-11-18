@@ -2,19 +2,21 @@
 
 Escolhe, entre as opções do formulário, a que equivale ao valor do perfil: por igualdade, por grupos de
 equivalência explícitos ("Branca" = "Branco" = "White"; "Prefiro não responder" = "Não desejo informar"), por
-faixas numéricas (anos de experiência, pretensão) ou pela escala de idiomas (o nível mais próximo sem
-arredondar para cima). Sem equivalência, bloqueia com o motivo; nunca escolhe pela opção "mais parecida" nem
+faixas numéricas (anos de experiência, pretensão) ou pela escala de idiomas (o nível declarado, ou a certificação
+quando a pergunta pede certificação ou nível CEFR; o nível mais próximo sem arredondar para cima). Sem equivalência, bloqueia com o motivo; nunca escolhe pela opção "mais parecida" nem
 deduz uma resposta que o perfil não tem. Perguntas de diversidade só saem dos campos de diversidade.
 """
 
 import math
 import re
+from datetime import date
 from typing import Any
 
-from vagas import diversity
+from vagas import diversity, experience, generic_questions, languages
 from vagas.normalize import normalize_text
 
-LANGUAGES_LABEL = "Idiomas"
+LANGUAGES_LABEL = languages.LANGUAGES_LABEL
+CERTIFICATIONS_LABEL = languages.CERTIFICATIONS_LABEL
 
 # Grupos de equivalência: frases (normalizadas) que querem dizer a mesma resposta. Uma opção pertence ao grupo
 # quando é a frase ou começa por ela ("Não possuo deficiência" está em "Não").
@@ -47,12 +49,6 @@ GROUPS: tuple[tuple[str, ...], ...] = (
     ("feminino", "mulher", "female", "woman"),
 )
 
-_LANGUAGE_NAMES = {
-    "ingles": ("ingles", "english"), "espanhol": ("espanhol", "spanish", "castelhano"),
-    "frances": ("frances", "french"), "alemao": ("alemao", "german"), "italiano": ("italiano", "italian"),
-    "portugues": ("portugues", "portuguese"), "mandarim": ("mandarim", "chines", "mandarin", "chinese"),
-    "japones": ("japones", "japanese"),
-}
 _CEFR = {"a1": 1, "a2": 2, "b1": 3, "b2": 4, "c1": 5, "c2": 6}
 _LEVEL_WORDS = (  # ordem importa: "intermediário avançado" antes de "intermediário" e de "avançado"
     (("intermediario avancado", "upper intermediate", "intermediario superior"), 4),
@@ -63,6 +59,20 @@ _LEVEL_WORDS = (  # ordem importa: "intermediário avançado" antes de "intermed
     (("basico", "basic", "elementar", "elementary"), 2),
     (("iniciante", "beginner"), 1),
 )
+# Escalas descritivas (LinkedIn, Ashby...): frases que dizem o nível sem o nome dele. Ordem importa: "full
+# professional" antes de "professional working"; comparadas por palavras inteiras.
+_DESCRIPTIVE = (
+    (("native or bilingual", "bilingual", "native speaker", "mother tongue", "bilingue", "lingua nativa"), 7),
+    (("full professional", "without limitations", "no limitations", "sem limitacoes", "sem nenhuma limitacao",
+      "any situation", "qualquer situacao"), 6),
+    (("professional working", "minor limitations", "pequenas limitacoes", "poucas limitacoes",
+      "participate in meetings", "participar de reunioes"), 5),
+    (("limited working", "familiar topics", "assuntos familiares", "simple conversations", "conversas simples"), 3),
+    (("elementary proficiency", "basic words", "simple phrases", "palavras basicas", "frases simples"), 2),
+    (("no proficiency", "don t speak", "dont speak", "do not speak", "nao falo", "no knowledge", "nenhum conhecimento",
+      "nao tenho conhecimento"), 0),
+)
+_CERTIFICATION = ("certifica", "cefr", "qecr", "quadro europeu", "quadro comum europeu", "common european framework")
 _YEARS = ("anos de experiencia", "tempo de experiencia", "years of experience", "experiencia em anos",
           "quantos anos")
 _SALARY = ("pretensao", "expectativa salarial", "salario pretendido", "salario desejado", "remuneracao pretendida",
@@ -158,27 +168,24 @@ def pick_number(value: float, options: list[str]) -> str | None:
 
 # --- idiomas ---------------------------------------------------------------------------------------
 
+def _has(norm: str, phrase: str) -> bool:
+    return f" {phrase} " in f" {norm} "
+
+
 def _level(text: str) -> int | None:
+    """Posição na escala: frase descritiva, palavra de nível ("avançado") ou, sem elas, o código CEFR."""
     norm = _norm(text)
-    if found := re.search(r"\b([abc][12])\b", norm):
-        return _CEFR[found.group(1)]
-    return next((rank for words, rank in _LEVEL_WORDS if any(w in norm for w in words)), None)
+    for phrases, rank in _DESCRIPTIVE:
+        if any(_has(norm, p) for p in phrases):
+            return rank
+    if found := next((rank for words, rank in _LEVEL_WORDS if any(w in norm for w in words)), None):
+        return found
+    code = languages.cefr(text)
+    return _CEFR[code] if code else None
 
 
 def _language_of(question: str) -> str | None:
-    tokens = set(_norm(question).split())
-    return next((key for key, names in _LANGUAGE_NAMES.items() if tokens & set(names)), None)
-
-
-def _languages(value: str) -> dict[str, str]:
-    from vagas.settings_files import parse_languages
-
-    rows = {}
-    for row in parse_languages(value):
-        key = _language_of(row["language"])
-        if key:
-            rows[key] = row["level"]
-    return rows
+    return languages.key(question)
 
 
 # --- resolução -------------------------------------------------------------------------------------
@@ -244,6 +251,20 @@ def _missing(label: str, section: str | None) -> dict[str, Any]:
                       "add_profile_field (mesmo label, value)."}
 
 
+_GENERIC_LABELS = {_norm(label) for label in generic_questions.LABELS.values()}
+
+
+def _without_options(label: str) -> str:
+    return re.sub(r"\s*\bopcoes\b.*$", "", _norm(label))
+
+
+def _answered_label(profile: dict[str, Any], question: str) -> tuple[str, dict[str, Any]] | None:
+    """O campo já respondido cujo rótulo é a própria pergunta (sem as opções anotadas no rótulo)."""
+    key = _without_options(question)
+    return next(((s, f) for s, f in _fields(profile)
+                 if f["status"] == "ok" and key and _without_options(f["label"]) == key), None)
+
+
 def _by_label(profile: dict[str, Any], question: str) -> tuple[str, dict[str, Any]] | None:
     """O campo cujo rótulo é a pergunta: igual, ou com todas as palavras de um contidas no outro (o mais longo)."""
     words = set(_norm(question).split()) - _STOP
@@ -253,6 +274,8 @@ def _by_label(profile: dict[str, Any], question: str) -> tuple[str, dict[str, An
     for section, field in _fields(profile):
         if diversity.question(field["label"]) or diversity.is_old_block(field["label"]):
             continue  # diversidade só pela pergunta reconhecida
+        if _norm(field["label"]) in _GENERIC_LABELS:
+            continue  # campos genéricos só pela pergunta reconhecida
         if _norm(field["label"]) == _norm(question):
             return section, field
         label_words = set(_norm(field["label"]).split()) - _STOP
@@ -264,12 +287,15 @@ def _by_label(profile: dict[str, Any], question: str) -> tuple[str, dict[str, An
 
 
 def resolve(profile: dict[str, Any], question: str, options: list[str] | None = None, years: float | None = None,
-            salary: float | None = None) -> dict[str, Any]:
+            salary: float | None = None, company: str | None = None, today: date | None = None,
+            minimum: float | None = None) -> dict[str, Any]:
     """{answer, source} ou {blocked: true, reason, missing_field?, existing?, section?}.
 
     years: anos de experiência a informar (get_profile.experience.years_to_inform); salary: pretensão da
-    candidatura (salary_ask). missing_field com existing false: o campo a criar no perfil (o rótulo da
-    pergunta, com as opções vistas)."""
+    candidatura (salary_ask); minimum: o menor salário aceito para a vaga (o piso da faixa da política salarial, na
+    avaliação salarial dela), para "Minimum Pay"; company: a empresa da candidatura, para as perguntas sobre ela ("Você trabalha na
+    empresa X?", "Foi indicado?"), comparada com get_profile.experience.periods. missing_field com existing
+    false: o campo a criar no perfil (o rótulo da pergunta, com as opções vistas)."""
     options = [o.strip() for o in options or [] if o and o.strip()]
     norm = _norm(question)
     if questions := _diversity_questions(question):
@@ -285,11 +311,10 @@ def resolve(profile: dict[str, Any], question: str, options: list[str] | None = 
                 return result
             first = first or result
         return first
-    if language := _language_of(question):
-        found = _find(profile, LANGUAGES_LABEL)
-        level = _languages(found[1]["value"]).get(language) if found and found[1]["status"] == "ok" else None
-        if level is not None:
-            return _language_answer(found[0], level, options)
+    if (language := _language_of(question)) and (result := _language(profile, question, language, options)):
+        return result
+    if generic_questions.kind(question) == generic_questions.MIN_PAY:
+        return _minimum_pay(minimum, options)
     if any(w in norm for w in _YEARS):
         if years is None:
             return {"blocked": True, "reason": "Anos de experiência não calculados: aprove o currículo geral ou "
@@ -306,6 +331,10 @@ def resolve(profile: dict[str, Any], question: str, options: list[str] | None = 
         if chosen is None:
             return {"blocked": True, "reason": f"Nenhuma opção cobre a pretensão {salary:g}. Opções: {', '.join(options)}."}
         return {"answer": chosen, "source": {"kind": "pretensao", "field": "salary_ask"}}
+    if found := _answered_label(profile, question):
+        return _answer(*found, options)
+    if (result := _generic(profile, question, options, company, today or date.today())) is not None:
+        return result
     if found := _by_label(profile, question):
         return _answer(*found, options)
     # Sem ":" no rótulo: no perfil, "- rótulo: valor" separa no primeiro ":".
@@ -315,14 +344,212 @@ def resolve(profile: dict[str, Any], question: str, options: list[str] | None = 
     return _missing(label, None)
 
 
-def _language_answer(section: str, level: str, options: list[str]) -> dict[str, Any]:
-    source = {"kind": "perfil", "field": LANGUAGES_LABEL, "section": section}
+def _minimum_pay(minimum: float | None, options: list[str]) -> dict[str, Any]:
+    """"Minimum Pay", "salário mínimo aceitável": o piso da faixa da política salarial que vale para a vaga."""
+    if minimum is None:
+        return {"blocked": True, "reason": "Sem avaliação salarial para esta vaga: passe o application_id e, se ainda "
+                                           "não houver, chame evaluate_salary (o mínimo vem da faixa da política "
+                                           "salarial)."}
+    value = int(minimum) if float(minimum).is_integer() else minimum
+    chosen = pick_number(value, options)
+    if chosen is None:
+        return {"blocked": True, "reason": f"Nenhuma opção cobre o mínimo {value:g}. Opções: {', '.join(options)}."}
+    return {"answer": chosen, "number": value, "source": {"kind": "politica_salarial", "field": "mínimo da faixa"}}
+
+
+# --- perguntas sobre a empresa da vaga -------------------------------------------------------------
+
+def _english(question: str) -> bool:
+    return bool(set(_norm(question).split()) & {"you", "your", "are", "have", "were", "did", "do", "what", "which",
+                                                 "the", "is", "current", "present", "company", "employer", "title",
+                                                 "job", "role", "position", "salary", "compensation", "pay", "last",
+                                                 "latest", "previous", "most", "recent"})
+
+
+def _yes_no(value: str, question: str, options: list[str]) -> str | None:
+    """"Sim"/"Não" na opção do formulário; sem opções, na língua da pergunta."""
+    if not options and _english(question):
+        return {"Sim": "Yes", "Não": "No"}[value]
+    return pick(value, options)
+
+
+def _is_yes_no(options: list[str]) -> bool:
+    return bool(options) and pick("Sim", options) is not None and pick("Não", options) is not None
+
+
+def _generic(profile: dict[str, Any], question: str, options: list[str], company: str | None,
+             today: date) -> dict[str, Any] | None:
+    """Perguntas que repetem o nome de cada empresa: pelo currículo geral (trabalha ou trabalhou lá) ou pelo campo
+    genérico de indicação. None quando a pergunta não é uma delas."""
+    kind = generic_questions.kind(question, company)
+    if kind is None:
+        return None
+    if kind in generic_questions.JOB_KINDS:
+        return _current_job(profile, kind, question, options, today)
+    label = generic_questions.LABELS[kind]
+    if kind == generic_questions.REFERRAL:
+        return _referral(profile, question, options)
+    if company is None and generic_questions.points_here(question):
+        return {"blocked": True, "reason": "A pergunta é sobre a empresa da vaga: chame de novo com o application_id."}
+    periods = (profile.get("experience") or {}).get("periods") or []
+    if not periods:
+        return {"blocked": True, "reason": "Sem experiências no currículo geral aprovado para comparar com a empresa "
+                                           "da vaga: aprove o currículo geral (approve_master)."}
+    found = generic_questions.worked_at(periods, question, company, kind == generic_questions.CURRENT, today)
+    chosen = _yes_no("Sim" if found else "Não", question, options)
+    if chosen is None:
+        return {"blocked": True, "reason": f"Nenhuma opção do formulário equivale a {'Sim' if found else 'Não'!r} "
+                                           f"({label}). Opções: {', '.join(options)}."}
+    source = {"kind": "curriculo", "field": label,
+              "experiences": [f"{p.get('title')} — {p.get('company')}" for p in found]}
+    return {"answer": chosen, "source": source}
+
+
+def _join(items: list[str], english: bool) -> str:
+    unique = list(dict.fromkeys(i for i in items if i))
+    return (" and " if english else " e ").join(unique)
+
+
+def _last_job_note(job: dict[str, Any], english: bool, today: date, extra: str | None = None) -> str:
+    """"(PJ, último emprego, até set/2025)"; com emprego atual, só o extra."""
+    parts = [extra] if extra else []
+    if job["roles"] and not job["current"]:
+        until = experience.month_label(job["end"], today, "en" if english else "pt")
+        parts.append(("last job" if english else "último emprego") + (f", until {until}" if english and until else
+                                                                       f", até {until}" if until else ""))
+    return f" ({', '.join(parts)})" if parts else ""
+
+
+def _current_job(profile: dict[str, Any], kind: str, question: str, options: list[str],
+                 today: date) -> dict[str, Any]:
+    """Empresa, cargo ou salário atuais: a experiência em andamento ou, sem nenhuma, a de término mais recente
+    (empatadas: as mais longas primeiro, títulos juntos). O salário vem de "Valor da última remuneração"."""
+    periods = (profile.get("experience") or {}).get("periods") or []
+    job = experience.latest_roles(periods, today)
+    english = _english(question)
+    source = {"kind": "curriculo", "field": "experience", "current": job["current"],
+              "experiences": [f"{p.get('title')} — {p.get('company')}" for p in job["roles"]]}
+    if kind == generic_questions.SALARY_NOW:  # o valor vem do perfil; o currículo só diz se é o último emprego
+        return _last_pay(profile, job, options, english, today, source)
+    if not job["roles"]:
+        return {"blocked": True, "reason": "Sem experiências no currículo geral aprovado: aprove o currículo geral "
+                                           "(approve_master) para responder empresa e cargo atuais."}
+    field = "company" if kind == generic_questions.COMPANY_NOW else "title"
+    value = _join([p.get(field) or "" for p in job["roles"]], english)
+    if options:
+        chosen = pick(value, options)
+        if chosen is None:
+            return {"blocked": True, "reason": f"Nenhuma opção do formulário equivale a {value!r}. "
+                                               f"Opções: {', '.join(options)}."}
+        return {"answer": chosen, "source": source}
+    return {"answer": value + _last_job_note(job, english, today), "source": source}
+
+
+def _last_pay(profile: dict[str, Any], job: dict[str, Any], options: list[str], english: bool, today: date,
+              job_source: dict[str, Any]) -> dict[str, Any]:
+    label = generic_questions.LAST_PAY_LABEL
+    found = _find(profile, label)
+    if found is None:
+        return _missing(label, generic_questions.SECTION)
+    section, field = found
+    if blocked := _blocked_by_status(section, field):
+        return blocked
+    numbers = re.findall(r"\d[\d.,]*", field["value"])
+    if not numbers:
+        return {"blocked": True, "reason": f"O campo {label!r} do perfil não tem um valor: peça ao usuário o valor "
+                                           "mensal e o regime (ex.: 10500, PJ) e grave com add_profile_field."}
+    amount = _number(numbers[0].rstrip(".,"))
+    amount = int(amount) if float(amount).is_integer() else amount
+    regime = next((w.upper() for w in _norm(field["value"]).split() if w in ("pj", "clt")), None)
+    source = {"kind": "perfil", "field": label, "section": section, "current": job_source["current"],
+              "experiences": job_source["experiences"]}
+    if options:
+        chosen = pick_number(amount, options)
+        if chosen is None:
+            return {"blocked": True, "reason": f"Nenhuma opção cobre {amount:g} ({label}). Opções: {', '.join(options)}."}
+        return {"answer": chosen, "number": amount, "source": source}
+    whole = f"{amount:,.0f}" if isinstance(amount, int) else f"{amount:,.2f}"
+    money = f"R$ {whole}" if english else "R$ " + whole.replace(",", "X").replace(".", ",").replace("X", ".")
+    money += " per month" if english else " mensais"
+    return {"answer": money + _last_job_note(job, english, today, regime), "number": amount, "source": source}
+
+
+def _referral(profile: dict[str, Any], question: str, options: list[str]) -> dict[str, Any]:
+    label = generic_questions.REFERRAL_LABEL
+    found = _find(profile, label)
+    if found is None:
+        return _missing(label, generic_questions.SECTION)
+    section, field = found
+    if blocked := _blocked_by_status(section, field):
+        return blocked
+    if generic_questions.asks_details(question) and not _is_yes_no(options):
+        if pick(field["value"], ["Sim", "Não"]) == "Não":
+            return {"blocked": True, "reason": f"O perfil diz que não houve indicação ({label!r}): deixe o campo em "
+                                               "branco; se for obrigatório, pergunte ao usuário."}
+        return {"blocked": True, "reason": "A pergunta pede o nome ou o contato de quem indicou: pergunte ao usuário."}
+    value = pick(field["value"], ["Sim", "Não"])
+    if value is None:
+        return _answer(section, field, options)
+    chosen = _yes_no(value, question, options)
+    if chosen is None:
+        return {"blocked": True, "reason": f"Nenhuma opção do formulário equivale a {field['value']!r} (campo "
+                                           f"{label!r} do perfil). Opções: {', '.join(options)}."}
+    return {"answer": chosen, "source": {"kind": "perfil", "field": label, "section": section}}
+
+
+def _language(profile: dict[str, Any], question: str, language: str, options: list[str]) -> dict[str, Any] | None:
+    """Pergunta de idioma: o nível declarado em "Idiomas"; a certificação quando a pergunta pede certificação ou as
+    opções são níveis CEFR. None quando o perfil não responde (a pergunta segue para os outros campos)."""
+    found = {label: _find(profile, label) for label in (LANGUAGES_LABEL, CERTIFICATIONS_LABEL)}
+    values = {label: f[1]["value"] if f and f[1]["status"] == "ok" else None for label, f in found.items()}
+    row = languages.levels(values[LANGUAGES_LABEL], values[CERTIFICATIONS_LABEL]).get(language) or {}
+    norm = _norm(question)
+    asks = any(w in norm for w in _CERTIFICATION)
+    scale = [o for o in options if not _not_say(o)]
+    cefr_scale = bool(scale) and all(languages.cefr(o) for o in scale)
+    if asks or cefr_scale:
+        label = CERTIFICATIONS_LABEL if found[CERTIFICATIONS_LABEL] or not row.get("certification") else LANGUAGES_LABEL
+        source = {"kind": "perfil", "field": label, "section": (found[label] or ("",))[0]}
+        if row.get("certification"):
+            if asks and scale and not any(_level(o) is not None for o in scale):
+                chosen = pick("Sim", options)  # "Possui certificação de inglês?": sim/não
+                return {"answer": chosen, "source": source} if chosen else None
+            return _by_rank(row["certification"], options, source)
+        if asks and values[CERTIFICATIONS_LABEL] is not None:  # o campo lista as certificações, e esta não está
+            chosen = pick("Não", options) if scale else None
+            if chosen:
+                return {"answer": chosen, "source": source}
+            return {"blocked": True, "reason": f"O perfil não tem certificação de {row.get('name') or language} "
+                                               f"(campo {CERTIFICATIONS_LABEL!r}): pergunte ao usuário."}
+        if asks:
+            return None
+    level = row.get("declared") or row.get("certification")
+    if level is None:
+        return None
+    source = {"kind": "perfil", "field": LANGUAGES_LABEL, "section": found[LANGUAGES_LABEL][0]}
+    return _by_rank(level, options, source)
+
+
+def _by_rank(level: str, options: list[str], source: dict[str, Any]) -> dict[str, Any] | None:
+    """A opção da escala mais próxima do nível sem arredondar para cima. Sem opções, o próprio nível. None quando
+    nenhuma opção é nível (não é escala); bloqueia quando a escala tem opção que não se lê ou empate."""
     if not options:
         return {"answer": level, "source": source}
+    scale = [o for o in options if not _not_say(o)]
+    ranked = [(_level(o), o) for o in scale]
+    if all(rank is None for rank, _ in ranked):
+        return None
+    if unknown := [o for rank, o in ranked if rank is None]:
+        return {"blocked": True, "reason": f"Não sei onde fica {unknown[0]!r} na escala de idiomas: pergunte ao "
+                                           f"usuário. Opções: {', '.join(options)}."}
     mine = _level(level)
-    ranked = [(rank, option) for option in options if (rank := _level(option)) is not None]
-    fitting = [(rank, option) for rank, option in ranked if mine is not None and rank <= mine]
+    fitting = [(rank, o) for rank, o in ranked if mine is not None and rank <= mine]
     if not fitting:
         return {"blocked": True, "reason": f"Nenhuma opção cabe no nível {level!r} sem arredondar para cima. "
                                            f"Opções: {', '.join(options)}."}
-    return {"answer": max(fitting)[1], "source": source}
+    best = max(rank for rank, _ in fitting)
+    tied = [o for rank, o in fitting if rank == best]
+    if len(tied) > 1:
+        return {"blocked": True, "reason": f"Mais de uma opção equivale ao nível {level!r}: {', '.join(tied)}. "
+                                           "Pergunte ao usuário."}
+    return {"answer": tied[0], "source": source}

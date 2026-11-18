@@ -701,8 +701,16 @@ def test_languages_become_rows_with_language_and_level(db_path, skill):
     assert field["kind"] == "languages"
     assert {"Nativo", "Fluente", "Avançado", "Intermediário", "Básico", "B2", "C1"} <= set(field["levels"])
     rows = [(r["language"], r["level"]) for r in field["hint_rows"]]
-    assert rows == [("português", "nativo"), ("inglês", "intermediário-avançado (B2, certificado)"),
-                    ("espanhol", "básico (A2.3, certificado)")]
+    assert rows == [("português", "nativo"), ("inglês", "avançado"), ("espanhol", "básico")]
+
+
+def test_language_certifications_are_rows_with_cefr_levels(db_path, skill):
+    field = section_fields(load(db_path), "profile")["Respostas padrão/Certificações de idiomas"]
+
+    assert field["kind"] == "languages"
+    assert field["levels"] == ["A1", "A2", "B1", "B2", "C1", "C2"]
+    assert [(r["language"], r["level"]) for r in field["hint_rows"]] == [
+        ("inglês", "B2, certificado"), ("espanhol", "A2.3, certificado")]
 
 
 def test_untouched_languages_keep_their_original_text(db_path, skill):
@@ -714,8 +722,7 @@ def test_untouched_languages_keep_their_original_text(db_path, skill):
     result = save({"profile": {"Respostas padrão/Idiomas": rows}}, db_path)
 
     assert result["saved"], result["errors"]
-    assert ("- Idiomas: português (nativo), inglês intermediário-avançado (B2, certificado), espanhol básico "
-            "(A2.3, certificado), libras (básico)\n") in (skill / "perfil.md").read_text(encoding="utf-8")
+    assert ("- Idiomas: português (nativo), inglês (avançado), espanhol (básico), libras (básico)\n") in (skill / "perfil.md").read_text(encoding="utf-8")
 
 
 def test_changed_language_is_written_as_name_and_level(db_path, skill):

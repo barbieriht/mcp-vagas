@@ -153,7 +153,7 @@ async def test_the_migration_is_offered_once_and_a_refusal_is_remembered(db_path
         accepted = (await client.call_tool("apply_profile_migration", {"accept": True})).structured_content
 
     assert proposed(first)["Sexo"] == "Masculino"
-    assert declined == {"declined": True}
+    assert declined == {"declined": True, "kind": "diversidade"}
     assert "migration" not in second
     assert next(f for s in second["sections"] for f in s["fields"]
                 if f["label"].startswith("Diversidade"))["status"] == "preencher"

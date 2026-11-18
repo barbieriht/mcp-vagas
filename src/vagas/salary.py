@@ -412,7 +412,7 @@ class SalaryStore:
         hi = None if my_max is None else my_max * scale
         result: dict[str, Any] = {
             "decision": None, "value_to_inform": None, "rule": None, "capped": False, "basis": None,
-            "contract": job, "median": None, "range": None, "sources": 0, "confidence": None,
+            "contract": job, "floor": round(lo, 2), "median": None, "range": None, "sources": 0, "confidence": None,
             "needs_research": has_company and not found["fresh_company"], "reason": "",
         }
 

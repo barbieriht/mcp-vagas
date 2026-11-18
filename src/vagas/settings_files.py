@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from vagas import affirmative, consents, diversity, md_fields
+from vagas.languages import CERTIFICATIONS_LABEL, LANGUAGES_LABEL, parse_languages
 from vagas.models import ROLE_KEYS, ROLE_NAMES, SENIORITIES, SENIORITY_LABELS
 from vagas.normalize import normalize_text
 from vagas.experience import DECLARED_LABEL
@@ -101,37 +102,13 @@ def _pcd_in_criteria(db_path: Path | str | None) -> bool:
 
 # Idiomas: uma linha por idioma, com o nível; no arquivo continua uma linha só, "idioma (nível), ...".
 LANGUAGE_LEVELS = ("Nativo", "Fluente", "Avançado", "Intermediário", "Básico", "A1", "A2", "B1", "B2", "C1", "C2")
-_LEVEL_WORDS = ("nativ", "fluent", "avancad", "intermedi", "basic", "inician", "elementar")
 
 
-def _split_top(text: str) -> list[str]:
-    """Separa por vírgula fora de parênteses: "a (x, y), b" -> ["a (x, y)", "b"]."""
-    parts, depth, current = [], 0, ""
-    for char in text:
-        depth += char == "("
-        depth -= char == ")" and depth > 0
-        if char == "," and depth == 0:
-            parts.append(current)
-            current = ""
-        else:
-            current += char
-    parts.append(current)
-    return [part.strip().rstrip(".") for part in parts if part.strip().rstrip(".")]
-
-
-def parse_languages(value: str) -> list[dict[str, str]]:
-    """"inglês intermediário-avançado (B2, certificado)" -> idioma "inglês", nível "intermediário-avançado
-    (B2, certificado)"; "português (nativo)" -> "português", "nativo". O texto original fica em "raw"."""
-    rows = []
-    for raw in _split_top(value):
-        before, _, inner = raw.partition("(")
-        inner = inner.rsplit(")", 1)[0].strip()
-        words = before.split()
-        cut = next((i for i, w in enumerate(words) if normalize_text(w).startswith(_LEVEL_WORDS)), len(words))
-        language, level_words = " ".join(words[:cut]), " ".join(words[cut:])
-        level = f"{level_words} ({inner})" if level_words and inner else level_words or inner
-        rows.append({"language": language or raw, "level": level, "raw": raw})
-    return rows
+def _levels_for(item: md_fields.Item) -> list[str]:
+    """Níveis da lista no painel: a certificação só tem os do CEFR (o resto vai por "Outro…")."""
+    if _norm(item.label) == _norm(CERTIFICATIONS_LABEL):
+        return [level for level in LANGUAGE_LEVELS if len(level) == 2]
+    return list(LANGUAGE_LEVELS)
 
 
 def _languages_line(rows: list[dict[str, str]]) -> str:
@@ -173,7 +150,7 @@ def _profile_kind(item: md_fields.Item, items: list[md_fields.Item]) -> str:
         return "locked"
     if (q := _question(item)) is not None:
         return "choice" if q.closed else "choice_other"
-    if _norm(item.label) == "idiomas" and item.parent is None:
+    if _norm(item.label) in (_norm(LANGUAGES_LABEL), _norm(CERTIFICATIONS_LABEL)) and item.parent is None:
         return "languages"
     if _norm(item.label) == _norm(DECLARED_LABEL) and item.parent is None:
         return "years"
@@ -224,7 +201,7 @@ def load_profile(db_path: Path | str | None) -> dict[str, Any]:
             value = "" if from_example or placeholder else (diversity.canonical(_question(item), value) or "")
             hint = ""
         field = {"id": item.id, "title": item.label, "kind": kind, "value": value, "hint": hint,
-                 **({"levels": list(LANGUAGE_LEVELS), "hint_rows": hint_rows} if kind == "languages" else {}),
+                 **({"levels": _levels_for(item), "hint_rows": hint_rows} if kind == "languages" else {}),
                  **(_choices(_question(item)) if kind in ("choice", "choice_other") else {}),
                  "notes": [n for n in item.notes if not _norm(n).startswith("valores aceitos")],
                  "parent": item.parent, "status": _locked_status(item) if kind == "locked" else None}
