@@ -340,9 +340,14 @@ def test_salary_bands_are_edited_as_a_table(skill, db_path, monkeypatch):
             first.get_by_label("Mínimo mensal").fill("9.500")
             bands.get_by_role("button", name="Adicionar faixa").click()
             new = bands.locator(".faixa").nth(2)
-            new.get_by_label("Nome").fill("Híbrido")
-            cities = new.get_by_role("group", name="Cidades")
-            assert cities.get_by_label("São Paulo").is_visible() and cities.get_by_label("Campinas").is_visible()
+            modes = new.get_by_role("group", name="Modalidade")
+            modes.get_by_label("Remoto").check()
+            cities = new.get_by_role("group", name="Locais")
+            assert cities.is_hidden()  # vaga remota não tem local
+            modes.get_by_label("Remoto").uncheck()
+            modes.get_by_label("Híbrido").check()
+            modes.get_by_label("Presencial").check()
+            assert cities.get_by_label("São Paulo", exact=True).is_visible()
             cities.get_by_label("Campinas").check()
             # cidade nova nos critérios aparece na faixa sem recarregar
             places = page.get_by_role("group", name="Locais aceitos para híbrido e presencial")
@@ -351,6 +356,11 @@ def test_salary_bands_are_edited_as_a_table(skill, db_path, monkeypatch):
             new.get_by_label("Usar os valores da faixa").select_option("Remoto nacional")
             assert new.get_by_label("Mínimo mensal").is_disabled()
             new.get_by_label("CLT (multiplicada em vagas PJ)").check()
+            assert new.locator(".faixa-titulo").inner_text() == "Faixa 3: Híbrido/presencial em Campinas, Barueri"
+            bands.get_by_role("button", name="Adicionar faixa").click()
+            state = bands.locator(".faixa").nth(3)
+            state.get_by_role("group", name="Locais").get_by_label("Demais cidades de SP").check()
+            state.get_by_label("Mínimo mensal").fill("9000")
             bands.locator(".faixa").nth(1).get_by_role("button", name="Remover faixa").click()
             page.get_by_role("button", name="Salvar tudo").click()
             page.get_by_text("Tudo salvo").wait_for()
@@ -361,9 +371,11 @@ def test_salary_bands_are_edited_as_a_table(skill, db_path, monkeypatch):
 
     text = policy.read_text(encoding="utf-8")
     assert "- Remoto nacional (BRL, CLT): mínimo 9500, máximo 12000\n" in text
-    assert "- Híbrido em Campinas, Barueri (BRL, CLT): usar a faixa do Remoto nacional\n" in text
+    assert "- Híbrido/presencial em Campinas, Barueri (BRL, CLT): usar a faixa do Remoto nacional\n" in text
+    assert "- Qualquer vaga em SP (BRL): mínimo 9000\n" in text
     assert "Internacional" not in text
-    assert [b.label for b in parse_policy(text).bands] == ["Remoto nacional", "Híbrido em Campinas, Barueri"]
+    assert {b.label for b in parse_policy(text).bands} == {
+        "Remoto nacional", "Híbrido/presencial em Campinas, Barueri", "Qualquer vaga em SP"}
     criteria = (skill / "criterios-triagem.md").read_text(encoding="utf-8")
     assert "- Locais aceitos para híbrido e presencial: SP: São Paulo, Campinas, Barueri\n" in criteria
 

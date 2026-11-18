@@ -766,21 +766,39 @@ def _write_places(text: str, value: str) -> str:
 POLICY_TITLE = "Política salarial"
 _MODE_LABELS = {"minimo": "Mínimo", "faixa": "Faixa"}
 _BAND_LINE = re.compile(r"^(?P<label>.+?)\s*\((?P<tags>[^)]*)\)$")
-# Cidades da faixa: o que vem depois de "em" no nome, como o evaluate_salary lê ("e região" é ignorado).
-_BAND_CITIES = re.compile(r"^(?P<name>.*?)\s*\bem\s+(?P<cities>.+?)(?:\s+e\s+regi[aã]o)?$", re.IGNORECASE)
+# Para que vagas a faixa vale: as palavras de modalidade e os locais depois de "em", como o evaluate_salary lê.
+_MODE_WORDS = (("remoto", "Remoto", "remotas"), ("hibrido", "Híbrido", "híbridas"),
+               ("presencial", "Presencial", "presenciais"))
+_BAND_PLACES = re.compile(r"\bem\s+(?P<places>.+?)(?:\s+e\s+regi[aã]o)?$", re.IGNORECASE)
 
 
-def _split_band_label(label: str) -> tuple[str, list[str]]:
-    """"Híbrido/presencial em São Paulo, Barueri e região" -> ("Híbrido/presencial", ["São Paulo", "Barueri"])."""
-    match = _BAND_CITIES.match(label.strip())
-    if not match:
-        return label.strip(), []
-    cities = [c.strip() for c in re.split(r",\s*|\s+e\s+", match["cities"]) if c.strip()]
-    return match["name"].strip(), list(dict.fromkeys(cities))
+def _band_selection(label: str) -> dict[str, list[str]]:
+    """"Híbrido/presencial em São Carlos, SP" -> modes [hibrido, presencial], cities [São Carlos], states [SP].
+    Modalidades vazias = todas; a sigla de um estado vale pelas demais cidades dele."""
+    from vagas.places import STATES
+
+    norm = normalize_text(label)
+    modes = [mode for mode, _, _ in _MODE_WORDS if mode in norm]
+    match = _BAND_PLACES.search(label.strip())
+    places = [p.strip() for p in re.split(r",\s*|\s+e\s+", match["places"]) if p.strip()] if match else []
+    return {"modes": [] if len(modes) == len(_MODE_WORDS) else modes,
+            "cities": list(dict.fromkeys(p for p in places if p.upper() not in STATES)),
+            "states": list(dict.fromkeys(p.upper() for p in places if p.upper() in STATES))}
 
 
-def _band_label(name: str, cities: list[str]) -> str:
-    return f"{name} em {', '.join(cities)}" if cities else name
+def _band_label(selection: dict[str, list[str]], currency: str) -> str:
+    """Rótulo gerado da seleção: "Remoto", "Híbrido/presencial em São Carlos, SP", "Qualquer vaga USD"."""
+    names = [title for mode, title, _ in _MODE_WORDS if mode in selection["modes"]]
+    label = "/".join([names[0]] + [n.lower() for n in names[1:]]) if names else "Qualquer vaga"
+    if currency != "BRL":
+        label += f" {currency}"
+    places = selection["cities"] + selection["states"]
+    return f"{label} em {', '.join(places)}" if places else label
+
+
+def _same_selection(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    return (sorted(a["modes"]) == sorted(b["modes"]) and sorted(a["states"]) == sorted(b["states"])
+            and sorted(normalize_text(c) for c in a["cities"]) == sorted(normalize_text(c) for c in b["cities"]))
 
 
 def _policy_paths(db_path: Path | str | None) -> tuple[Path, Path]:
@@ -811,8 +829,8 @@ def _band_items(text: str) -> list[tuple[md_fields.Item, dict[str, Any]]]:
         if currency is None:
             continue
         alias, lo, hi = _ALIAS.search(item.value), _MIN.search(item.value), _MAX.search(item.value)
-        name, cities = _split_band_label(key["label"])
-        rows.append((item, {"name": name, "cities": cities, "currency": currency, "clt": "CLT" in tags,
+        label = key["label"].strip()
+        rows.append((item, {"label": label, **_band_selection(label), "currency": currency, "clt": "CLT" in tags,
                             "min": _number_text(lo["n"]) if lo and not alias else "",
                             "max": _number_text(hi["n"]) if hi and not alias else "",
                             "alias": alias["target"].strip() if alias else ""}))
@@ -831,14 +849,12 @@ def _number_text(raw: str) -> str:
     return str(int(number)) if number == int(number) else f"{number:g}"
 
 
-def _applies(name: str) -> str:
-    """Para que vagas a faixa vale, lido do nome como o evaluate_salary lê."""
-    norm = normalize_text(name)
-    modes = [label for word, label in (("remoto", "remotas"), ("hibrido", "híbridas"), ("presencial", "presenciais"))
-             if word in norm] or ["remotas", "híbridas", "presenciais"]
-    city = re.search(r"\bem\s+(.+?)(?:\s+e\s+regi[aã]o)?$", name.strip(), flags=re.IGNORECASE)
-    where = f"em {city.group(1)}" if city else "em qualquer local"
+def _applies(selection: dict[str, list[str]]) -> str:
+    """Para que vagas a faixa vale, em português."""
+    modes = [plural for mode, _, plural in _MODE_WORDS if mode in selection["modes"]] or [p for _, _, p in _MODE_WORDS]
     joined = modes[0] if len(modes) == 1 else f"{', '.join(modes[:-1])} e {modes[-1]}"
+    places = selection["cities"] + [f"demais cidades de {uf}" for uf in selection["states"]]
+    where = f"em {', '.join(places)}" if places else "em qualquer local"
     return f"Vale para vagas {joined} {where}."
 
 
@@ -869,16 +885,18 @@ def load_policy(db_path: Path | str | None) -> dict[str, Any]:
                            "help": "Converte as faixas marcadas como CLT para vagas PJ (ex.: 1.4 = 40% a mais)."})
     rows = []
     for _, row in _band_items(text):
-        row["applies"] = _applies(_band_label(row["name"], row["cities"]))
+        row["applies"] = _applies(row)
         row["hint_min"], row["hint_max"] = row["min"], row["max"]
         if from_example:
             row["min"] = row["max"] = ""  # salário é pessoal: o exemplo só sugere as faixas
         rows.append(row)
     fields.append({"id": "Faixas", "title": "Faixas", "kind": "bands", "value": rows, "currencies": list(CURRENCIES),
+                   "modes": [{"value": mode, "label": title} for mode, title, _ in _MODE_WORDS],
                    "places": accepted_places(db_path), "hint": "", "notes": [], "parent": None, "status": None,
-                   "help": "Valores mensais. A faixa vale para as modalidades citadas no nome (remoto, híbrido, "
-                           "presencial; nenhuma = todas) e para as cidades marcadas, escolhidas entre os locais "
-                           "aceitos dos critérios (nenhuma = qualquer local). Moedas nunca são convertidas entre si."})
+                   "help": "Valores mensais. Cada faixa vale para as modalidades marcadas (nenhuma = todas) e para os "
+                           "locais marcados, escolhidos entre os locais aceitos dos critérios (nenhum = qualquer "
+                           "local). A faixa de uma cidade vale antes da de \"demais cidades\" do estado, e esta "
+                           "antes da faixa sem local. Moedas nunca são convertidas entre si."})
     pending = ["Faixas"] if from_example or not rows else []
     return {"key": "policy", "title": POLICY_TITLE, "file": str(path), "new": from_example,
             "groups": [{"name": "", "fields": fields}], "pending": pending}
@@ -886,20 +904,39 @@ def load_policy(db_path: Path | str | None) -> dict[str, Any]:
 
 def _band_line(row: dict[str, Any]) -> str:
     tags = row["currency"] + (", CLT" if row["clt"] else "")
-    label = _band_label(row["name"], row["cities"])
     if row["alias"]:
-        return f"- {label} ({tags}): usar a faixa do {row['alias']}"
+        return f"- {row['label']} ({tags}): usar a faixa do {row['alias']}"
     value = f"mínimo {_number_text(row['min'])}"
     if row["max"].strip():
         value += f", máximo {_number_text(row['max'])}"
-    return f"- {label} ({tags}): {value}"
+    return f"- {row['label']} ({tags}): {value}"
 
 
 def _same_band(a: dict[str, Any], b: dict[str, Any]) -> bool:
-    """A faixa voltou do painel como foi carregada (as cidades em qualquer ordem)."""
-    keys = ("name", "currency", "clt", "min", "max", "alias")
-    return (all(a[k] == b[k] for k in keys)
-            and sorted(normalize_text(c) for c in a["cities"]) == sorted(normalize_text(c) for c in b["cities"]))
+    """A faixa voltou do painel como foi carregada (os locais em qualquer ordem)."""
+    return all(a[k] == b[k] for k in ("label", "currency", "clt", "min", "max", "alias")) and _same_selection(a, b)
+
+
+def _row_selection(row: dict[str, Any]) -> dict[str, list[str]] | str:
+    """Modalidades e locais de uma faixa vinda do painel, ou a mensagem de erro."""
+    from vagas.models import WORK_MODES
+    from vagas.places import STATES
+
+    modes, cities, states = row.get("modes", []), row.get("cities", []), row.get("states", [])
+    if not all(isinstance(v, list) and all(isinstance(x, str) for x in v) for v in (modes, cities, states)):
+        return "Envie modalidades, cidades e estados como listas."
+    if any(m not in WORK_MODES for m in modes):
+        return f"Modalidade desconhecida. Use: {', '.join(WORK_MODES)}."
+    names = list(dict.fromkeys(c.strip() for c in cities if c.strip()))
+    if any(re.search(r"[,;:()\n\r]", c) or c.upper() in STATES for c in names):
+        return "Uma cidade por item, sem vírgula, ponto e vírgula, dois-pontos nem parênteses."
+    ufs = list(dict.fromkeys(s.strip().upper() for s in states if s.strip()))
+    if any(uf not in STATES for uf in ufs):
+        return "Estado desconhecido: use a sigla, como SP."
+    modes = [m for m in WORK_MODES if m in modes]
+    if modes == ["remoto"]:
+        names, ufs = [], []  # vaga remota não tem local para escolher
+    return {"modes": [] if len(modes) == len(WORK_MODES) else modes, "cities": names, "states": ufs}
 
 
 def _check_bands(rows: Any, mode: str) -> tuple[list[dict[str, Any]], dict[str, str]]:
@@ -911,44 +948,54 @@ def _check_bands(rows: Any, mode: str) -> tuple[list[dict[str, Any]], dict[str, 
     if not rows:
         return [], {"policy.Faixas": "Cadastre pelo menos uma faixa."}
     clean, errors = [], {}
-    cities_of = [_row_cities(r) for r in rows]
-    names = [normalize_text(_band_label(str(r.get("name", "")).strip(), cities_of[i] or []))
-             if isinstance(r, dict) else "" for i, r in enumerate(rows)]
+    prepared = []  # (texto, seleção, rótulo) de cada faixa; o rótulo é o carregado se a seleção não mudou
     for index, row in enumerate(rows):
         where = f"policy.Faixas.{index}"
         if not isinstance(row, dict):
             errors[where] = "Faixa inválida."
+            prepared.append(None)
             continue
-        text = {k: str(row.get(k, "") or "").strip() for k in ("name", "currency", "min", "max", "alias")}
-        cities = cities_of[index]
+        text = {k: str(row.get(k, "") or "").strip() for k in ("label", "currency", "min", "max", "alias")}
+        text["currency"] = text["currency"].upper()
+        selection = _row_selection(row)
         if any("\n" in v or "\r" in v for v in text.values()):
             errors[where] = "Use uma linha só em cada campo."
+            prepared.append(None)
             continue
-        if cities is None:
-            errors[f"{where}.cities"] = "Uma cidade por item, sem vírgula, ponto e vírgula ou dois-pontos."
-            cities = []
-        if not text["name"]:
-            errors[f"{where}.name"] = "Dê um nome à faixa (ex.: Remoto nacional)."
-        elif re.search(r"[():;]", text["name"]):
-            errors[f"{where}.name"] = "O nome não pode ter parênteses, dois-pontos nem ponto e vírgula."
-        elif cities and _split_band_label(text["name"])[1]:
-            errors[f"{where}.name"] = "Tire o \"em …\" do nome: as cidades da faixa são as marcadas abaixo."
-        elif names[index] in names[:index]:
-            errors[f"{where}.name"] = "Já existe uma faixa com este nome e estas cidades."
-        if text["currency"].upper() not in CURRENCIES:
+        if isinstance(selection, str):
+            errors[f"{where}.cities"] = selection
+            prepared.append(None)
+            continue
+        old = text["label"]
+        keep = old and not re.search(r"[():;]", old) and _same_selection(_band_selection(old), selection)
+        prepared.append((text, selection, old if keep else _band_label(selection, text["currency"])))
+    labels = [normalize_text(p[2]) if p else "" for p in prepared]
+    seen: list[tuple] = []
+    for index, entry in enumerate(prepared):
+        if entry is None:
+            continue
+        where = f"policy.Faixas.{index}"
+        text, selection, label = entry
+        key = (tuple(sorted(selection["modes"])), tuple(sorted(normalize_text(c) for c in selection["cities"])),
+               tuple(sorted(selection["states"])), text["currency"])
+        if key in seen or labels[index] in labels[:index]:
+            errors[f"{where}.modes"] = "Já existe uma faixa para estas vagas nesta moeda."
+        seen.append(key)
+        if text["currency"] not in CURRENCIES:
             errors[f"{where}.currency"] = f"Escolha a moeda: {', '.join(CURRENCIES)}."
         numbers = {}
-        for key in ("min", "max"):
-            if text[key] and not text["alias"]:
+        for name in ("min", "max"):
+            if text[name] and not text["alias"]:
                 try:
-                    numbers[key] = parse_number(re.sub(r"^\s*R?\$\s*", "", text[key]))
-                    if numbers[key] <= 0:
+                    numbers[name] = parse_number(re.sub(r"^\s*R?\$\s*", "", text[name]))
+                    if numbers[name] <= 0:
                         raise VagasError("")
                 except VagasError:
-                    errors[f"{where}.{key}"] = "Informe um valor mensal, como 8000 ou 8.000."
+                    errors[f"{where}.{name}"] = "Informe um valor mensal, como 8000 ou 8.000."
         if text["alias"]:
             target = normalize_text(text["alias"])
-            if not any(n and n != names[index] and (n.startswith(target) or target.startswith(n)) for n in names):
+            if not any(n and i != index and (n.startswith(target) or target.startswith(n))
+                       for i, n in enumerate(labels)):
                 errors[f"{where}.alias"] = "Escolha outra faixa desta lista."
         elif not text["min"]:
             errors[f"{where}.min"] = "Informe o mínimo (ou use a faixa de outra)."
@@ -956,21 +1003,8 @@ def _check_bands(rows: Any, mode: str) -> tuple[list[dict[str, Any]], dict[str, 
             errors[f"{where}.max"] = "O máximo não pode ser menor que o mínimo."
         if mode == "faixa" and not text["alias"] and not text["max"]:
             errors[f"{where}.max"] = "No modo faixa, toda faixa precisa de máximo."
-        clean.append({**text, "cities": cities, "currency": text["currency"].upper(), "clt": bool(row.get("clt"))})
+        clean.append({**text, **selection, "label": label, "clt": bool(rows[index].get("clt"))})
     return clean, errors
-
-
-def _row_cities(row: Any) -> list[str] | None:
-    """Cidades de uma faixa vinda do painel (sem a chave: as do nome, como antes); None se inválidas."""
-    if not isinstance(row, dict):
-        return []
-    cities = row.get("cities", [])
-    if not isinstance(cities, list) or not all(isinstance(c, str) for c in cities):
-        return None
-    names = [c.strip() for c in cities if c.strip()]
-    if any(re.search(r"[,;:()\n\r]", c) for c in names):
-        return None
-    return list(dict.fromkeys(names))
 
 
 def plan_policy(values: Any, db_path: Path | str | None) -> tuple[Pending | None, dict[str, str]]:

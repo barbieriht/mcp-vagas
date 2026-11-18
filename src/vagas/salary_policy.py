@@ -7,11 +7,14 @@ Formato (lista em Markdown; linhas fora deste formato são ignoradas):
     - Remoto nacional (BRL, CLT): mínimo 8.000, máximo 12.000
     - Híbrido/presencial em São Paulo e região (BRL, CLT): mínimo 10.500
     - Híbrido/presencial em São Carlos e região (BRL, CLT): usar a faixa do remoto nacional
+    - Híbrido/presencial em SP (BRL, CLT): mínimo 9.000
     - Internacional (USD): mínimo 3000
 
 Cada faixa vale para as modalidades citadas no rótulo (remoto, híbrido, presencial; nenhuma =
-todas), para a cidade depois de "em" (nenhuma = qualquer local) e para a moeda entre parênteses.
-"CLT" entre parênteses indica faixa em CLT, multiplicada pelo multiplicador PJ em vagas PJ.
+todas), para os locais depois de "em" (nenhum = qualquer local) e para a moeda entre parênteses.
+Local é uma cidade ou a sigla de um estado (as demais cidades dele): a faixa da cidade vale antes
+da do estado, e esta antes da faixa sem local. "CLT" entre parênteses indica faixa em CLT,
+multiplicada pelo multiplicador PJ em vagas PJ.
 """
 
 import os
@@ -22,6 +25,7 @@ from pathlib import Path
 from vagas.db import default_db_path
 from vagas.models import CURRENCIES, SALARY_MODES, WORK_MODES
 from vagas.normalize import normalize_text
+from vagas.places import STATES, state_of
 from vagas.repo import VagasError
 
 _ITEM = re.compile(r"^\s{0,1}[-*]\s+(?P<key>[^:]+?)\s*:\s*(?P<value>.+?)\s*$")
@@ -38,11 +42,12 @@ _MODE_WORDS = {"remoto": "remoto", "hibrido": "hibrido", "presencial": "presenci
 class Band:
     label: str
     modes: frozenset[str]
-    cities: tuple[str, ...]  # normalizadas; vazio = qualquer local
+    cities: tuple[str, ...]  # normalizadas; vazio (e sem estados) = qualquer local
     currency: str
     clt: bool
     min: float
     max: float | None
+    states: tuple[str, ...] = ()  # UFs: as cidades do estado sem faixa própria
 
     def as_dict(self) -> dict:
         return {"label": self.label, "currency": self.currency, "clt": self.clt, "min": self.min, "max": self.max}
@@ -67,7 +72,11 @@ class SalaryPolicy:
         hit = next((b for b in candidates if city in b.cities), None)
         if hit:
             return hit
-        generic = [b for b in candidates if not b.cities]
+        state = state_of(location)
+        hit = next((b for b in candidates if state and state in b.states), None)
+        if hit:
+            return hit
+        generic = [b for b in candidates if not b.cities and not b.states]
         if generic:
             return generic[0]
         cities = ", ".join(b.label for b in candidates)
@@ -150,11 +159,13 @@ def parse_policy(text: str, source: str = "politica-salarial.md") -> SalaryPolic
         norm_label = normalize_text(label)
         modes = frozenset(m for word, m in _MODE_WORDS.items() if word in norm_label) or frozenset(WORK_MODES)
         city = _CITY.search(norm_label)
-        cities = tuple(c.strip() for c in re.split(r",\s*|\s+e\s+", city["city"]) if c.strip()) if city else ()
+        places = [c.strip() for c in re.split(r",\s*|\s+e\s+", city["city"]) if c.strip()] if city else []
+        states = tuple(p.upper() for p in places if p.upper() in STATES)  # sigla = estado; nome = cidade
+        cities = tuple(p for p in places if p.upper() not in STATES)
         clt = "CLT" in tags
 
         if alias := _ALIAS.search(value):
-            aliases.append((number, label, modes, cities, currency, clt, normalize_text(alias["target"])))
+            aliases.append((number, label, modes, cities, states, currency, clt, normalize_text(alias["target"])))
             continue
         lo, hi = _MIN.search(value), _MAX.search(value)
         if not lo:
@@ -163,14 +174,15 @@ def parse_policy(text: str, source: str = "politica-salarial.md") -> SalaryPolic
         hi_value = parse_number(hi["n"]) if hi else None
         if hi_value is not None and hi_value < lo_value:
             raise VagasError(f"'máximo' menor que 'mínimo' em {where}: {line.strip()}")
-        bands.append(Band(label, modes, cities, currency, clt, lo_value, hi_value))
+        bands.append(Band(label, modes, cities, currency, clt, lo_value, hi_value, states))
 
-    for number, label, modes, cities, currency, clt, target in aliases:
-        match = next((b for b in bands if normalize_text(b.label).startswith(target)
-                      or target.startswith(normalize_text(b.label))), None)
+    for number, label, modes, cities, states, currency, clt, target in aliases:
+        match = next((b for b in bands if normalize_text(b.label) == target), None) or next(
+            (b for b in bands if normalize_text(b.label).startswith(target) or target.startswith(normalize_text(b.label))),
+            None)
         if match is None:
             raise VagasError(f"{source}, linha {number}: faixa {target!r} citada em 'usar a faixa' não existe.")
-        bands.append(Band(label, modes, cities, currency, clt, match.min, match.max))
+        bands.append(Band(label, modes, cities, currency, clt, match.min, match.max, states))
 
     if not bands:
         raise VagasError(f"{source}: nenhuma faixa encontrada. Use linhas como "
