@@ -64,7 +64,61 @@ def load(db_path: Path | str | None = None) -> dict[str, Any]:
     sections = {"config": _config_section(db_path)}
     for key, (load_section, _) in FILE_SECTIONS.items():
         sections[key] = load_section(db_path)
+        if key == "profile":
+            sections["referrals"] = referrals_section(db_path)
     return {"sections": sections}
+
+
+REFERRAL_FIELDS = (  # (chave, rótulo, tipo, obrigatório)
+    ("company", "Empresa", "text", True), ("name", "Quem indicou", "text", True),
+    ("role", "Cargo ou área da pessoa", "text", False), ("scope", "Vale para (vagas ou áreas)", "text", False),
+    ("email", "E-mail de quem indicou", "email", False), ("phone", "Telefone de quem indicou", "tel", False),
+    ("referred_on", "Data da indicação", "date", False), ("note", "Observação sobre a indicação", "text", False),
+)
+
+
+def referrals_section(db_path: Path | str | None) -> dict[str, Any]:
+    """Indicações do banco (não é arquivo): cada uma entra e sai na hora, fora do "Salvar tudo"."""
+    from vagas.db import connect
+    from vagas.referrals import ReferralStore
+
+    conn = connect(db_path)
+    try:
+        rows = ReferralStore(conn).entries()
+    finally:
+        conn.close()
+    return {"title": "Indicações", "rows": rows,
+            "fields": [{"key": k, "label": label, "type": kind, "required": req} for k, label, kind, req in REFERRAL_FIELDS],
+            "help": "Empresas onde alguém indicou você. Nas vagas delas, o Claude responde \"Sim\" a \"Foi indicado?\" "
+                    "(e o nome ou contato de quem indicou, quando o formulário pede) e põe a vaga primeiro na lista de "
+                    "trabalho. \"Vale para\" limita a áreas (ex.: dados, IA); vazio vale para qualquer vaga. E-mail e "
+                    "telefone ficam só no banco deste computador."}
+
+
+def referral_action(data: Any, db_path: Path | str | None) -> dict[str, Any]:
+    """{action: "add", referral: {company, name, ...}} ou {action: "remove", id}. Retorna a seção atualizada."""
+    from vagas.db import connect
+    from vagas.referrals import ReferralStore
+
+    if not isinstance(data, dict) or data.get("action") not in ("add", "remove"):
+        raise VagasError("Ação inválida: use add ou remove.")
+    conn = connect(db_path)
+    try:
+        store = ReferralStore(conn)
+        if data["action"] == "remove":
+            if not isinstance(data.get("id"), int):
+                raise VagasError("Informe o id da indicação a remover.")
+            store.remove(data["id"])
+        else:
+            fields = data.get("referral")
+            if not isinstance(fields, dict):
+                raise VagasError("Informe a indicação: {company, name, ...}.")
+            known = {k for k, *_ in REFERRAL_FIELDS}
+            extra = {k: v for k, v in fields.items() if k in known - {"company", "name"} and v not in (None, "")}
+            store.add(str(fields.get("company") or ""), str(fields.get("name") or ""), **extra)
+    finally:
+        conn.close()
+    return {"referrals": referrals_section(db_path)}
 
 
 def _reevaluate_salaries(db_path: Path | str | None) -> dict[str, Any]:

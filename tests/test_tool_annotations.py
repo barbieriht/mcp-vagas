@@ -13,10 +13,10 @@ READ_ONLY = {
     "settings_link", "get_config", "find_application", "list_applications", "get_history", "extract_resume_text",
     "get_profile", "extension_status", "diff_master", "get_master_resume", "suggest_tailored_selection",
     "read_job_posting", "score_job_match", "list_resumes", "get_resume", "find_salary_estimate", "find_job_search",
-    "work_list", "get_search_run", "suggest_job_searches", "query_applications",
+    "work_list", "get_search_run", "suggest_job_searches", "query_applications", "list_referrals",
 }
 DESTRUCTIVE = {"update_application", "bulk_update_applications", "discard_salary_estimate", "apply_profile_migration",
-               "save_master_draft"}
+               "save_master_draft", "add_referral", "remove_referral"}
 OPEN_WORLD = {"read_job_posting", "triage_job", "search_jobs", "start_search_run", "import_linkedin_profile"}
 
 

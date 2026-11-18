@@ -344,6 +344,14 @@ class Repo:
             params,
         )
         applications = [_application(row) for row in rows]
+        from vagas.referrals import ReferralStore
+
+        flagged = ReferralStore(self.conn).flagged(applications)
+        for application in applications:
+            if application["id"] in flagged:
+                application["referral"] = True  # calculado: não é coluna (não sai no CSV)
+        if status == "a_aplicar":  # indicação primeiro; dentro de cada grupo, a ordem pela aderência
+            applications.sort(key=lambda a: a["id"] not in flagged)
         return {"applications": applications, "count": len(applications)}
 
     def pending_groups(self) -> list[dict[str, Any]]:

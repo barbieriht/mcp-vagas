@@ -24,7 +24,7 @@ SOURCE_LABELS = {"linkedin": "LinkedIn", "gupy": "Gupy", "indeed": "Indeed", "gl
                  "outro": "Outro site"}
 _LIGHT = ("id", "company", "role", "url", "status", "source", "location", "work_mode", "seniority", "match_score",
           "salary_ask", "pending", "pending_items", "discard_reason", "created_at", "updated_at", "last_event_at",
-          "search_id")
+          "search_id", "referral")
 
 
 def _safe_url(url: Any) -> str | None:
@@ -85,7 +85,8 @@ def list_jobs(conn: sqlite3.Connection, filters: dict[str, Any], db_path: Path |
         rows = [r for r in rows if r.get("search_id") == search_id]
     order = filters.get("order") or ("aderencia" if status == "a_aplicar" else "recentes")
     if order == "aderencia":
-        rows = sorted(rows, key=lambda r: (r.get("match_score") is None, -(r.get("match_score") or 0)))
+        rows = sorted(rows, key=lambda r: (not r.get("referral"), r.get("match_score") is None,
+                                           -(r.get("match_score") or 0)))
     elif order != "recentes":
         raise VagasError(f"ordem desconhecida: {order!r} (use aderencia ou recentes).")
 

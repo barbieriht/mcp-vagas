@@ -28,6 +28,7 @@ from vagas.models import (
     Contract, Currency, InitialStatus, LinkedInSection, QueryField, QueryOrder, ResumeSourceKind, RoleKey,
     SalaryMode, Seniority, Source, Status, WorkMode,
 )
+from vagas.referrals import ReferralStore
 from vagas.repo import Repo, VagasError
 from vagas.resume_model import MasterResume
 from vagas.resume_render import default_output_dir, render_resume
@@ -92,11 +93,11 @@ READ_ONLY_TOOLS = frozenset({
     "settings_link", "get_config", "find_application", "list_applications", "get_history", "extract_resume_text",
     "get_profile", "extension_status", "diff_master", "get_master_resume", "suggest_tailored_selection",
     "read_job_posting", "score_job_match", "list_resumes", "get_resume", "find_salary_estimate", "find_job_search",
-    "work_list", "get_search_run", "suggest_job_searches", "query_applications",
+    "work_list", "get_search_run", "suggest_job_searches", "query_applications", "list_referrals",
 })
 # Escritas que sobrescrevem ou tiram algo (as demais só acrescentam: registro, versão, arquivo novo).
 DESTRUCTIVE_TOOLS = frozenset({"update_application", "bulk_update_applications", "discard_salary_estimate",
-                               "apply_profile_migration", "save_master_draft"})
+                               "apply_profile_migration", "save_master_draft", "add_referral", "remove_referral"})
 # Acessam sites (vagas, buscas, LinkedIn); as demais só tocam o banco e os arquivos locais.
 OPEN_WORLD_TOOLS = frozenset({"read_job_posting", "triage_job", "search_jobs", "start_search_run",
                               "import_linkedin_profile"})
@@ -151,6 +152,9 @@ def build_server(
 
     def resumes():
         return store(lambda conn: ResumeStore(conn, draft_path or default_draft_path(db_path)))
+
+    def referrals():
+        return store(ReferralStore)
 
     def salary_rule() -> str:
         return paths_config.resolve("salary_rule", db_path)[0]
@@ -666,7 +670,8 @@ def build_server(
 
     @server.tool()
     def resolve_form_answer(question: str, options: list[str] | None = None,
-                            application_id: int | None = None, checkbox: bool = False) -> dict[str, Any]:
+                            application_id: int | None = None, checkbox: bool = False,
+                            referral_id: int | None = None) -> dict[str, Any]:
         """Resposta do perfil para uma pergunta de formulário: chame para cada pergunta que o perfil pode
         responder (diversidade, sim/não, listas, idiomas, anos de experiência, pretensão salarial) antes de
         perguntar qualquer coisa ao usuário. Não responda essas perguntas por conta própria.
@@ -675,6 +680,10 @@ def build_server(
         de texto); application_id: a candidatura, para a pretensão salarial e a empresa dela. Perguntas com o nome
         da empresa ("Você trabalha na empresa X?", "É colaborador X?", "Have you previously worked at X?", "Foi
         indicado?") saem do currículo geral e de campos genéricos do perfil, nunca de um campo por empresa.
+        Indicação: com indicação cadastrada na empresa da vaga (add_referral), "Sim" e, quando o formulário pede
+        nome, e-mail, telefone ou cargo de quem indicou, o dado dela; com mais de uma pessoa (ou só de outra área),
+        blocked com choices [{id, name, role?, scope?}]: pergunte ao usuário e chame de novo com referral_id. Sem
+        indicação, o campo "Foi indicado por alguém da empresa" do perfil.
         Empresa, cargo e salário atuais ("Current company", "Cargo atual", "Salário atual"): a experiência em
         andamento ou, sem nenhuma, o último emprego (em texto livre, com "último emprego, até <mês/ano>"); o
         salário vem de "Valor da última remuneração", e number traz só o valor, para campo numérico.
@@ -694,14 +703,16 @@ def build_server(
         if checkbox:
             result = resolve_checkbox(profile, question, str(paths_config.resolve("consent_mode", db_path)[0]))
             return _with_missing_field(result, application_id)
-        salary = company = None
+        salary = company = found = None
         if application_id is not None:
             with repo() as r:
                 application = r.get(application_id)
             salary, company = application.get("salary_ask"), application.get("company")
+            with referrals() as store_:
+                found = store_.for_application(application)
         return _with_missing_field(
             resolve(profile, question, options, years=profile["experience"]["years_to_inform"], salary=salary,
-                    company=company), application_id)
+                    company=company, referrals=found, referral_id=referral_id), application_id)
 
     def _with_missing_field(result: dict[str, Any], application_id: int | None = None) -> dict[str, Any]:
         """Campo que o perfil não tem: cria com <PREENCHER> (created); a preencher: created false. seen_in e
@@ -1160,6 +1171,39 @@ def build_server(
         """
         with job_searches() as s:
             return s.find_job_search(query, source, location=location)
+
+    @server.tool()
+    def add_referral(company: str, name: str, email: str | None = None, phone: str | None = None,
+                     role: str | None = None, scope: str | None = None, referred_on: str | None = None,
+                     note: str | None = None) -> dict[str, Any]:
+        """Registra que alguém de uma empresa indicou o usuário, quando ele contar. Com indicação, as perguntas
+        "Foi indicado?" das vagas dessa empresa saem "Sim" (resolve_form_answer) e a triagem põe as vagas dela
+        primeiro na lista de trabalho (sem mudar a aderência).
+
+        company: a empresa, como o usuário escreve (comparada sem acento, maiúsculas e Ltda/S.A., por palavras
+        inteiras); name: quem indicou; email, phone: contato da pessoa (opcionais, só para formulários que pedem;
+        nunca vão para eventos nem para o CSV); role: cargo ou área dela; scope: vagas ou áreas a que a indicação
+        vale, separadas por vírgula (ex.: "dados, IA"; vazio = qualquer vaga); referred_on: data (AAAA-MM-DD);
+        note: observação. A mesma pessoa na mesma empresa é atualizada (omitido fica, "" limpa).
+        Retorna {created, referral}."""
+        fields = {"email": email, "phone": phone, "role": role, "scope": scope, "referred_on": referred_on,
+                  "note": note}
+        with referrals() as r:
+            return r.add(company, name, **{k: v for k, v in fields.items() if v is not None})
+
+    @server.tool()
+    def list_referrals(company: str | None = None) -> dict[str, Any]:
+        """Indicações cadastradas (todas, ou só as de company). Use para conferir antes de cadastrar ou remover.
+        Retorna {referrals: [{id, company, name, email?, phone?, role?, scope?, referred_on?, note?}], count}."""
+        with referrals() as r:
+            found = r.entries(company)
+        return {"referrals": found, "count": len(found)}
+
+    @server.tool()
+    def remove_referral(id: int) -> dict[str, Any]:
+        """Apaga uma indicação (o id vem de list_referrals), só a pedido do usuário. Retorna {removed}."""
+        with referrals() as r:
+            return r.remove(id)
 
     @server.tool()
     def work_list() -> dict[str, Any]:

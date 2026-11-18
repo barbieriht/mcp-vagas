@@ -241,3 +241,9 @@ ul.lotes { list-style: none; padding: 0; margin: 8px 0 24px; display: flex; flex
 .lote-running .etapa { border-color: var(--destaque-forte); }
 .vagas h2 { font-size: 20px; margin: 8px 0; }
 .filtro-busca { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+/* Indicações: lista com remover e formulário de uma nova, em grade que vira coluna no celular */
+.lista-indicacoes { list-style: none; padding: 0; margin: 8px 0 16px; display: flex; flex-direction: column; gap: 8px; }
+.lista-indicacoes li { display: flex; gap: 12px; align-items: center; justify-content: space-between; overflow-wrap: anywhere; }
+.indicacao-nova { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 8px 0 12px; }
+@media (max-width: 600px) { .indicacao-nova { grid-template-columns: minmax(0, 1fr); } }

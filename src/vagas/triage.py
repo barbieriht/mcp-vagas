@@ -413,11 +413,28 @@ class Triage:
             needs = [n for n in needs if n["kind"] not in ("pesquisa_salarial", "salario")]
         elif salary:
             reasons.append(salary["reason"])
+        if decision == "a_aplicar" and (referral := self._referral(app)):
+            reasons.append(referral)
         if needs:
             self.repo.set_needs(app["id"], needs)  # consultável depois (query_applications needs_any)
         return self._result(decision, self.repo.get(app["id"]), posting, match, salary, reasons, needs, level)
 
     # --- Etapas ---------------------------------------------------------------------------------
+
+    def _referral(self, app: dict[str, Any]) -> str | None:
+        """Motivo da indicação na empresa (só nomes e área: o contato de quem indicou não sai aqui)."""
+        from vagas.referrals import ReferralStore
+
+        found = ReferralStore(self.repo.conn).for_application(app)
+        if found["fits"]:
+            names = ", ".join(r["name"] for r in found["fits"])
+            return (f"Indicação na empresa: {names}. A vaga vem primeiro na lista de trabalho; a aderência não "
+                    "muda.")
+        if found["other_scope"]:
+            names = ", ".join(f"{r['name']} ({r['scope']})" for r in found["other_scope"])
+            return (f"Há indicação na empresa para outra área: {names}. Confirme com o usuário se vale para "
+                    "esta vaga.")
+        return None
 
     def _similar(self, posting: dict[str, Any]) -> list[dict[str, Any]]:
         """Vagas da mesma empresa que podem ser esta, publicada em outra plataforma: título equivalente

@@ -46,6 +46,7 @@ def build_work_list(repo: Repo, resumes: ResumeStore) -> dict[str, Any]:
             "value_to_inform": evaluation.get("value_to_inform") if evaluation.get("decision") == "aplicar" else None,
             "salary_market": app.get("salary_market"), "salary_rule": app.get("salary_rule"),
             "salary_basis": evaluation.get("basis"), "url": app.get("url"), "pending": _pendencies(app),
+            "referral": app.get("referral"),
         }
         (pending if row["pending"] else ready).append(row)
     return {"ready": ready, "pending": pending, "counts": {"ready": len(ready), "pending": len(pending)}}

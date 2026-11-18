@@ -24,6 +24,7 @@ def drop_v14(conn):
     conn.execute("ALTER TABLE applications DROP COLUMN form_url")  # v16
     conn.execute("ALTER TABLE applications DROP COLUMN pending_items")  # v17
     conn.execute("ALTER TABLE applications DROP COLUMN needs")  # v18
+    conn.execute("DROP TABLE referrals")  # v19
 
 
 def test_new_database_gets_latest_schema(db_path):

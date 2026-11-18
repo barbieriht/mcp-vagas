@@ -110,7 +110,7 @@ function list(data) {
       box.addEventListener("change", () => { box.checked ? jobs.selected.add(item.id) : jobs.selected.delete(item.id); refreshBulk(); });
       return box;
     })()),
-    el("td", { "data-rotulo": "Vaga" }, jobLink(item)),
+    el("td", { "data-rotulo": "Vaga" }, jobLink(item), item.referral ? el("span", { class: "selo", text: "indicação" }) : null),
     el("td", { "data-rotulo": "Status" }, el("span", { class: `etapa etapa-${item.status}`, text: item.status_label })),
     el("td", { "data-rotulo": "Site", text: item.source_label }),
     el("td", { "data-rotulo": "Local", text: [item.location, item.work_mode].filter(Boolean).join(" · ") || "—" }),
