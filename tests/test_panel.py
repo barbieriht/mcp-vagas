@@ -311,15 +311,16 @@ def test_old_diversity_answers_are_saved_in_the_new_fields_with_one_click(skill,
 
 
 @pytest.mark.skipif(not _chromium(), reason="Playwright com Chromium não instalado")
-def test_salary_bands_are_edited_as_a_table(skill, db_path, monkeypatch):
+def test_salary_bands_are_built_from_job_types_and_places(skill, db_path, monkeypatch):
     from playwright.sync_api import sync_playwright
 
     from vagas.salary_policy import parse_policy
 
     policy = skill / "politica-salarial.md"
-    policy.write_text("# Política salarial\n\n- Modo: minimo\n- Multiplicador PJ: 1.4\n"
-                      "- Remoto nacional (BRL, CLT): mínimo 8.000, máximo 12.000\n"
-                      "- Internacional (USD): mínimo 3000\n", encoding="utf-8")
+    policy.write_text("# Política salarial\n\n- Modo: minimo\n- Multiplicador PJ: 1.4\n\n"
+                      "- Faixa: mínimo 8.000, máximo 12.000\n  - Tipos: remoto\n  - Remoto: nacional\n  - CLT: sim\n"
+                      "- Faixa: mínimo 3000\n  - Tipos: remoto\n  - Remoto: internacional\n  - Moeda: USD\n",
+                      encoding="utf-8")
     monkeypatch.setenv("VAGAS_SALARY_POLICY", str(policy))
     monkeypatch.setattr("vagas.settings_form._reevaluate_salaries", lambda db: {"changed": []})
     server = panel.make_server(db_path, token="t0k3n")
@@ -331,37 +332,52 @@ def test_salary_bands_are_edited_as_a_table(skill, db_path, monkeypatch):
             page.goto(server.url)
             bands = page.get_by_role("group", name="Faixas")
             bands.wait_for()
+            assert page.get_by_label("Usar os valores da faixa").count() == 0
             first = bands.locator(".faixa").nth(0)
+            assert first.get_by_role("radiogroup", name="Vagas remotas").get_by_label("Nacionais (em R$)").is_checked()
+            assert first.get_by_label("Moeda das vagas internacionais").is_hidden()
             first.get_by_label("Mínimo mensal").fill("")
             page.get_by_role("button", name="Salvar tudo").click()
             page.get_by_text("Nada foi salvo").wait_for()
             assert first.locator(".celula-min .erro").is_visible()
-
             first.get_by_label("Mínimo mensal").fill("9.500")
+
+            # São Carlos (híbrido e presencial) com um valor
             bands.get_by_role("button", name="Adicionar faixa").click()
-            new = bands.locator(".faixa").nth(2)
-            modes = new.get_by_role("group", name="Modalidade")
-            modes.get_by_label("Remoto").check()
-            cities = new.get_by_role("group", name="Locais")
-            assert cities.is_hidden()  # vaga remota não tem local
-            modes.get_by_label("Remoto").uncheck()
-            modes.get_by_label("Híbrido").check()
-            modes.get_by_label("Presencial").check()
-            assert cities.get_by_label("São Paulo", exact=True).is_visible()
-            cities.get_by_label("Campinas").check()
+            carlos = bands.locator(".faixa").nth(2)
+            types = carlos.get_by_role("group", name="Tipo de vaga")
+            types.get_by_label("Remoto").check()
+            assert carlos.get_by_role("group", name="Cidades").is_hidden()  # só remoto: sem cidades
+            types.get_by_label("Remoto").uncheck()
+            types.get_by_label("Híbrido").check()
+            types.get_by_label("Presencial").check()
+            assert carlos.get_by_role("radiogroup", name="Vagas remotas").is_hidden()
             # cidade nova nos critérios aparece na faixa sem recarregar
-            places = page.get_by_role("group", name="Locais aceitos para híbrido e presencial")
-            places.get_by_label("Cidades").fill("São Paulo, Campinas, Barueri")
-            cities.get_by_label("Barueri").check()
-            new.get_by_label("Usar os valores da faixa").select_option("Remoto nacional")
-            assert new.get_by_label("Mínimo mensal").is_disabled()
-            new.get_by_label("CLT (multiplicada em vagas PJ)").check()
-            assert new.locator(".faixa-titulo").inner_text() == "Faixa 3: Híbrido/presencial em Campinas, Barueri"
+            accepted = page.get_by_role("group", name="Locais aceitos para híbrido e presencial")
+            accepted.get_by_label("Cidades").fill("São Paulo, Campinas, São Carlos")
+            carlos.get_by_role("group", name="Cidades").get_by_label("São Carlos").check()
+            carlos.get_by_label("Mínimo mensal").fill("9000")
+            carlos.get_by_label("CLT (multiplicada em vagas PJ)").check()
+            assert carlos.locator(".faixa-titulo").inner_text() == "Faixa 3: Híbrido/presencial em São Carlos"
+
+            # demais cidades de SP, só híbrido; depois uma faixa que repete São Carlos no híbrido
             bands.get_by_role("button", name="Adicionar faixa").click()
-            state = bands.locator(".faixa").nth(3)
-            state.get_by_role("group", name="Locais").get_by_label("Demais cidades de SP").check()
-            state.get_by_label("Mínimo mensal").fill("9000")
-            bands.locator(".faixa").nth(1).get_by_role("button", name="Remover faixa").click()
+            rest = bands.locator(".faixa").nth(3)
+            rest.get_by_role("group", name="Tipo de vaga").get_by_label("Híbrido").check()
+            rest.get_by_role("group", name="Cidades").get_by_label("Demais cidades de SP").check()
+            rest.get_by_role("group", name="Cidades").get_by_label("São Carlos").check()
+            rest.get_by_label("Mínimo mensal").fill("11000")
+            assert "São Carlos/SP (híbrido) já está na faixa 3" in rest.locator(".aviso").inner_text()
+            page.get_by_role("button", name="Salvar tudo").click()
+            page.get_by_text("Nada foi salvo").wait_for()
+            assert rest.locator(".celula-places .erro").is_visible()
+            rest.get_by_role("group", name="Cidades").get_by_label("São Carlos").uncheck()
+            assert rest.locator(".aviso").is_hidden()
+
+            # internacional: a moeda aparece
+            second = bands.locator(".faixa").nth(1)
+            assert second.get_by_label("Moeda das vagas internacionais").input_value() == "USD"
+            second.get_by_label("Moeda das vagas internacionais").select_option("EUR")
             page.get_by_role("button", name="Salvar tudo").click()
             page.get_by_text("Tudo salvo").wait_for()
             browser.close()
@@ -370,14 +386,17 @@ def test_salary_bands_are_edited_as_a_table(skill, db_path, monkeypatch):
         server.server_close()
 
     text = policy.read_text(encoding="utf-8")
-    assert "- Remoto nacional (BRL, CLT): mínimo 9500, máximo 12000\n" in text
-    assert "- Híbrido/presencial em Campinas, Barueri (BRL, CLT): usar a faixa do Remoto nacional\n" in text
-    assert "- Qualquer vaga em SP (BRL): mínimo 9000\n" in text
-    assert "Internacional" not in text
-    assert {b.label for b in parse_policy(text).bands} == {
-        "Remoto nacional", "Híbrido/presencial em Campinas, Barueri", "Qualquer vaga em SP"}
+    assert "- Faixa: mínimo 9500, máximo 12000\n  - Tipos: remoto\n  - Remoto: nacional\n  - CLT: sim\n" in text
+    assert "  - Moeda: EUR\n" in text
+    assert ("- Faixa: mínimo 9000\n  - Tipos: híbrido, presencial\n  - Locais: SP: São Carlos\n  - CLT: sim\n"
+            in text)
+    assert "- Faixa: mínimo 11000\n  - Tipos: híbrido\n  - Locais: SP: demais cidades\n" in text
+    parsed = parse_policy(text)
+    assert parsed.band_for("hibrido", "São Carlos, SP", "BRL").min == 9000
+    assert parsed.band_for("hibrido", "Ribeirão Preto, SP", "BRL").min == 11000
+    assert parsed.band_for("remoto", None, "EUR").min == 3000
     criteria = (skill / "criterios-triagem.md").read_text(encoding="utf-8")
-    assert "- Locais aceitos para híbrido e presencial: SP: São Paulo, Campinas, Barueri\n" in criteria
+    assert "- Locais aceitos para híbrido e presencial: SP: São Paulo, Campinas, São Carlos\n" in criteria
 
 
 @pytest.mark.skipif(not _chromium(), reason="Playwright com Chromium não instalado")

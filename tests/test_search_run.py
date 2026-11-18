@@ -19,7 +19,8 @@ from vagas.triage import Triage
 pytestmark = pytest.mark.anyio
 
 CRITERIA = "- Cargos alvo: data_scientist\n- Empresas ignoradas: CI&T\n- Locais aceitos para híbrido e presencial: São Paulo\n"
-POLICY = "- Modo: minimo\n- Remoto nacional (BRL, CLT): mínimo 8000\n- Híbrido em São Paulo (BRL, CLT): mínimo 10000\n"
+POLICY = ("- Modo: minimo\n- Faixa: mínimo 8000\n  - Tipos: remoto\n  - Remoto: nacional\n  - CLT: sim\n"
+          "- Faixa: mínimo 10000\n  - Tipos: híbrido\n  - Locais: SP: São Paulo\n  - CLT: sim\n")
 
 
 def linkedin_cards(*ids):

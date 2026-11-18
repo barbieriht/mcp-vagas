@@ -12,9 +12,18 @@ KEY = {"role_key": "data_scientist", "seniority": "pleno"}
 POLICY = """\
 - Modo: minimo
 - Multiplicador PJ: 1.4
-- Remoto nacional (BRL, CLT): mínimo 8.000, máximo 12.000
-- Híbrido/presencial em São Paulo e região (BRL, CLT): mínimo 10.000
-- Internacional (USD): mínimo 3.000
+- Faixa: mínimo 8.000, máximo 12.000
+  - Tipos: remoto
+  - Remoto: nacional
+  - CLT: sim
+- Faixa: mínimo 10.000
+  - Tipos: híbrido, presencial
+  - Locais: SP: São Paulo
+  - CLT: sim
+- Faixa: mínimo 3.000
+  - Tipos: remoto
+  - Remoto: internacional
+  - Moeda: USD
 """
 
 
@@ -53,7 +62,7 @@ def test_band_is_chosen_by_work_mode_and_location(store):
     assert remote["policy"] == {"band": "Remoto nacional", "mode": "minimo", "my_min": 8000, "my_max": 12000,
                                 "pj_multiplier": 1.4}
     assert sp["decision"] == "nao_aplicar" and "10.000" in sp["reason"]
-    assert sp["policy"]["band"] == "Híbrido/presencial em São Paulo e região"
+    assert sp["policy"]["band"] == "Híbrido/presencial em São Paulo"
 
 
 def test_pj_job_uses_policy_multiplier(store):
@@ -71,7 +80,7 @@ def test_band_without_clt_is_not_multiplied_for_pj(store):
     result = store.evaluate_salary(**KEY, currency="USD", contract="pj", work_mode="remoto", location="Lisboa")
 
     assert (result["decision"], result["value_to_inform"]) == ("aplicar", 3200)
-    assert result["policy"]["band"] == "Internacional"
+    assert result["policy"]["band"] == "Remoto internacional"
 
 
 def test_work_mode_and_location_come_from_the_application(store, conn):
@@ -84,7 +93,7 @@ def test_work_mode_and_location_come_from_the_application(store, conn):
                                     (app["id"],)).fetchone()[0])
 
     assert result["decision"] == "nao_aplicar"
-    assert saved["policy"]["band"] == "Híbrido/presencial em São Paulo e região"
+    assert saved["policy"]["band"] == "Híbrido/presencial em São Paulo"
 
 
 def test_explicit_values_still_win_over_the_policy(store):
@@ -168,7 +177,7 @@ async def test_correcting_work_mode_reevaluates_the_salary_via_mcp(db_path, poli
     assert (before["decision"], before["policy"]["band"]) == ("aplicar", "Remoto nacional")
     assert (updated["work_mode"], updated["location"]) == ("presencial", "São Paulo - SP")
     assert updated["salary_evaluation"]["decision"] == "nao_aplicar"
-    assert updated["salary_evaluation"]["policy"]["band"] == "Híbrido/presencial em São Paulo e região"
+    assert updated["salary_evaluation"]["policy"]["band"] == "Híbrido/presencial em São Paulo"
     assert "presencial" in json.dumps(tools["update_application"].input_schema)
 
 
