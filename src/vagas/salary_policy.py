@@ -285,8 +285,8 @@ def parse_policy(text: str, source: str = "politica-salarial.md") -> SalaryPolic
         if "<PREENCHER" in line:
             raise VagasError(f"Preencha o campo em {where}: {line.strip()}")
         item = _ITEM.match(line)
-        if not item or item["indent"]:
-            continue
+        if not item or item["indent"] or not item["value"].strip(" .;"):
+            continue  # campo vazio vale o padrão, como sem a linha
         key, value = item["key"], item["value"]
         norm_key = normalize_text(key)
         if norm_key == "modo":

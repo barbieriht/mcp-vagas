@@ -2,6 +2,7 @@ import importlib.util
 import json
 import os
 import shutil
+import subprocess
 import zipfile
 from pathlib import Path
 
@@ -245,3 +246,18 @@ def test_shortcut_is_really_created_by_powershell(tmp_path):
                              f"(New-Object -ComObject WScript.Shell).CreateShortcut('{created.stdout.strip()}').TargetPath"],
                             **run).stdout.strip()
     assert target.lower() == windows(bat).lower()
+
+
+def test_install_records_the_commit_for_the_automatic_update(tmp_path):
+    """Sem o registro, a primeira sessão depois de instalar reinstalaria tudo de novo."""
+    from vagas import auto_update
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    run = lambda *args: subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
+    run("init", "-q")
+    run("-c", "user.email=t@example.com", "-c", "user.name=T", "commit", "-q", "--allow-empty", "-m", "x")
+    head = run("rev-parse", "HEAD").stdout.strip()
+
+    inst.record_install(tmp_path / "data", repo)
+
+    assert auto_update.read_record(tmp_path / "data") == head

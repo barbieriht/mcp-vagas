@@ -26,6 +26,7 @@ Servidor MCP local (stdio) em Python + SQLite para registrar e deduplicar candid
 - Currículo geral: rascunho YAML em `$VAGAS_MASTER_RESUME` (padrão `curriculo.yaml` ao lado do banco); versões aprovadas ficam no banco, que é a fonte da verdade.
 - Documentos do cofre (CPF, RG...) nos formulários: só pela extensão do Chrome (`extension/`) e pelo host `vagas.autofill_host`, cujo stdout é o canal de native messaging. A regra de domínio, empresa e confirmação fica em `vagas.autofill` (Python, testada); o JS só acha campos e preenche. Teste ponta a ponta em `tests/test_extension.py` (Chromium do Playwright).
 - `skill/candidaturas/perfil.md` tem dados pessoais e fica fora do git; manter `perfil.example.md` com a mesma estrutura.
+- Campo novo num `.example.md` chega sozinho aos arquivos pessoais pela atualização automática (`vagas.auto_update`, [ADR 0006](docs/adr/0006-atualizacao-automatica.md)): no perfil com `<PREENCHER>`, nos critérios e na política vazio, que o leitor tem de tratar como linha ausente (teste em `tests/test_auto_update.py`).
 
 ## Agent skills
 

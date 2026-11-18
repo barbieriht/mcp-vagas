@@ -34,7 +34,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from instalar_desktop import (  # noqa: E402
-    HOST_ENV_KEYS, HOST_NAME, _registered_env, extension_id, host_manifest, panel_bat_native, shortcut_script,
+    HOST_ENV_KEYS, HOST_NAME, _registered_env, extension_id, host_manifest, panel_bat_native, record_install,
+    shortcut_script,
 )
 
 NATIVE_WINDOWS = os.name == "nt"
@@ -228,6 +229,7 @@ def main(argv: list[str] | None = None) -> None:
     subprocess.run(["uv", "pip", "install", "-q", "--reinstall-package", "vagas", "--python", str(STABLE_PYTHON),
                     f"{REPO}[linkedin]"], check=True)
     subprocess.run([str(STABLE_PYTHON), "-m", "playwright", "install", "chromium"], check=True, capture_output=True)
+    record_install(DATA_DIR)
     print(f"    {STABLE_PYTHON} (com o leitor do LinkedIn)")
     if not (DATA_DIR / "linkedin-browser").exists():
         print(f"    para o leitor do LinkedIn, faça login uma vez: {STABLE_PYTHON} -m vagas.linkedin login")

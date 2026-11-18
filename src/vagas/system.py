@@ -7,6 +7,7 @@ testes cobrirem os dois lados em qualquer sistema.
 
 import os
 import platform
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ IN_WSL = not NATIVE_WINDOWS and "microsoft" in platform.uname().release.lower()
 # Flags do CreateProcess (subprocess só as expõe no Windows).
 DETACHED_PROCESS = 0x00000008
 CREATE_NEW_PROCESS_GROUP = 0x00000200
+CREATE_NO_WINDOW = 0x08000000
 _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 _STILL_ACTIVE = 259
 
@@ -66,3 +68,24 @@ def detached_process_options() -> dict[str, Any]:
     if NATIVE_WINDOWS:
         return {"creationflags": DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP}
     return {"start_new_session": True}
+
+
+def hidden_window_options() -> dict[str, Any]:
+    """Argumentos do subprocess.run para um comando rápido (git, uv) não abrir janela de console no Windows."""
+    return {"creationflags": CREATE_NO_WINDOW} if NATIVE_WINDOWS else {}
+
+
+def find_executable(name: str) -> str | None:
+    """git ou uv, também fora do PATH: o Claude Desktop (e o wsl.exe -e) sobe o servidor com um PATH mínimo."""
+    if found := shutil.which(name):
+        return found
+    home = Path.home()
+    if NATIVE_WINDOWS:
+        local = Path(os.environ.get("LOCALAPPDATA") or home / "AppData" / "Local")
+        programs = Path(os.environ.get("ProgramFiles") or "C:/Program Files")
+        candidates = [home / ".local" / "bin" / f"{name}.exe", home / ".cargo" / "bin" / f"{name}.exe",
+                      local / "Microsoft" / "WinGet" / "Links" / f"{name}.exe", programs / "Git" / "cmd" / f"{name}.exe"]
+    else:
+        candidates = [home / ".local" / "bin" / name, home / ".cargo" / "bin" / name, Path("/usr/local/bin") / name,
+                      Path("/opt/homebrew/bin") / name, Path("/usr/bin") / name]
+    return next((str(path) for path in candidates if path.is_file()), None)
