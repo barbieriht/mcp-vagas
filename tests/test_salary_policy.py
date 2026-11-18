@@ -146,3 +146,41 @@ def test_band_lists_several_cities(location, minimum):
 def test_state_name_does_not_match_a_city_band():
     with pytest.raises(VagasError, match="Ribeirão Preto"):
         parse_policy(CITIES).band_for("hibrido", "Ribeirão Preto, São Paulo, Brazil", "BRL")
+
+
+BY_PLACE = """\
+- Remoto (BRL, CLT): mínimo 8.000
+- Híbrido/presencial em São Carlos (BRL, CLT): mínimo 9.000
+- Híbrido/presencial em Campinas, Jundiaí (BRL, CLT): mínimo 10.000
+- Híbrido/presencial em SP (BRL, CLT): mínimo 11.000
+- Híbrido/presencial em RJ (BRL, CLT): mínimo 12.000
+- Qualquer vaga USD (USD): mínimo 3000
+"""
+
+
+@pytest.mark.parametrize("mode, location, currency, minimum", [
+    ("hibrido", "São Carlos, SP, Brasil", "BRL", 9000),
+    ("presencial", "Jundiaí, São Paulo, Brazil", "BRL", 10000),
+    ("hibrido", "Ribeirão Preto, São Paulo, Brazil", "BRL", 11000),  # demais cidades de SP
+    ("hibrido", "São Paulo, SP", "BRL", 11000),  # a cidade São Paulo cai no estado
+    ("hibrido", "Niterói, Rio de Janeiro, Brasil", "BRL", 12000),
+    ("remoto", "Brasil", "BRL", 8000),
+    ("remoto", None, "USD", 3000),
+])
+def test_city_band_comes_before_the_state_band(mode, location, currency, minimum):
+    assert parse_policy(BY_PLACE).band_for(mode, location, currency).min == minimum
+
+
+def test_state_band_is_written_by_the_state_code():
+    band = parse_policy(BY_PLACE).bands[3]
+
+    assert (band.cities, band.states) == ((), ("SP",))
+    with pytest.raises(VagasError, match="Belo Horizonte"):
+        parse_policy(BY_PLACE).band_for("hibrido", "Belo Horizonte, MG", "BRL")
+
+
+def test_alias_prefers_the_band_with_exactly_that_name():
+    policy = parse_policy("- Remoto EUR (EUR): mínimo 2000\n- Remoto (BRL): mínimo 8000\n"
+                          "- Presencial (BRL): usar a faixa do Remoto\n")
+
+    assert policy.band_for("presencial", "Recife", "BRL").min == 8000
