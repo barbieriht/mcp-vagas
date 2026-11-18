@@ -130,6 +130,12 @@ def skill(tmp_path, monkeypatch):
     return folder
 
 
+def example_criteria(roles="data_scientist"):
+    """O exemplo versionado com os cargos preenchidos (ele pede os cargos do próprio usuário)."""
+    text = (EXAMPLES / "criterios-triagem.example.md").read_text(encoding="utf-8")
+    return text.replace("<PREENCHER: os cargos do seu currículo que você busca>", roles)
+
+
 def section_fields(data, name):
     return {f["id"]: f for group in data["sections"][name]["groups"] for f in group["fields"]}
 
@@ -189,20 +195,51 @@ def test_criteria_from_the_example_offer_choices_and_save_a_valid_file(db_path, 
     criteria = section_fields(load(db_path), "criteria")
 
     roles = criteria["Cargos alvo"]
-    assert roles["kind"] == "multi" and roles["value"] == ["data_scientist", "ml_engineer", "ai_engineer"]
-    assert {c["value"] for c in roles["choices"]} >= {"data_scientist", "data_analyst"}
+    assert roles["kind"] == "roles" and roles["value"] == []  # ninguém herda os cargos do exemplo
+    assert roles["suggestions"] == [] and "Aprove o currículo geral" in roles["suggestions_note"]
     assert criteria["Senioridades buscadas"]["kind"] == "multi"
     assert criteria["Aderência mínima"]["kind"] == "int"
 
-    result = save({"criteria": {"Cargos alvo": ["data_scientist"], "Senioridades buscadas": ["pleno", "senior"],
+    result = save({"criteria": {"Cargos alvo": ["Cientista de Dados", "Product Manager (PM, Gerente de Produto)"],
+                                "Senioridades buscadas": ["trainee", "pleno"],
                                 "Vagas afirmativas que posso disputar": ["women"], "Aderência mínima": "60",
                                 "Empresas ignoradas": "Acme, Outra S.A."}}, db_path)
 
     assert result["saved"], result["errors"]
-    saved = parse_criteria((skill / "criterios-triagem.md").read_text(encoding="utf-8"))
-    assert saved.target_roles == ("data_scientist",) and saved.search_seniorities == ("pleno", "senior")
+    text = (skill / "criterios-triagem.md").read_text(encoding="utf-8")
+    saved = parse_criteria(text)
+    assert saved.target_roles == ("data_scientist", "product_manager")
+    assert saved.search_seniorities == ("trainee", "pleno")
     assert saved.affirmative_ok == ("women",) and saved.min_match == 60
-    assert "## Valores aceitos" in (skill / "criterios-triagem.md").read_text(encoding="utf-8")
+    assert "- Cargos alvo: Cientista de Dados, Product Manager (PM, Gerente de Produto)\n" in text
+    assert "## Valores aceitos" in text
+
+
+def test_role_suggestions_come_from_the_approved_resume(db_path, skill):
+    from resume_fixture import fictitious_resume
+    from vagas.db import connect
+    from vagas.resume_repo import ResumeStore, default_draft_path
+
+    (skill / "criterios-triagem.md").write_text(example_criteria("Quantitative Analyst"), encoding="utf-8")
+    with connect(db_path) as conn:
+        store = ResumeStore(conn, default_draft_path(db_path))
+        store.save_master_draft(fictitious_resume())
+        store.approve_master()
+
+    roles = section_fields(load(db_path), "criteria")["Cargos alvo"]
+
+    assert roles["value"] == ["Quantitative Analyst"]
+    assert "Quantitative Analyst" not in roles["suggestions"]  # já escolhido
+    assert "AI Engineering Technical Coordinator" in roles["suggestions"]
+    assert not any("Intern" in s for s in roles["suggestions"])
+
+
+def test_roles_are_required_and_must_be_one_per_line(db_path, skill):
+    empty = save({"criteria": {"Aderência mínima": "60"}}, db_path)
+    broken = save({"criteria": {"Cargos alvo": ["Analista (BI"]}}, db_path)
+
+    assert empty["errors"] == {"criteria.Cargos alvo": "Escolha ou escreva ao menos um cargo alvo."}
+    assert "criteria.Cargos alvo" in broken["errors"]
 
 
 def test_criteria_errors_come_back_for_every_bad_field(db_path, skill):
@@ -227,7 +264,8 @@ def test_places_are_shown_as_groups_by_state_and_the_state_line_is_gone(db_path,
 
 
 def test_saving_places_writes_one_line_of_groups(db_path, skill):
-    result = save({"criteria": {PLACES: [{"state": "SP", "cities": ["São Carlos", " Barueri "]},
+    result = save({"criteria": {"Cargos alvo": ["Cientista de Dados"],
+                                PLACES: [{"state": "SP", "cities": ["São Carlos", " Barueri "]},
                                          {"state": "MG", "cities": []},
                                          {"state": "", "cities": []}]}}, db_path)
 
@@ -249,7 +287,7 @@ def test_bad_place_groups_are_refused(db_path, skill, groups):
 
 
 def test_old_cities_and_states_lines_become_groups(db_path, skill):
-    text = (EXAMPLES / "criterios-triagem.example.md").read_text(encoding="utf-8")
+    text = example_criteria()
     text = text.replace(f"- {PLACES}: SP: São Paulo, Campinas",
                         f"- {PLACES}: São Carlos, Barueri\n- Estados aceitos para híbrido e presencial: SP")
     (skill / "criterios-triagem.md").write_text(text, encoding="utf-8")
@@ -265,7 +303,7 @@ def test_old_cities_and_states_lines_become_groups(db_path, skill):
 
 
 def test_old_cities_with_several_states_stay_without_a_state(db_path, skill):
-    text = (EXAMPLES / "criterios-triagem.example.md").read_text(encoding="utf-8")
+    text = example_criteria()
     text = text.replace(f"- {PLACES}: SP: São Paulo, Campinas",
                         f"- {PLACES}: São Carlos\n- Estados aceitos para híbrido e presencial: SP, Minas Gerais")
     (skill / "criterios-triagem.md").write_text(text, encoding="utf-8")
@@ -277,14 +315,13 @@ def test_old_cities_with_several_states_stay_without_a_state(db_path, skill):
 
 
 def test_criteria_written_by_hand_with_names_are_read_as_choices(db_path, skill):
-    text = (EXAMPLES / "criterios-triagem.example.md").read_text(encoding="utf-8")
-    text = text.replace("- Cargos alvo: data_scientist, ml_engineer, ai_engineer", "- Cargos alvo: Cientista de Dados.")
+    text = example_criteria("Cientista de Dados.")
     text = text.replace("- Senioridades buscadas:", "- Senioridades buscadas: Júnior, Sênior")
     (skill / "criterios-triagem.md").write_text(text, encoding="utf-8")
 
     criteria = section_fields(load(db_path), "criteria")
 
-    assert criteria["Cargos alvo"]["value"] == ["data_scientist"]
+    assert criteria["Cargos alvo"]["value"] == ["Cientista de dados"]
     assert criteria["Senioridades buscadas"]["value"] == ["junior", "senior"]
 
 
@@ -409,7 +446,7 @@ def test_closed_questions_only_take_their_options(db_path, skill):
 
 def test_the_disability_field_warns_when_the_criteria_say_otherwise(db_path, skill):
     (skill / "perfil.md").write_text("## Diversidade e inclusão\n- Possui deficiência: Não\n", encoding="utf-8")
-    criteria = (skill / "criterios-triagem.example.md").read_text(encoding="utf-8")
+    criteria = example_criteria()
     (skill / "criterios-triagem.md").write_text(
         criteria.replace("- Vagas afirmativas que posso disputar: nenhuma", "- Vagas afirmativas que posso disputar: PcD"),
         encoding="utf-8")
@@ -625,7 +662,7 @@ def test_new_policy_keeps_the_example_bands_but_not_its_values(db_path, policy):
 
 
 def test_old_policy_is_converted_with_the_states_of_the_accepted_places(db_path, policy, skill):
-    criteria = (skill / "criterios-triagem.example.md").read_text(encoding="utf-8").replace(
+    criteria = example_criteria().replace(
         "SP: São Paulo, Campinas", "SP: São Carlos, São Paulo, Barueri, Sorocaba")
     (skill / "criterios-triagem.md").write_text(criteria, encoding="utf-8")
     policy.write_text(OLD_POLICY, encoding="utf-8")

@@ -26,7 +26,8 @@ from typing import Any
 from vagas import affirmative
 from vagas.db import default_db_path
 from vagas.job_posting import Fetcher, JobPostingError, http_fetch, read_job_posting
-from vagas.models import CURRENCIES, ROLE_KEYS, ROLE_NAMES, SENIORITIES
+from vagas import roles as roles_
+from vagas.models import CURRENCIES, SENIORITIES
 from vagas.normalize import normalize_company, normalize_text
 from vagas.places import PlaceGroup, parse_places, state_code, state_of
 from vagas.repo import Repo, VagasError
@@ -83,8 +84,9 @@ _YEARS = re.compile(
 
 @dataclass(frozen=True)
 class TriageCriteria:
-    target_roles: tuple[str, ...]
+    target_roles: tuple[str, ...]  # chaves dos cargos (roles_.Role.key)
     conditional_roles: tuple[str, ...] = ()
+    roles: tuple[roles_.Role, ...] = ()  # os cargos dos critérios, com nomes e sinônimos
     min_match: int = 50
     ignored_companies: tuple[str, ...] = ()  # normalizados como empresa
     pcd_terms: tuple[str, ...] = ()  # normalizados como texto
@@ -138,23 +140,10 @@ def _clean(text: str) -> str:
     return text.strip().rstrip(".;").strip()
 
 
-def _role(item: str) -> str | None:
-    """"data_scientist", "Data Scientist", "ML-Engineer" ou "cientista de dados" -> role_key."""
-    norm = normalize_text(item)
-    key = re.sub(r"[\s-]+", "_", norm)
-    if key in ROLE_KEYS and key != "outro":
-        return key
-    return next((k for k, names in ROLE_NAMES.items() if norm in names), None)
-
-
-def _roles(items: list[str], where: str) -> tuple[str, ...]:
-    roles = {item: _role(item) for item in items}
-    unknown = [item for item, role in roles.items() if role is None]
-    if unknown:
-        accepted = [k for k in ROLE_KEYS if k != "outro"]
-        raise VagasError(f"Cargo desconhecido em {where}: {', '.join(unknown)}. Valores aceitos: "
-                         f"{', '.join(accepted)} (ou o nome em português ou inglês, ex.: cientista de dados).")
-    return tuple(dict.fromkeys(roles.values()))
+def _roles(value: str) -> tuple[roles_.Role, ...]:
+    """Cargos em texto livre ("Desenvolvedor Backend", "Product Manager (PM, Gerente de Produto)"); códigos e nomes
+    das famílias conhecidas ("data_scientist", "cientista de dados") valem como sempre."""
+    return roles_.parse_list(value)
 
 
 def parse_criteria(text: str, source: str = "criterios-triagem.md") -> TriageCriteria:
@@ -171,7 +160,10 @@ def parse_criteria(text: str, source: str = "criterios-triagem.md") -> TriageCri
         value = _clean(item["value"])
         items = [_clean(v) for v in value.split(",") if _clean(v)]
         if field in ("target_roles", "conditional_roles"):
-            values[field] = _roles(items, where)
+            found = _roles(value)
+            values[field] = tuple(r.key for r in found)
+            values["roles"] = (*values.get("roles", ()), *(r for r in found if r.key not in
+                                                          {x.key for x in values.get("roles", ())}))
         elif field == "min_match":
             number = value.rstrip("%").strip()
             if not number.isdigit() or not 0 <= int(number) <= 100:
@@ -198,7 +190,8 @@ def parse_criteria(text: str, source: str = "criterios-triagem.md") -> TriageCri
         else:
             values[field] = tuple(normalize_text(v) for v in items)
     if not values.get("target_roles"):
-        raise VagasError(f"{source}: informe a linha '- Cargos alvo: data_scientist, ...'.")
+        raise VagasError(f"{source}: informe os cargos alvo ('- Cargos alvo: <cargo>, <cargo>'). Sugestões do seu "
+                         "currículo geral: suggest_target_roles, ou a seção de critérios do painel.")
     # Os estados dos grupos de locais são os aceitos; a linha antiga "Estados aceitos" ainda soma a eles.
     states = [g.state for g in values.get("places", ()) if g.state] + list(values.get("accepted_states", ()))
     values["accepted_states"] = tuple(dict.fromkeys(states))
@@ -353,6 +346,8 @@ class Triage:
             posting = read_job_posting(url, fetcher=self.fetcher)
         except JobPostingError as exc:
             raise VagasError(f"{exc} Depois, faça a triagem pelos passos manuais da Skill.") from exc
+        role = roles_.classify(posting["title"], criteria.roles)  # os cargos do usuário, depois os conhecidos
+        posting = {**posting, "role_key": role.key if role else "outro", "role_certain": role is not None}
 
         if posting.get("closed"):  # nada é registrado: vaga que não aceita candidaturas não entra na lista
             return self._result("encerrada", None, posting, None, None,
@@ -483,27 +478,29 @@ class Triage:
     def _role(criteria: TriageCriteria, posting: dict[str, Any], match: dict[str, Any] | None,
               reasons: list[str], needs: list[dict[str, Any]]) -> str | None:
         role_key, title = posting["role_key"], posting["title"]
+        name = roles_.names(role_key, criteria.roles)[0]
         if not posting["role_certain"]:
+            listed = [roles_.names(k, criteria.roles)[0] for k in criteria.target_roles + criteria.conditional_roles]
             needs.insert(0, {"kind": "cargo", "detail": (
                 f"Cargo {title!r} não reconhecido pelo título. Confirme pela descrição se é um dos cargos alvo "
-                f"({', '.join(criteria.target_roles + criteria.conditional_roles)}); se não for, descarte com "
-                "update_application. Se for, avalie o salário com evaluate_salary (role_key e senioridade).")})
+                f"({', '.join(listed)}); se não for, descarte com update_application. Se for, avalie o salário com "
+                "evaluate_salary (role_key do cargo, como em suggest_target_roles, e senioridade).")})
             return None
         if role_key in criteria.target_roles:
-            reasons.append(f"Cargo {role_key} entre os cargos alvo.")
+            reasons.append(f"Cargo {name} ({role_key}) entre os cargos alvo.")
             return None
         if role_key in criteria.conditional_roles:
             score = match["score"] if match else None
             if score is None:
                 needs.append({"kind": "aderencia", "detail": (
-                    f"Cargo {role_key} só entra com aderência de {criteria.min_match} ou mais, e a aderência não "
+                    f"Cargo {name} só entra com aderência de {criteria.min_match} ou mais, e a aderência não "
                     "foi calculada: julgue pela descrição e descarte com update_application se for baixa.")})
                 return None
             if score < criteria.min_match:
-                return f"Cargo {role_key} exige aderência de {criteria.min_match} ou mais; aderência {score}."
-            reasons.append(f"Cargo {role_key} com aderência {score} (mínimo {criteria.min_match}).")
+                return f"Cargo {name} exige aderência de {criteria.min_match} ou mais; aderência {score}."
+            reasons.append(f"Cargo {name} com aderência {score} (mínimo {criteria.min_match}).")
             return None
-        return f"Cargo {role_key} fora dos cargos alvo."
+        return f"Cargo {name} ({role_key}) fora dos cargos alvo."
 
     @staticmethod
     def _location(criteria: TriageCriteria, posting: dict[str, Any], reasons: list[str],

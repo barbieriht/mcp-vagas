@@ -19,6 +19,7 @@ from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urlsplit
 
+from vagas import roles as roles_
 from vagas.normalize import canonical_url
 
 USER_AGENT = "vagas-mcp/0.1 (uso pessoal; leitura de vagas)"
@@ -42,6 +43,7 @@ def _plain(text: str) -> str:
 
 
 _SENIORITY = [
+    ("trainee", r"\btrainees?\b"),  # programa de trainee: antes de estágio ("Estágio ou Trainee" é trainee)
     ("estagio", r"\b(estagio|estagiari\w*|intern|internship)\b"),
     ("staff", r"\b(staff|principal)\b"),
     ("especialista", r"\b(especialista|specialist|lead|lider)\b"),
@@ -49,16 +51,6 @@ _SENIORITY = [
     ("pleno", r"\b(pleno|pl|mid)\b"),
     ("junior", r"\b(junior|jr)\b"),
 ]
-_ROLES = [
-    ("ml_engineer", r"(machine learning|\bml\b).*(engineer|engenh|\beng\b)|(engineer|engenh|\beng\b).*(machine learning|\bml\b)"
-                    r"|\bmle\b|visao computacional|computer vision"),
-    ("ai_engineer", r"\b(ai|llm|genai)\b.*engineer|(engenh|desenvolvedor|developer)\w*.*\b(ia|ai|inteligencia artificial)\b"),
-    ("data_scientist", r"data scien|cientista (de )?dados|ciencia de dados"),
-    ("data_engineer", r"data engineer|engenheir\w*(\(a\))? de dados"),
-    ("data_analyst", r"data analyst|analista de (dados|bi)\b|\bbi analyst"),
-]
-
-
 def classify_role(title: str) -> tuple[str, str | None, bool]:
     """Título -> (role_key, senioridade ou None, certeza do role_key)."""
     text = _plain(title)
@@ -66,8 +58,8 @@ def classify_role(title: str) -> tuple[str, str | None, bool]:
     if seniority is None:  # nível numérico no fim do título: "Data Scientist II", "Desenvolvedor IA III"
         level = re.search(r"\b(i{1,3})\s*$", text)
         seniority = {"i": "junior", "ii": "pleno", "iii": "senior"}.get(level.group(1)) if level else None
-    role = next((key for key, pattern in _ROLES if re.search(pattern, text)), None)
-    return (role or "outro", seniority, role is not None)
+    role = roles_.classify(title)  # só as famílias conhecidas; a triagem reclassifica com os cargos do usuário
+    return (role.key if role else "outro", seniority, role is not None)
 
 
 class _Text(HTMLParser):

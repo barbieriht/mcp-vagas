@@ -20,7 +20,8 @@ from urllib.parse import quote, urlencode
 
 from vagas.job_posting import Fetcher, JobPostingError, http_fetch, parse_salary_text
 from vagas.job_search import JobSearchStore
-from vagas.models import ROLE_NAMES, SENIORITY_LABELS, WORK_MODES
+from vagas import roles as roles_
+from vagas.models import SENIORITY_LABELS, WORK_MODES
 from vagas.normalize import canonical_url
 from vagas.repo import Repo, VagasError
 from vagas.resume_repo import ResumeStore, default_draft_path
@@ -39,7 +40,6 @@ _TO_GUPY_MODE = {"remoto": "remote", "hibrido": "hybrid", "presencial": "on-site
 _FROM_GUPY_MODE = {"remote": "remoto", "hybrid": "hibrido", "on-site": "presencial", "onsite": "presencial"}
 _GUPY_CONTRACTS = {"vacancy_type_effective": "clt", "vacancy_type_legal_entity": "pj"}
 
-ROLE_QUERIES = ROLE_NAMES
 SENIORITY_WORDS = SENIORITY_LABELS
 
 
@@ -214,7 +214,7 @@ class JobBoard:
         skills, note = self._top_skills()
         searches: list[dict[str, Any]] = []
         for role in criteria.target_roles:
-            terms = ROLE_QUERIES[role]
+            terms = roles_.names(role, criteria.roles)
             queries = ([f"{t} {SENIORITY_WORDS[s]}" for t in terms for s in criteria.search_seniorities]
                        or list(terms))
             for source in SEARCHABLE:

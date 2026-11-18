@@ -197,7 +197,7 @@ def test_invalid_points_are_rejected(store, bad, message):
 
 
 @pytest.mark.parametrize("field, value", [
-    ("role_key", "cientista"), ("seniority", "sr"), ("currency", "GBP"),
+    ("role_key", "Cientista de Dados"), ("seniority", "sr"), ("currency", "GBP"),
 ])
 def test_invalid_key_is_rejected(store, field, value):
     with pytest.raises(VagasError, match=field):

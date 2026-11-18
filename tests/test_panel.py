@@ -199,6 +199,17 @@ def skill(tmp_path, monkeypatch):
     return folder
 
 
+def add_role(page, name="Cientista de Dados", enter=False):
+    """Escreve um cargo alvo no painel (nada vem marcado de antemão)."""
+    roles = page.get_by_role("group", name="Cargos alvo")
+    roles.get_by_label("Outro cargo").fill(name)
+    if enter:
+        roles.get_by_label("Outro cargo").press("Enter")
+    else:
+        roles.get_by_role("button", name="Adicionar cargo").click()
+    return roles
+
+
 @pytest.mark.skipif(not _chromium(), reason="Playwright com Chromium não instalado")
 def test_profile_and_criteria_are_filled_in_one_go(skill, db_path):
     from playwright.sync_api import sync_playwright
@@ -225,7 +236,11 @@ def test_profile_and_criteria_are_filled_in_one_go(skill, db_path):
 
             page.get_by_label("Aderência mínima").fill("60")
             criteria = page.get_by_role("group", name="Cargos alvo")
-            criteria.get_by_label("Engenheiro de ia").uncheck()
+            assert criteria.locator("input[type=checkbox]").count() == 0  # nenhum cargo de exemplo
+            add_role(page, "Cientista de Dados")
+            add_role(page, "Desenvolvedor Backend (Backend Developer)", enter=True)
+            add_role(page, "cientista de dados")  # repetido: só marca o que já está
+            assert criteria.locator("input:checked").count() == 2
             page.get_by_role("group", name="Senioridades buscadas").get_by_label("Pleno").check()
             page.get_by_role("button", name="Salvar tudo").click()
             page.get_by_text("Tudo salvo").wait_for()
@@ -238,7 +253,7 @@ def test_profile_and_criteria_are_filled_in_one_go(skill, db_path):
     assert "- Nome: Maria Teste" in profile and "- Incluir em bancos de talentos: não" in profile
     assert "Fulano" not in profile
     saved = parse_criteria((skill / "criterios-triagem.md").read_text(encoding="utf-8"))
-    assert saved.target_roles == ("data_scientist", "ml_engineer") and saved.search_seniorities == ("pleno",)
+    assert saved.target_roles == ("data_scientist", "desenvolvedor_backend") and saved.search_seniorities == ("pleno",)
     assert saved.min_match == 60
 
 
@@ -420,6 +435,7 @@ def test_salary_bands_are_built_from_job_types_and_places(skill, db_path, monkey
             second = bands.locator(".faixa").nth(1)
             assert second.get_by_label("Moeda das vagas internacionais").input_value() == "USD"
             second.get_by_label("Moeda das vagas internacionais").select_option("EUR")
+            add_role(page)
             page.get_by_role("button", name="Salvar tudo").click()
             page.get_by_text("Tudo salvo").wait_for()
             browser.close()
@@ -463,6 +479,7 @@ def test_accepted_places_are_edited_by_state(skill, db_path):
             rj.get_by_label("Cidades").fill("Niterói, Rio de Janeiro")
             places.get_by_role("button", name="Adicionar estado").click()
             places.locator(".local").nth(2).get_by_label("Estado", exact=True).select_option("SP")
+            add_role(page)
             page.get_by_role("button", name="Salvar tudo").click()
             page.get_by_text("Nada foi salvo").wait_for()
             assert "duas vezes" in places.locator(".erro").inner_text()
@@ -1112,6 +1129,7 @@ def test_whole_first_use_from_the_link_the_claude_sends(skill, db_path, tmp_path
             page.get_by_label("Aderência mínima").fill("65")
             bands = page.get_by_role("group", name="Faixas")
             bands.locator(".faixa").nth(0).get_by_label("Mínimo mensal").fill("9.000")
+            add_role(page)
             page.get_by_role("button", name="Salvar tudo").click()
             page.get_by_text("Tudo salvo").wait_for()
             browser.close()
