@@ -9,9 +9,10 @@ deduz uma resposta que o perfil não tem. Perguntas de diversidade só saem dos 
 
 import math
 import re
+from datetime import date
 from typing import Any
 
-from vagas import diversity, languages
+from vagas import diversity, generic_questions, languages
 from vagas.normalize import normalize_text
 
 LANGUAGES_LABEL = languages.LANGUAGES_LABEL
@@ -250,6 +251,20 @@ def _missing(label: str, section: str | None) -> dict[str, Any]:
                       "add_profile_field (mesmo label, value)."}
 
 
+_GENERIC_LABELS = {_norm(label) for label in generic_questions.LABELS.values()}
+
+
+def _without_options(label: str) -> str:
+    return re.sub(r"\s*\bopcoes\b.*$", "", _norm(label))
+
+
+def _answered_label(profile: dict[str, Any], question: str) -> tuple[str, dict[str, Any]] | None:
+    """O campo já respondido cujo rótulo é a própria pergunta (sem as opções anotadas no rótulo)."""
+    key = _without_options(question)
+    return next(((s, f) for s, f in _fields(profile)
+                 if f["status"] == "ok" and key and _without_options(f["label"]) == key), None)
+
+
 def _by_label(profile: dict[str, Any], question: str) -> tuple[str, dict[str, Any]] | None:
     """O campo cujo rótulo é a pergunta: igual, ou com todas as palavras de um contidas no outro (o mais longo)."""
     words = set(_norm(question).split()) - _STOP
@@ -259,6 +274,8 @@ def _by_label(profile: dict[str, Any], question: str) -> tuple[str, dict[str, An
     for section, field in _fields(profile):
         if diversity.question(field["label"]) or diversity.is_old_block(field["label"]):
             continue  # diversidade só pela pergunta reconhecida
+        if _norm(field["label"]) in _GENERIC_LABELS:
+            continue  # campos genéricos só pela pergunta reconhecida
         if _norm(field["label"]) == _norm(question):
             return section, field
         label_words = set(_norm(field["label"]).split()) - _STOP
@@ -270,12 +287,13 @@ def _by_label(profile: dict[str, Any], question: str) -> tuple[str, dict[str, An
 
 
 def resolve(profile: dict[str, Any], question: str, options: list[str] | None = None, years: float | None = None,
-            salary: float | None = None) -> dict[str, Any]:
+            salary: float | None = None, company: str | None = None, today: date | None = None) -> dict[str, Any]:
     """{answer, source} ou {blocked: true, reason, missing_field?, existing?, section?}.
 
     years: anos de experiência a informar (get_profile.experience.years_to_inform); salary: pretensão da
-    candidatura (salary_ask). missing_field com existing false: o campo a criar no perfil (o rótulo da
-    pergunta, com as opções vistas)."""
+    candidatura (salary_ask); company: a empresa da candidatura, para as perguntas sobre ela ("Você trabalha na
+    empresa X?", "Foi indicado?"), comparada com get_profile.experience.periods. missing_field com existing
+    false: o campo a criar no perfil (o rótulo da pergunta, com as opções vistas)."""
     options = [o.strip() for o in options or [] if o and o.strip()]
     norm = _norm(question)
     if questions := _diversity_questions(question):
@@ -309,6 +327,10 @@ def resolve(profile: dict[str, Any], question: str, options: list[str] | None = 
         if chosen is None:
             return {"blocked": True, "reason": f"Nenhuma opção cobre a pretensão {salary:g}. Opções: {', '.join(options)}."}
         return {"answer": chosen, "source": {"kind": "pretensao", "field": "salary_ask"}}
+    if found := _answered_label(profile, question):
+        return _answer(*found, options)
+    if (result := _generic(profile, question, options, company, today or date.today())) is not None:
+        return result
     if found := _by_label(profile, question):
         return _answer(*found, options)
     # Sem ":" no rótulo: no perfil, "- rótulo: valor" separa no primeiro ":".
@@ -316,6 +338,72 @@ def resolve(profile: dict[str, Any], question: str, options: list[str] | None = 
     if options:
         label = f"{label} (opções {', '.join(o.replace(':', ' -') for o in options)})"
     return _missing(label, None)
+
+
+# --- perguntas sobre a empresa da vaga -------------------------------------------------------------
+
+def _english(question: str) -> bool:
+    return bool(set(_norm(question).split()) & {"you", "your", "are", "have", "were", "did", "do"})
+
+
+def _yes_no(value: str, question: str, options: list[str]) -> str | None:
+    """"Sim"/"Não" na opção do formulário; sem opções, na língua da pergunta."""
+    if not options and _english(question):
+        return {"Sim": "Yes", "Não": "No"}[value]
+    return pick(value, options)
+
+
+def _is_yes_no(options: list[str]) -> bool:
+    return bool(options) and pick("Sim", options) is not None and pick("Não", options) is not None
+
+
+def _generic(profile: dict[str, Any], question: str, options: list[str], company: str | None,
+             today: date) -> dict[str, Any] | None:
+    """Perguntas que repetem o nome de cada empresa: pelo currículo geral (trabalha ou trabalhou lá) ou pelo campo
+    genérico de indicação. None quando a pergunta não é uma delas."""
+    kind = generic_questions.kind(question, company)
+    if kind is None:
+        return None
+    label = generic_questions.LABELS[kind]
+    if kind == generic_questions.REFERRAL:
+        return _referral(profile, question, options)
+    if company is None and generic_questions.points_here(question):
+        return {"blocked": True, "reason": "A pergunta é sobre a empresa da vaga: chame de novo com o application_id."}
+    periods = (profile.get("experience") or {}).get("periods") or []
+    if not periods:
+        return {"blocked": True, "reason": "Sem experiências no currículo geral aprovado para comparar com a empresa "
+                                           "da vaga: aprove o currículo geral (approve_master)."}
+    found = generic_questions.worked_at(periods, question, company, kind == generic_questions.CURRENT, today)
+    chosen = _yes_no("Sim" if found else "Não", question, options)
+    if chosen is None:
+        return {"blocked": True, "reason": f"Nenhuma opção do formulário equivale a {'Sim' if found else 'Não'!r} "
+                                           f"({label}). Opções: {', '.join(options)}."}
+    source = {"kind": "curriculo", "field": label,
+              "experiences": [f"{p.get('title')} — {p.get('company')}" for p in found]}
+    return {"answer": chosen, "source": source}
+
+
+def _referral(profile: dict[str, Any], question: str, options: list[str]) -> dict[str, Any]:
+    label = generic_questions.REFERRAL_LABEL
+    found = _find(profile, label)
+    if found is None:
+        return _missing(label, generic_questions.SECTION)
+    section, field = found
+    if blocked := _blocked_by_status(section, field):
+        return blocked
+    if generic_questions.asks_details(question) and not _is_yes_no(options):
+        if pick(field["value"], ["Sim", "Não"]) == "Não":
+            return {"blocked": True, "reason": f"O perfil diz que não houve indicação ({label!r}): deixe o campo em "
+                                               "branco; se for obrigatório, pergunte ao usuário."}
+        return {"blocked": True, "reason": "A pergunta pede o nome ou o contato de quem indicou: pergunte ao usuário."}
+    value = pick(field["value"], ["Sim", "Não"])
+    if value is None:
+        return _answer(section, field, options)
+    chosen = _yes_no(value, question, options)
+    if chosen is None:
+        return {"blocked": True, "reason": f"Nenhuma opção do formulário equivale a {field['value']!r} (campo "
+                                           f"{label!r} do perfil). Opções: {', '.join(options)}."}
+    return {"answer": chosen, "source": {"kind": "perfil", "field": label, "section": section}}
 
 
 def _language(profile: dict[str, Any], question: str, language: str, options: list[str]) -> dict[str, Any] | None:

@@ -28,6 +28,14 @@ def _month(text: str | None, today: date, is_end: bool) -> int | None:
     return None
 
 
+def is_current(end: str | None, today: date) -> bool:
+    """Experiência em andamento: fim vazio, "Present", "atual"... (ou uma data depois de hoje)."""
+    if normalize_text(end or "").rstrip(".") in _CURRENT:
+        return True
+    month = _month(end, today, True)
+    return month is not None and month > today.year * 12 + today.month - 1
+
+
 def experience_years(resume: dict[str, Any], today: date) -> float | None:
     """Soma dos meses das experiências profissionais (mês de início e de fim inclusos), com uma casa decimal."""
     periods = []

@@ -651,7 +651,8 @@ def build_server(
         (respostas no formato antigo: não use; veja migration). notes: só orientações de como responder
         (ex.: como escolher em escala fixa), nunca respostas.
         migration (só quando há o que migrar): {kind, id, section, fields: [{label, value, from}]}: os campos novos
-        propostos, com o texto de origem (kind "diversidade" ou "idiomas"). Antes de preencher formulários, mostre-os
+        propostos, com o texto de origem (kind "diversidade", "idiomas" ou "campos_genericos", que traz também
+        removed: os campos criados um por empresa que saem). Antes de preencher formulários, mostre-os
         ao usuário uma vez e chame apply_profile_migration com a resposta dele. warnings: o que no perfil precisa da atenção dele.
         experience: {years_to_inform, years_computed, years_exact, years_declared, periods}. Quando o
         formulário pedir anos de experiência, informe years_to_inform: o valor que o usuário declarou no
@@ -668,7 +669,9 @@ def build_server(
         perguntar qualquer coisa ao usuário. Não responda essas perguntas por conta própria.
 
         question: o texto da pergunta como está no formulário; options: as opções oferecidas (vazio em campo
-        de texto); application_id: a candidatura, para a pretensão salarial dela.
+        de texto); application_id: a candidatura, para a pretensão salarial e a empresa dela. Perguntas com o nome
+        da empresa ("Você trabalha na empresa X?", "É colaborador X?", "Have you previously worked at X?", "Foi
+        indicado?") saem do currículo geral e de campos genéricos do perfil, nunca de um campo por empresa.
         Retorna {answer, source} (a opção exata a escolher, ou o texto a digitar) ou {blocked: true, reason}.
         Com missing_field, o perfil não tem a resposta: o campo já foi criado (created true) ou estava a
         preencher; pergunte ao usuário uma vez e grave com add_profile_field (label = missing_field, value);
@@ -683,12 +686,14 @@ def build_server(
         if checkbox:
             result = resolve_checkbox(profile, question, str(paths_config.resolve("consent_mode", db_path)[0]))
             return _with_missing_field(result)
-        salary = None
+        salary = company = None
         if application_id is not None:
             with repo() as r:
-                salary = r.get(application_id).get("salary_ask")
+                application = r.get(application_id)
+            salary, company = application.get("salary_ask"), application.get("company")
         return _with_missing_field(
-            resolve(profile, question, options, years=profile["experience"]["years_to_inform"], salary=salary))
+            resolve(profile, question, options, years=profile["experience"]["years_to_inform"], salary=salary,
+                    company=company))
 
     def _with_missing_field(result: dict[str, Any]) -> dict[str, Any]:
         """Campo que o perfil não tem: cria com <PREENCHER> (created); a preencher: created false."""
@@ -723,9 +728,10 @@ def build_server(
         """Responde à proposta `migration` do get_profile, depois de mostrá-la ao usuário. accept true grava a
         proposta: "diversidade" cria os campos da seção "Diversidade e inclusão" (sem resposta, ficam a preencher)
         e tira o campo antigo; "idiomas" deixa em "Idiomas" só o nível declarado e passa o certificado para
-        "Certificações de idiomas". false guarda a recusa, e essa proposta não volta. Depois, chame get_profile:
+        "Certificações de idiomas"; "campos_genericos" tira os campos criados um por empresa e cria os genéricos
+        (trabalha, trabalhou e foi indicado). false guarda a recusa, e essa proposta não volta. Depois, chame get_profile:
         pode haver outra proposta. Chame só com a resposta dele, nunca por conta própria.
-        Retorna {kind, written, to_fill} ou {declined: true, kind}."""
+        Retorna {kind, written, to_fill, removed?} ou {declined: true, kind}."""
         try:
             files = ProfileFiles(default_skill_dir(db_path))
             with repo() as r:

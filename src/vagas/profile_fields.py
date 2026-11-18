@@ -12,7 +12,7 @@ from collections.abc import Collection
 from pathlib import Path
 from typing import Any
 
-from vagas import diversity, languages
+from vagas import diversity, generic_questions, languages
 from vagas.normalize import normalize_text
 from vagas.repo import VagasError
 from vagas.salary_policy import default_policy_path
@@ -138,7 +138,8 @@ class ProfileFiles:
 
         `migration` é a próxima proposta de mudança de formato, para o usuário confirmar (uma por vez, `kind`):
         "diversidade" (respostas no formato antigo, subitens de "Diversidade", que nunca saem como observações: o
-        campo fica "migrar") ou "idiomas" (nível declarado e certificado na mesma linha de "Idiomas"). `declined`
+        campo fica "migrar"), "idiomas" (nível declarado e certificado na mesma linha de "Idiomas") ou
+        "campos_genericos" (campos criados um por empresa, trocados pelos genéricos; `removed` lista os que saem). `declined`
         são os ids das propostas que ele recusou: elas não voltam (o campo antigo de diversidade fica
         "preencher")."""
         from vagas.sensitive import ALLOWED_FIELDS
@@ -200,6 +201,12 @@ class ProfileFiles:
             warnings.append(
                 "O usuário recusou migrar as respostas de diversidade do formato antigo: elas não valem nos formulários. "
                 f"Pergunte cada uma quando um formulário pedir e grave com add_profile_field (section \"{diversity.SECTION}\").")
+        if migration is not None and migration["kind"] == "campos_genericos":
+            warnings.append(
+                "O perfil tem campos criados um por empresa (\"Você trabalha na empresa X?\", \"Foi indicado?\"), que "
+                "agora são respondidos por campos genéricos. Mostre ao usuário os campos de 'migration' (os que saem "
+                "em 'removed' e os que entram em 'fields') e pergunte se confirma; com a resposta dele, chame "
+                "apply_profile_migration (accept true ou false).")
         if migration is not None and migration["kind"] == "idiomas":
             warnings.append(
                 "\"Idiomas\" junta o nível declarado e o certificado (formato antigo). Mostre ao usuário os campos de "
@@ -211,7 +218,8 @@ class ProfileFiles:
 
     def _migrations(self, perfil: "_Profile") -> list[dict[str, Any]]:
         """Propostas de mudança de formato, na ordem em que são oferecidas."""
-        return [m for m in (self._migration(perfil), self._languages_migration(perfil)) if m is not None]
+        return [m for m in (self._migration(perfil), self._languages_migration(perfil), self._generic_migration(perfil))
+                if m is not None]
 
     def _migration(self, perfil: "_Profile") -> dict[str, Any] | None:
         old = perfil.old_diversity()
@@ -244,6 +252,66 @@ class ProfileFiles:
             {"label": languages.LANGUAGES_LABEL, "value": declared, "from": old},
             {"label": languages.CERTIFICATIONS_LABEL, "value": ", ".join(merged), "from": old}]}
 
+    def _generic_migration(self, perfil: "_Profile") -> dict[str, Any] | None:
+        """Campos criados um por empresa ("Você trabalha na empresa X?", "É colaborador X?", "Foi indicado?"): propõe
+        tirá-los e usar os campos genéricos. Fica um "Sim" de trabalha ou trabalhou (pode não estar no currículo);
+        a resposta de indicação passa para o campo genérico quando todas concordam."""
+        removed, referrals = [], []
+        for index, line in enumerate(perfil.lines):
+            item = _ITEM.match(line)
+            if not item or line.startswith((" ", "\t")):
+                continue
+            label, value = item["label"].strip(), item["value"].strip()
+            if _key(label) in {_key(v) for v in generic_questions.LABELS.values()}:
+                continue
+            kind = generic_questions.kind(re.sub(r"\s*\(op[cç][oõ]es\b.*$", "", label))
+            if kind is None:
+                continue
+            answer = generic_questions.yes_no(value)
+            if kind != generic_questions.REFERRAL and answer == "Sim":
+                continue
+            removed.append({"label": label, "value": None if value.startswith("<") else value})
+            if kind == generic_questions.REFERRAL and answer:
+                referrals.append(answer)
+        if not removed:
+            return None
+        fields = []
+        for kind, label in generic_questions.LABELS.items():
+            if perfil.find(label) is not None:
+                continue
+            value = generic_questions.FROM_RESUME if kind != generic_questions.REFERRAL else (
+                referrals[0] if referrals and len(set(referrals)) == 1 else None)
+            fields.append({"label": label, "value": value, "from": None})
+        block = "\n".join(f"{r['label']}: {r['value']}" for r in removed)
+        return {"kind": "campos_genericos", "id": _digest(block), "section": generic_questions.SECTION,
+                "fields": fields, "removed": removed}
+
+    def _apply_generic(self, migration: dict[str, Any]) -> dict[str, Any]:
+        labels = {_key(r["label"]) for r in migration["removed"]}
+        for name, filled in (("perfil.md", True), ("perfil.example.md", False)):
+            profile = _Profile(self.dir / name)
+            index = 0
+            while index < len(profile.lines):
+                item = _ITEM.match(profile.lines[index])
+                if item and _key(item["label"]) in labels:
+                    del profile.lines[index:profile.block_end(index)]
+                else:
+                    index += 1
+            header, _ = profile.section(generic_questions.SECTION, create=True)
+            fields = {f["label"]: f["value"] for f in migration["fields"]} if filled else {}
+            for kind, label in generic_questions.LABELS.items():
+                if profile.find(label) is not None:
+                    continue
+                value = fields.get(label) if filled else "<...>"
+                if filled and label not in fields:
+                    continue
+                profile.insert(header, f"- {label}: {value or PLACEHOLDER}")
+                profile.insert(header, f"  - {generic_questions.NOTES[kind]}")
+            profile.save()
+        return {"written": [f["label"] for f in migration["fields"] if f["value"]],
+                "to_fill": [f["label"] for f in migration["fields"] if not f["value"]],
+                "removed": [r["label"] for r in migration["removed"]]}
+
     def apply_migration(self, declined: Collection[str] = ()) -> dict[str, Any]:
         """Grava a proposta que get_profile mostra (a primeira não recusada; sem ela, a primeira recusada, que o
         usuário pediu para aplicar depois). Retorna {kind, written, to_fill}."""
@@ -254,6 +322,8 @@ class ProfileFiles:
         chosen = next((m for m in proposals if m["id"] not in declined), proposals[0])
         if chosen["kind"] == "idiomas":
             return {"kind": "idiomas", **self._apply_languages(perfil, chosen)}
+        if chosen["kind"] == "campos_genericos":
+            return {"kind": "campos_genericos", **self._apply_generic(chosen)}
         return {"kind": "diversidade", **self.apply_diversity_migration()}
 
     def _apply_languages(self, perfil: "_Profile", migration: dict[str, Any]) -> dict[str, Any]:

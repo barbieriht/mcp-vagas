@@ -11,7 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from vagas import diversity
+from vagas import diversity, generic_questions
 from vagas.models import PENDING_KINDS, PendingKind
 from vagas.normalize import normalize_text
 from vagas.repo import VagasError
@@ -82,5 +82,15 @@ def answered(profile: dict[str, Any]) -> set[str]:
     return {key(f["label"]) for s in profile.get("sections") or [] for f in s.get("fields") or [] if f["status"] == "ok"}
 
 
+def _generic_done(field: str, done: set[str]) -> bool:
+    """Item de um campo criado por empresa ("Você trabalha na empresa X?"): o currículo geral responde trabalha e
+    trabalhou; a indicação, o campo genérico do perfil."""
+    kind = generic_questions.kind(re.sub(r"\s*\(op[cç][oõ]es\b.*$", "", field))
+    if kind == generic_questions.REFERRAL:
+        return key(generic_questions.REFERRAL_LABEL) in done
+    return kind is not None
+
+
 def unresolved(items: list[dict[str, Any]], done: set[str]) -> list[dict[str, Any]]:
-    return [i for i in items if not (i["kind"] in FROM_PROFILE and key(i["field"]) in done)]
+    return [i for i in items if not (i["kind"] in FROM_PROFILE
+                                     and (key(i["field"]) in done or _generic_done(i["field"], done)))]

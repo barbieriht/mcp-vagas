@@ -24,6 +24,12 @@ Este arquivo guarda só o que não está no currículo ou respostas padrão de f
 - Experiência CLT: nenhuma (apenas PJ e estágio)
 - Área de atuação/estudo: escolher a opção ligada a inteligência artificial, se houver
 - Parentes na empresa: não
+- Trabalha atualmente na empresa da vaga: pelo currículo geral
+  - Sim quando o currículo geral tem uma experiência em andamento na empresa da vaga; senão, Não. Vale para "Você trabalha na empresa X?", "É colaborador X?" e "Are you a current employee?".
+- Já trabalhou na empresa da vaga: pelo currículo geral
+  - Sim quando alguma experiência do currículo geral é na empresa da vaga; senão, Não. Empresas adquiridas por ela não entram na comparação.
+- Foi indicado por alguém da empresa: <...>
+  - Valores aceitos: Sim ou Não. Vale para todas as empresas ("Foi indicado?", "Alguém que trabalha nesta empresa indicou você?", "Were you referred?").
 - Cargo público: nunca ocupou
 - Aceita contratação no modelo PJ?: <...>
 - Disponibilidade e interesse em contratação temporária (projeto de 2 meses)?: <...>
@@ -64,23 +70,17 @@ Campos pedidos por formulários que não se encaixam nas seções acima. Dados s
 - Atua/atuava com plano de bônus no último emprego? (opções Sim, Não): <...>
 - Você possui atualmente qualquer compromisso contratual com empregador anterior que possa impedir ou restringir sua contratação imediata, tais como cláusula de non-compete, garden leave ou obrigação similar? (opções Sim, Não): <...>
 - Possui participação societária em alguma empresa? (opções Sim, Não): <...>
-- Você já foi empregado(a) do Banco Bradesco S.A. ou de empresas do conglomerado econômico? (opções Sim, atuei como jovem aprendiz, Sim, atuei como estagiário(a), Sim, atuei em cargo efetivo, Não atuei): <...>
 - Você tem conhecimento de qualquer fato que possa caracterizar risco de envolvimento com práticas de lavagem de dinheiro ou financiamento ao terrorismo? (opções Sim, Não): <...>
 - Considere-me para outras posições e permita que minhas informações possam ser pesquisadas (banco de talentos) (opções Sim, Não): <...>
 - Étnico/Racial | Você se autodeclara como uma pessoa (opções Amarela, Branca, Indígena, Não branca, Parda (Negra), Preta (Negra), Prefiro não informar, Outra): <...>
 - Como ficou sabendo de nossas oportunidades? (opções Eventos, Indicação, Linkedin, Instagram, Outros): <...>
-- Alguém que trabalha nesta empresa indicou você para esta vaga? (opções Sim, Não): <...>
-- Você trabalha na empresa Vibra Energia? (opções Sim, Não): <...>
 - Salário Atual: <...>
-- É colaborador Luza Group? (opções Sim, Não): <...>
-- Foi indicado? (opções Não, Sim): <...>
 - How familiar are you with modeling in general? (opções I have never trained an ML model and I don’t know what is involved in the process, I understand the basics of modeling but I never trained a model myself, I have trained basic models myself and I’m familiar with learning theory, I have experience training models and I’m familiar with the details and possible pitfalls): <...>
 - What is your experience working on different stages in the lifecycle of a machine learning model? (opções I do not have experience working with ML models, I have experience training and validating ML models, I have experience training, validating and deploying ML models, I have experience training, validating, deploying and operating ML models): <...>
 - What is your experience with machine learning models used in a production environment, to drive business decisions? (opções I have experience working with ML models but not in a production environment, I have worked with ML models in a production environment in small to mid-sized companies or organizations, I have worked with ML models in a production environment in large-scale companies or organizations): <...>
 - Are you legally authorized to work in the country where this position is located? (Brazil) (opções Yes, No): <...>
 - Will you require sponsorship for employment visa status now or in the future? (opções Yes, No): <...>
 - Do you require relocation for this role? (hybrid in São Paulo, Belo Horizonte, Campinas or Rio de Janeiro) (opções No, I don't require relocation, Yes, I require relocation and am willing to relocate, Yes, I require relocation but am not willing to relocate): <...>
-- Have you previously worked at Nubank or any company acquired by Nubank? (opções Yes, No): <...>
 - Have you participated in a hiring process with Nubank in the last 6 months? (opções Yes, No): <...>
 - Check Yes or No to indicate your agreement to receive text message updates via SMS and/or WhatsApp from Nubank regarding your job application. (opções Yes - I consent to receiving SMS text messages, No - I do not consent to receiving SMS text messages): <...>
 - Você possui algum(a) parente que trabalha na Vibra Energia? (opções Sim, Não): <...>
