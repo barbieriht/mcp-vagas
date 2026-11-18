@@ -8,7 +8,7 @@ Não depende de MCP. Os critérios fixos vêm de um arquivo pessoal (criterios-t
     - Empresas ignoradas: Empresa X, Empresa Y
     - Termos de vaga exclusiva PcD: exclusiva para PcD, vaga afirmativa para PcD
     - Vagas afirmativas que posso disputar: mulheres, pessoas negras, LGBTQIA+, PcD, 50+, indígenas, ou nenhuma
-    - Locais aceitos para híbrido e presencial: São Paulo, São Carlos
+    - Locais aceitos para híbrido e presencial: SP: São Paulo, São Carlos; MG:
 
 O que as regras não decidem vira um item em "needs", para a LLM julgar ou pesquisar.
 """
@@ -28,7 +28,7 @@ from vagas.db import default_db_path
 from vagas.job_posting import Fetcher, JobPostingError, http_fetch, read_job_posting
 from vagas.models import CURRENCIES, ROLE_KEYS, ROLE_NAMES, SENIORITIES
 from vagas.normalize import normalize_company, normalize_text
-from vagas.places import state_code, state_of
+from vagas.places import PlaceGroup, parse_places, state_code, state_of
 from vagas.repo import Repo, VagasError
 from vagas.resume_repo import ResumeStore, default_draft_path
 from vagas.experience import experience_years
@@ -89,11 +89,11 @@ class TriageCriteria:
     ignored_companies: tuple[str, ...] = ()  # normalizados como empresa
     pcd_terms: tuple[str, ...] = ()  # normalizados como texto
     affirmative_ok: tuple[str, ...] = ()  # grupos (affirmative.GROUPS) cujas vagas afirmativas o usuário disputa
-    accepted_locations: tuple[str, ...] = ()  # normalizados como texto
-    location_names: tuple[str, ...] = ()  # locais aceitos como escritos, para as buscas
+    places: tuple[PlaceGroup, ...] = ()  # locais aceitos para híbrido e presencial, por estado
+    location_names: tuple[str, ...] = ()  # cidades aceitas como escritas, para as buscas
     search_seniorities: tuple[str, ...] = ()  # buscas e níveis a que o usuário se candidata (vazio = todos)
     years_by_level: tuple[Level, ...] = DEFAULT_LEVELS  # anos de experiência -> nível
-    accepted_states: tuple[str, ...] = ()  # UFs aceitas para híbrido e presencial (vazio = não filtra)
+    accepted_states: tuple[str, ...] = ()  # UFs dos grupos de locais (e da linha antiga); vazio = não filtra
 
 
 _CRITERIA_STATE = "triage_criteria_sha256"
@@ -193,12 +193,15 @@ def parse_criteria(text: str, source: str = "criterios-triagem.md") -> TriageCri
         elif field == "accepted_states":
             values[field] = tuple(_state(v, where) for v in items)
         elif field == "accepted_locations":
-            values[field] = tuple(normalize_text(v) for v in items)
-            values["location_names"] = tuple(items)
+            values["places"] = parse_places(value, where)
+            values["location_names"] = tuple(dict.fromkeys(c for g in values["places"] for c in g.cities))
         else:
             values[field] = tuple(normalize_text(v) for v in items)
     if not values.get("target_roles"):
         raise VagasError(f"{source}: informe a linha '- Cargos alvo: data_scientist, ...'.")
+    # Os estados dos grupos de locais são os aceitos; a linha antiga "Estados aceitos" ainda soma a eles.
+    states = [g.state for g in values.get("places", ()) if g.state] + list(values.get("accepted_states", ()))
+    values["accepted_states"] = tuple(dict.fromkeys(states))
     return TriageCriteria(**values)
 
 
@@ -502,11 +505,10 @@ class Triage:
             return
         # Só a cidade (1ª parte): "Campinas, São Paulo, Brasil" não é a cidade de São Paulo.
         city = re.sub(r"^greater\s+|\s+area$", "", normalize_text(re.split(r",|\s+-\s+", location or "")[0]))
-        accepted = next((c for c in criteria.accepted_locations if _contains(city, c)), None)
-        if accepted:
+        state = state_of(location)
+        if any(group.accepts(city, state) for group in criteria.places):
             reasons.append(f"Vaga {_MODE_LABELS[mode]} em local aceito ({location}).")
             return None
-        state = state_of(location)
         if criteria.accepted_states and state and state not in criteria.accepted_states:
             return (f"Vaga {_MODE_LABELS[mode]} em {location} ({state}), fora dos estados aceitos para híbrido e "
                     f"presencial ({', '.join(criteria.accepted_states)}).")

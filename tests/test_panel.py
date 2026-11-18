@@ -340,10 +340,17 @@ def test_salary_bands_are_edited_as_a_table(skill, db_path, monkeypatch):
             first.get_by_label("Mínimo mensal").fill("9.500")
             bands.get_by_role("button", name="Adicionar faixa").click()
             new = bands.locator(".faixa").nth(2)
-            new.get_by_label("Nome").fill("Híbrido em Campinas")
+            new.get_by_label("Nome").fill("Híbrido")
+            cities = new.get_by_role("group", name="Cidades")
+            assert cities.get_by_label("São Paulo").is_visible() and cities.get_by_label("Campinas").is_visible()
+            cities.get_by_label("Campinas").check()
+            # cidade nova nos critérios aparece na faixa sem recarregar
+            places = page.get_by_role("group", name="Locais aceitos para híbrido e presencial")
+            places.get_by_label("Cidades").fill("São Paulo, Campinas, Barueri")
+            cities.get_by_label("Barueri").check()
             new.get_by_label("Usar os valores da faixa").select_option("Remoto nacional")
             assert new.get_by_label("Mínimo mensal").is_disabled()
-            new.locator("input[type=checkbox]").check()
+            new.get_by_label("CLT (multiplicada em vagas PJ)").check()
             bands.locator(".faixa").nth(1).get_by_role("button", name="Remover faixa").click()
             page.get_by_role("button", name="Salvar tudo").click()
             page.get_by_text("Tudo salvo").wait_for()
@@ -354,9 +361,50 @@ def test_salary_bands_are_edited_as_a_table(skill, db_path, monkeypatch):
 
     text = policy.read_text(encoding="utf-8")
     assert "- Remoto nacional (BRL, CLT): mínimo 9500, máximo 12000\n" in text
-    assert "- Híbrido em Campinas (BRL, CLT): usar a faixa do Remoto nacional\n" in text
+    assert "- Híbrido em Campinas, Barueri (BRL, CLT): usar a faixa do Remoto nacional\n" in text
     assert "Internacional" not in text
-    assert [b.label for b in parse_policy(text).bands] == ["Remoto nacional", "Híbrido em Campinas"]
+    assert [b.label for b in parse_policy(text).bands] == ["Remoto nacional", "Híbrido em Campinas, Barueri"]
+    criteria = (skill / "criterios-triagem.md").read_text(encoding="utf-8")
+    assert "- Locais aceitos para híbrido e presencial: SP: São Paulo, Campinas, Barueri\n" in criteria
+
+
+@pytest.mark.skipif(not _chromium(), reason="Playwright com Chromium não instalado")
+def test_accepted_places_are_edited_by_state(skill, db_path):
+    from playwright.sync_api import sync_playwright
+
+    from vagas.triage import parse_criteria
+
+    server = panel.make_server(db_path, token="t0k3n")
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page()
+            page.goto(server.url)
+            places = page.get_by_role("group", name="Locais aceitos para híbrido e presencial")
+            places.wait_for()
+            assert places.locator(".local").nth(0).get_by_label("Estado", exact=True).input_value() == "SP"
+            places.get_by_role("button", name="Adicionar estado").click()
+            rj = places.locator(".local").nth(1)
+            rj.get_by_label("Estado", exact=True).select_option("RJ")
+            rj.get_by_label("Cidades").fill("Niterói, Rio de Janeiro")
+            places.get_by_role("button", name="Adicionar estado").click()
+            places.locator(".local").nth(2).get_by_label("Estado", exact=True).select_option("SP")
+            page.get_by_role("button", name="Salvar tudo").click()
+            page.get_by_text("Nada foi salvo").wait_for()
+            assert "duas vezes" in places.locator(".erro").inner_text()
+
+            places.locator(".local").nth(2).get_by_role("button", name="Remover estado").click()
+            page.get_by_role("button", name="Salvar tudo").click()
+            page.get_by_text("Tudo salvo").wait_for()
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    saved = parse_criteria((skill / "criterios-triagem.md").read_text(encoding="utf-8"))
+    assert saved.accepted_states == ("SP", "RJ")
+    assert saved.location_names == ("São Paulo", "Campinas", "Niterói", "Rio de Janeiro")
 
 
 @pytest.mark.skipif(not _chromium(), reason="Playwright com Chromium não instalado")

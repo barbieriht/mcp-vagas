@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from vagas.places import PlaceGroup
 from vagas.repo import VagasError
 from vagas.triage import default_criteria_path, load_criteria, parse_criteria
 
@@ -27,7 +28,7 @@ def test_lists_are_parsed_and_normalized():
     assert c.min_match == 60
     assert c.ignored_companies == ("ci&t", "itau unibanco")
     assert c.pcd_terms == ("exclusiva para pcd", "vaga afirmativa")
-    assert c.accepted_locations == ("sao carlos", "sao paulo")
+    assert c.places == (PlaceGroup(None, ("São Carlos", "São Paulo")),)
 
 
 def test_versioned_example_parses():
@@ -39,7 +40,7 @@ def test_versioned_example_parses():
 def test_optional_lines_have_safe_defaults():
     c = parse_criteria("- Cargos alvo: data_scientist\n")
 
-    assert (c.conditional_roles, c.min_match, c.ignored_companies, c.pcd_terms, c.accepted_locations) == (
+    assert (c.conditional_roles, c.min_match, c.ignored_companies, c.pcd_terms, c.places) == (
         (), 50, (), (), ())
 
 
@@ -136,6 +137,33 @@ def test_defaults_for_years_and_states():
 def test_invalid_years_and_states(line, message):
     with pytest.raises(VagasError, match=message):
         parse_criteria("- Cargos alvo: data_scientist\n" + line)
+
+
+def test_places_are_grouped_by_state():
+    c = parse_criteria("- Cargos alvo: data_scientist\n"
+                       "- Locais aceitos para híbrido e presencial: SP: São Carlos, São Paulo, Barueri; "
+                       "rio de janeiro: Niterói; MG:.\n")
+
+    assert c.places == (PlaceGroup("SP", ("São Carlos", "São Paulo", "Barueri")), PlaceGroup("RJ", ("Niterói",)),
+                        PlaceGroup("MG", ()))
+    assert c.accepted_states == ("SP", "RJ", "MG")  # os estados dos grupos são os aceitos
+    assert c.location_names == ("São Carlos", "São Paulo", "Barueri", "Niterói")
+
+
+def test_old_state_line_still_adds_accepted_states():
+    c = parse_criteria("- Cargos alvo: data_scientist\n- Locais aceitos para híbrido e presencial: SP: Barueri\n"
+                       "- Estados aceitos para híbrido e presencial: MG\n")
+
+    assert c.accepted_states == ("SP", "MG")
+
+
+@pytest.mark.parametrize("value, message", [
+    ("Narnia: Cair Paravel", "Narnia"),
+    ("SP: Barueri; SP: Osasco", "SP"),
+])
+def test_invalid_place_groups(value, message):
+    with pytest.raises(VagasError, match=message):
+        parse_criteria(f"- Cargos alvo: data_scientist\n- Locais aceitos para híbrido e presencial: {value}\n")
 
 
 def test_affirmative_groups_the_user_can_compete_for():
