@@ -326,7 +326,7 @@ O Claude chama `create_tailored_resume` com a seleção de itens e parágrafos d
 - IDs inexistentes ou parágrafos de outra experiência;
 - qualquer tentativa de alterar empresa, cargo, datas, formação, certificações ou idiomas.
 
-O PDF sai na pasta `resume_out` (veja [Configuração completa](#configuração-completa)), com nome no formato `Nome_Sobrenome_Resume_Empresa.pdf`. Um arquivo existente nunca é sobrescrito.
+O PDF sai na pasta `resume_out` (veja [Configuração completa](#configuração-completa)), com nome no formato `<Empresa>_<sigla do cargo>_<ID da candidatura>.pdf` (ex.: `Banco_Bradesco_DS_III_403.pdf`), curto para os sites que limitam o nome do arquivo; sem candidatura ligada, `Curriculo_<rótulo>.pdf`. Um arquivo existente nunca é sobrescrito.
 
 ### 3. Registrar e acompanhar candidaturas
 
