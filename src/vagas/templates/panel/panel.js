@@ -192,7 +192,8 @@ function nextFieldOnEnter(event) {
   const target = event.target;
   if (event.key !== "Enter" || event.isComposing || !(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
   event.preventDefault();
-  const fields = [...document.querySelectorAll("#formulario input, #formulario select, #formulario button")]
+  // título de subseção fechada entra na fila: Enter nele abre a subseção, em vez de pulá-la inteira
+  const fields = [...document.querySelectorAll("#formulario input, #formulario select, #formulario button, #formulario details:not([open]) > summary")]
     .filter((node) => !node.disabled && !node.hidden && node.offsetParent !== null);
   const next = fields[fields.indexOf(target) + 1];
   if (next) next.focus();
@@ -727,6 +728,20 @@ function sectionPending(key, section) {
   return (section.pending || []).length > 0;
 }
 
+// Subseção com nome (## do arquivo) dobrável: começa aberta se tem campo a preencher; depois de salvar,
+// fica como o usuário deixou.
+const folds = new Map();  // "secao/subseção" -> aberta?
+
+function renderFold(section, group, fields) {
+  const key = `${section.key}/${group.name}`;
+  const pending = group.fields.filter((field) => (section.pending || []).includes(field.id) || (field.missing && !field.value)).length;
+  const summary = el("summary", {}, el("h3", { class: "grupo-titulo", text: group.name }),
+    pending ? el("span", { class: "selo", text: `${pending} a preencher` }) : null);
+  const fold = el("details", { class: "grupo-dobravel", open: folds.has(key) ? folds.get(key) : pending > 0 }, summary, ...fields);
+  fold.addEventListener("toggle", () => folds.set(key, fold.open));
+  return fold;
+}
+
 function render(data) {
   const container = document.getElementById("secoes");
   const index = document.getElementById("indice");
@@ -750,8 +765,8 @@ function render(data) {
       if (section.unavailable) box.append(el("p", { class: "nota aviso", text: section.unavailable }));
       if (section.new) box.append(el("p", { class: "nota aviso", text: "Este arquivo ainda não existe: ele é criado quando você salvar. Os textos em cinza são só exemplos." }));
       for (const group of section.groups) {
-        if (group.name) box.append(el("h3", { class: "grupo-titulo", text: group.name }));
-        for (const field of group.fields) box.append(renderFileField(section, field, section.new));
+        const fields = group.fields.map((field) => renderFileField(section, field, section.new));
+        box.append(...(group.name ? [renderFold(section, group, fields)] : fields));
       }
     }
     container.append(box);
