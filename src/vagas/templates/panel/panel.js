@@ -505,66 +505,98 @@ function renderPlaces(section, field, name, help, loadError) {
   return box;
 }
 
-// Faixas da política salarial: cada faixa é uma seleção de vagas (modalidades e locais) com um valor.
-// Locais vêm dos locais aceitos dos critérios: cidades e "demais cidades" de cada estado.
+// Faixas da política salarial: cada faixa é um conjunto de vagas com um valor. Tipo de vaga (remoto,
+// híbrido, presencial); remoto nacional (R$) ou internacional (US$/€); para híbrido e presencial, as cidades
+// dos locais aceitos e "demais cidades" de cada estado. O mesmo local na mesma modalidade só numa faixa.
 function renderBands(section, field, name, help) {
   const list = el("div", { class: "faixas" });
   const box = el("fieldset", { class: "campo", "data-campo": name }, el("legend", { text: field.title }), help, list);
   const rows = [];
   let places = field.places || [];
   const allModes = field.modes.map((mode) => mode.value);
+  const modeTitle = Object.fromEntries(field.modes.map((mode) => [mode.value, mode.label]));
+  const plural = { remoto: "remotas", hibrido: "híbridas", presencial: "presenciais" };
+  const cityKey = (state, city) => `${state}|${plain(city)}`;
 
   function selection(row) {
-    let modes = allModes.filter((mode) => row.modes[mode].checked);
-    if (modes.length === allModes.length) modes = [];
-    const remote = modes.length === 1 && modes[0] === "remoto";
-    return { modes, cities: remote ? [] : [...row.chosen.values()], states: remote ? [] : [...row.states] };
+    const modes = allModes.filter((mode) => row.modes[mode].checked);
+    const remote = modes.includes("remoto");
+    const local = modes.some((mode) => mode !== "remoto");
+    const scope = remote ? (row.scope.find((radio) => radio.checked) || {}).value || "" : "";
+    const currency = scope === "internacional" ? row.currency.value : "BRL";
+    const states = [...new Set([...row.loadedStates, ...places.map((g) => g.state),
+      ...[...row.chosen.values()].map((v) => v.state), ...row.rest])];
+    const chosen = local ? states.map((state) => ({
+      state,
+      cities: [...row.chosen.values()].filter((v) => v.state === state).map((v) => v.city),
+      rest: row.rest.has(state),
+    })).filter((g) => g.cities.length || g.rest) : [];
+    return { modes, scope, currency, places: chosen };
   }
-  const sameSelection = (a, b) => JSON.stringify([[...a.modes].sort(), a.cities.map(plain).sort(), [...a.states].sort()])
-    === JSON.stringify([[...b.modes].sort(), b.cities.map(plain).sort(), [...b.states].sort()]);
 
-  // Rótulo como vai para o arquivo: o carregado enquanto a seleção não muda; senão, gerado da seleção.
+  const where = (chosen) => chosen.places.flatMap((g) => [...g.cities, ...(g.rest ? [`demais cidades de ${g.state}`] : [])]);
+
   function label(row) {
     const chosen = selection(row);
-    if (row.loaded && sameSelection(chosen, row.loaded.selection)) return row.loaded.label;
-    const titles = field.modes.filter((mode) => chosen.modes.includes(mode.value)).map((mode) => mode.label);
-    let text = titles.length ? [titles[0], ...titles.slice(1).map((t) => t.toLowerCase())].join("/") : "Qualquer vaga";
-    if (row.currency.value !== "BRL") text += ` ${row.currency.value}`;
-    const where = [...chosen.cities, ...chosen.states];
-    return where.length ? `${text} em ${where.join(", ")}` : text;
+    const parts = [];
+    if (chosen.modes.includes("remoto")) parts.push(chosen.scope ? `Remoto ${chosen.scope}${chosen.scope === "internacional" ? ` (${chosen.currency})` : ""}` : "Remoto");
+    const local = chosen.modes.filter((mode) => mode !== "remoto").map((mode) => modeTitle[mode]);
+    if (local.length) {
+      const text = [local[0], ...local.slice(1).map((t) => t.toLowerCase())].join("/");
+      const at = where(chosen);
+      parts.push(at.length ? `${text} em ${at.join(", ")}` : text);
+    }
+    if (parts.length === 2) parts[1] = parts[1][0].toLowerCase() + parts[1].slice(1);
+    return parts.join(" e ") || "nova faixa";
   }
 
   function applies(row) {
     const chosen = selection(row);
-    const plural = { remoto: "remotas", hibrido: "híbridas", presencial: "presenciais" };
-    const modes = (chosen.modes.length ? chosen.modes : allModes).map((mode) => plural[mode]);
-    const joined = modes.length === 1 ? modes[0] : `${modes.slice(0, -1).join(", ")} e ${modes[modes.length - 1]}`;
-    const where = [...chosen.cities, ...chosen.states.map((uf) => `demais cidades de ${uf}`)];
-    return `Vale para vagas ${joined} ${where.length ? `em ${where.join(", ")}` : "em qualquer local"}.`;
+    const parts = [];
+    if (chosen.modes.includes("remoto")) {
+      const scope = { nacional: " nacionais", internacional: " internacionais" }[chosen.scope] || "";
+      parts.push(`vagas remotas${scope}${chosen.scope ? `, pagas em ${chosen.currency}` : ""}`);
+    }
+    const local = chosen.modes.filter((mode) => mode !== "remoto").map((mode) => plural[mode]);
+    if (local.length) {
+      const at = where(chosen);
+      parts.push(`vagas ${local.join(" e ")}${at.length ? ` em ${at.join(", ")}` : " (marque os locais)"}`);
+    }
+    return parts.length ? `Vale para ${parts.join(" e para ")}.` : "Marque ao menos um tipo de vaga.";
   }
 
-  function aliasTarget(row, alias) {
-    if (!alias) return null;
-    const target = plain(alias);
-    const others = rows.filter((other) => other !== row);
-    return others.find((other) => plain(label(other)) === target)
-      || others.find((other) => plain(label(other)).startsWith(target) || target.startsWith(plain(label(other)))) || null;
+  // O que cada faixa cobre: o mesmo local na mesma modalidade em duas faixas é avisado aqui e recusado ao salvar.
+  function coverage(row) {
+    const chosen = selection(row);
+    const keys = [];
+    if (chosen.scope) keys.push([`remoto|${chosen.scope}|${chosen.currency}`, `Remoto ${chosen.scope}`]);
+    for (const mode of chosen.modes.filter((m) => m !== "remoto")) {
+      for (const group of chosen.places) {
+        for (const city of group.cities) keys.push([`${mode}|${cityKey(group.state, city)}`, `${city}${group.state ? `/${group.state}` : ""} (${modeTitle[mode].toLowerCase()})`]);
+        if (group.rest) keys.push([`${mode}|${group.state}|*`, `Demais cidades de ${group.state} (${modeTitle[mode].toLowerCase()})`]);
+      }
+    }
+    return keys;
   }
 
   function refresh() {
+    const seen = new Map();
     rows.forEach((row, index) => {
       row.title.textContent = `Faixa ${index + 1}: ${label(row)}`;
       for (const [key, node] of Object.entries(row.cells)) node.dataset.campo = `${name}.${index}.${key}`;
-      if (row.aliasRow && !rows.includes(row.aliasRow)) row.aliasRow = null;
-      row.alias.replaceChildren(el("option", { value: "", text: "Não: valores próprios" }));
-      rows.forEach((other, position) => {
-        if (other !== row) row.alias.append(el("option", { value: String(position), text: label(other) }));
-      });
-      row.alias.value = row.aliasRow ? String(rows.indexOf(row.aliasRow)) : "";
-      row.min.disabled = row.max.disabled = Boolean(row.aliasRow);
       const chosen = selection(row);
-      row.cells.cities.hidden = chosen.modes.length === 1 && chosen.modes[0] === "remoto";
+      const remote = chosen.modes.includes("remoto");
+      row.cells.scope.hidden = !remote;
+      row.cells.currency.hidden = !(remote && chosen.scope === "internacional");
+      row.cells.places.hidden = !chosen.modes.some((mode) => mode !== "remoto");
       row.applies.textContent = applies(row);
+      const clashes = [];
+      for (const [key, text] of coverage(row)) {
+        if (seen.has(key)) clashes.push(`${text} já está na faixa ${seen.get(key) + 1}`);
+        else seen.set(key, index);
+      }
+      row.conflict.textContent = clashes.length ? `${clashes.join("; ")}: cada local, numa modalidade, tem um valor só.` : "";
+      row.conflict.hidden = !clashes.length;
     });
   }
 
@@ -575,33 +607,33 @@ function renderBands(section, field, name, help) {
     return el("label", { class: "opcao", for: input.id }, input, el("span", { text }));
   }
 
-  // Locais da faixa, por estado; os marcados que saíram dos locais aceitos continuam à vista até serem desmarcados.
+  // Cidades por estado, dos locais aceitos; as marcadas que saíram dos locais aceitos ficam à vista até serem desmarcadas.
   function drawPlaces(row) {
-    const seen = new Set();
-    const states = new Set();
+    const shown = new Set();
     const groups = [];
+    const toggleCity = (state, city) => (on) => (on ? row.chosen.set(cityKey(state, city), { state, city }) : row.chosen.delete(cityKey(state, city)));
+    const toggleRest = (state) => (on) => (on ? row.rest.add(state) : row.rest.delete(state));
     for (const group of places) {
-      const options = group.cities.filter((city) => !seen.has(plain(city)) && seen.add(plain(city)))
-        .map((city) => checkbox(city, row.chosen.has(plain(city)), (on) => (on ? row.chosen.set(plain(city), city) : row.chosen.delete(plain(city)))));
-      if (group.state && !states.has(group.state)) {
-        states.add(group.state);
-        const uf = group.state;
-        options.push(checkbox(`Demais cidades de ${uf}`, row.states.has(uf), (on) => (on ? row.states.add(uf) : row.states.delete(uf))));
+      const options = group.cities.filter((city) => !shown.has(cityKey(group.state, city)) && shown.add(cityKey(group.state, city)))
+        .map((city) => checkbox(city, row.chosen.has(cityKey(group.state, city)), toggleCity(group.state, city)));
+      if (group.state && !shown.has(`${group.state}|*`)) {
+        shown.add(`${group.state}|*`);
+        options.push(checkbox(`Demais cidades de ${group.state}`, row.rest.has(group.state), toggleRest(group.state)));
       }
       if (options.length) groups.push(el("div", { class: "cidades-estado" },
         el("p", { class: "cidades-titulo", text: group.state || "Qualquer estado" }), el("div", { class: "opcoes" }, ...options)));
     }
     const outside = [
-      ...[...row.chosen.entries()].filter(([key]) => !seen.has(key)).map(([key, city]) =>
-        checkbox(city, true, (on) => (on ? row.chosen.set(key, city) : row.chosen.delete(key)))),
-      ...[...row.states].filter((uf) => !states.has(uf)).map((uf) =>
-        checkbox(`Demais cidades de ${uf}`, true, (on) => (on ? row.states.add(uf) : row.states.delete(uf)))),
+      ...[...row.chosen.entries()].filter(([key]) => !shown.has(key)).map(([, v]) =>
+        checkbox(v.state ? `${v.city} (${v.state})` : v.city, true, toggleCity(v.state, v.city))),
+      ...[...row.rest].filter((state) => !shown.has(`${state}|*`)).map((state) =>
+        checkbox(`Demais cidades de ${state}`, true, toggleRest(state))),
     ];
     if (outside.length) groups.push(el("div", { class: "cidades-estado" },
       el("p", { class: "cidades-titulo", text: "Fora dos locais aceitos" }), el("div", { class: "opcoes" }, ...outside)));
-    row.cells.cities.replaceChildren(
-      el("p", { class: "rotulo-celula", text: "Locais (nenhum marcado: qualquer local)" }),
-      ...(groups.length ? groups : [el("p", { class: "nota", text: "Cadastre os locais aceitos nos critérios de triagem para escolher cidades e estados." })]));
+    row.cells.places.replaceChildren(
+      el("p", { class: "rotulo-celula", text: "Cidades" }),
+      ...(groups.length ? groups : [el("p", { class: "nota", text: "Cadastre os locais aceitos nos critérios de triagem para escolher as cidades." })]));
   }
 
   document.addEventListener(PLACES_EVENT, (event) => {
@@ -621,16 +653,20 @@ function renderBands(section, field, name, help) {
       clt: el("input", { type: "checkbox" }),
       min: el("input", { type: "text", inputmode: "decimal", value: data.min || "", placeholder: data.hint_min ? `Ex.: ${data.hint_min}` : "Ex.: 8000", autocomplete: "off" }),
       max: el("input", { type: "text", inputmode: "decimal", value: data.max || "", placeholder: data.hint_max ? `Ex.: ${data.hint_max}` : "Opcional", autocomplete: "off" }),
-      alias: el("select", {}),
-      chosen: new Map((data.cities || []).map((city) => [plain(city), city])),
-      states: new Set(data.states || []),
+      chosen: new Map(),
+      rest: new Set(),
+      loadedStates: (data.places || []).map((g) => g.state),
       modes: {},
-      aliasRow: null,
       title: el("p", { class: "faixa-titulo" }),
       applies: el("p", { class: "nota" }),
+      conflict: el("p", { class: "nota aviso", hidden: true }),
     };
+    for (const group of data.places || []) {
+      for (const city of group.cities) row.chosen.set(cityKey(group.state, city), { state: group.state, city });
+      if (group.rest) row.rest.add(group.state);
+    }
     for (const currency of field.currencies) row.currency.append(el("option", { value: currency, text: currency }));
-    row.currency.value = data.currency || field.currencies[0];
+    row.currency.value = field.currencies.includes(data.currency) ? data.currency : field.currencies[0];
     row.clt.checked = Boolean(data.clt);
     const modeBoxes = field.modes.map((mode) => {
       const input = el("input", { type: "checkbox", id: `faixa-${n}-modo-${mode.value}` });
@@ -639,15 +675,23 @@ function renderBands(section, field, name, help) {
       row.modes[mode.value] = input;
       return el("label", { class: "opcao", for: input.id }, input, el("span", { text: mode.label }));
     });
-    if (data.label) row.loaded = { label: data.label, selection: { modes: data.modes || [], cities: data.cities || [], states: data.states || [] } };
+    const scopes = [["nacional", "Nacionais (em R$)"], ["internacional", "Internacionais (em US$ ou €)"]];
+    row.scope = scopes.map(([value]) => {
+      const radio = el("input", { type: "radio", name: `faixa-${n}-escopo`, id: `faixa-${n}-escopo-${value}`, value });
+      radio.checked = value === data.scope;
+      radio.addEventListener("change", refresh);
+      return radio;
+    });
+    const scopeLabels = row.scope.map((radio, i) => el("label", { class: "opcao", for: radio.id }, radio, el("span", { text: scopes[i][1] })));
     row.cells = {
-      modes: el("div", { class: "celula celula-modes", role: "group", "aria-label": "Modalidade" },
-        el("p", { class: "rotulo-celula", text: "Modalidade (nenhuma marcada: todas)" }), el("div", { class: "opcoes" }, ...modeBoxes)),
-      cities: el("div", { class: "celula celula-cities", role: "group", "aria-label": "Locais" }),
-      currency: make("currency", "Moeda", row.currency),
+      modes: el("div", { class: "celula celula-modes", role: "group", "aria-label": "Tipo de vaga" },
+        el("p", { class: "rotulo-celula", text: "Tipo de vaga" }), el("div", { class: "opcoes" }, ...modeBoxes)),
+      scope: el("div", { class: "celula celula-scope", role: "radiogroup", "aria-label": "Vagas remotas" },
+        el("p", { class: "rotulo-celula", text: "Vagas remotas" }), el("div", { class: "opcoes" }, ...scopeLabels)),
+      currency: make("currency", "Moeda das vagas internacionais", row.currency),
+      places: el("div", { class: "celula celula-places", role: "group", "aria-label": "Cidades" }),
       min: make("min", "Mínimo mensal", row.min),
       max: make("max", "Máximo mensal", row.max),
-      alias: make("alias", "Usar os valores da faixa", row.alias),
     };
     row.clt.id = `faixa-${n}-clt`;
     const clt = el("label", { class: "opcao celula-clt", for: row.clt.id }, row.clt, el("span", { text: "CLT (multiplicada em vagas PJ)" }));
@@ -656,15 +700,12 @@ function renderBands(section, field, name, help) {
       row.node.remove();
       refresh();
     } });
+    row.currency.addEventListener("change", refresh);
     row.node = el("div", { class: "faixa" },
       el("div", { class: "faixa-topo" }, row.title, remove),
-      el("div", { class: "faixa-grade" }, row.cells.modes, row.cells.cities, row.cells.currency, row.cells.min, row.cells.max, row.cells.alias, clt),
-      row.applies);
-    row.currency.addEventListener("change", refresh);
-    row.alias.addEventListener("change", () => {
-      row.aliasRow = row.alias.value === "" ? null : rows[Number(row.alias.value)];
-      refresh();
-    });
+      el("div", { class: "faixa-grade" }, row.cells.modes, row.cells.scope, row.cells.currency, row.cells.places,
+        row.cells.min, row.cells.max, clt),
+      row.applies, row.conflict);
     rows.push(row);
     list.append(row.node);
     drawPlaces(row);
@@ -673,17 +714,10 @@ function renderBands(section, field, name, help) {
   }
 
   for (const data of field.value) addRow(data);
-  // "usar a faixa de" só depois de todas as faixas: a faixa citada pode vir mais abaixo
-  rows.forEach((row, index) => { row.aliasRow = aliasTarget(row, field.value[index].alias || ""); });
-  refresh();
-  const add = el("button", { type: "button", class: "adicionar", text: "Adicionar faixa", onclick: () => addRow({}).modes.hibrido.focus() });
-  box.append(add);
-  const read = () => rows.map((row) => ({
-    label: row.loaded ? row.loaded.label : "", ...selection(row), currency: row.currency.value, clt: row.clt.checked,
-    min: row.aliasRow ? "" : row.min.value.trim(), max: row.aliasRow ? "" : row.max.value.trim(),
-    alias: row.aliasRow ? label(row.aliasRow) : "",
-  }));
-  register(section.key, field.id, read(), read, box);
+  const add = el("button", { type: "button", class: "adicionar", text: "Adicionar faixa", onclick: () => addRow({}).modes.remoto.focus() });
+  box.append(add, ...(field.notes || []).map((note) => el("p", { class: "nota aviso", text: note })));
+  const read = () => rows.map((row) => ({ ...selection(row), clt: row.clt.checked, min: row.min.value.trim(), max: row.max.value.trim() }));
+  register(section.key, field.id, field.migrated ? null : read(), read, box);
   return box;
 }
 

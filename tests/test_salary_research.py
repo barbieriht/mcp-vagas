@@ -8,7 +8,8 @@ from vagas.server import build_server
 
 pytestmark = pytest.mark.anyio
 
-POLICY = "- Modo: minimo\n- Remoto nacional (BRL, CLT): mínimo 8000\n- Híbrido em São Paulo (BRL, CLT): mínimo 10000\n"
+POLICY = ("- Modo: minimo\n- Faixa: mínimo 8000\n  - Tipos: remoto\n  - Remoto: nacional\n  - CLT: sim\n"
+          "- Faixa: mínimo 10000\n  - Tipos: híbrido\n  - Locais: SP: São Paulo\n  - CLT: sim\n")
 
 
 def test_queries_go_from_job_and_company_to_market():

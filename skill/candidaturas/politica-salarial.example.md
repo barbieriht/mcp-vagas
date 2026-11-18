@@ -1,6 +1,6 @@
 # Política salarial
 
-Lida pelo MCP em `evaluate_salary` (variável `VAGAS_SALARY_POLICY`), que escolhe a faixa pela modalidade, pelo local e pela moeda da vaga. Copie para `politica-salarial.md` e troque os valores; os valores aceitos estão no fim do arquivo.
+Lida pelo MCP em `evaluate_salary` (variável `VAGAS_SALARY_POLICY`), que escolhe a faixa pela modalidade, pelo local e pela moeda da vaga. O jeito mais fácil de editar é o painel de configuração (as faixas são montadas marcando tipos de vaga e locais). Para editar à mão, copie para `politica-salarial.md` e troque os valores; os valores aceitos estão no fim do arquivo.
 
 - Modo: minimo
   - minimo: aplicar se a mediana de mercado for maior ou igual ao mínimo da faixa
@@ -8,11 +8,23 @@ Lida pelo MCP em `evaluate_salary` (variável `VAGAS_SALARY_POLICY`), que escolh
   - O `máximo` de uma faixa é o teto da pretensão: no modo minimo ele só limita o valor informado e nunca exclui a vaga da triagem; no modo faixa, a vaga cuja mediana passa do máximo é descartada.
   - Como a pretensão sai do valor de mercado (teto, meio-termo, percentil 25 ou ponto baixo) é escolhido no `config.toml` (`salary_rule`), não aqui.
 - Multiplicador PJ: 1.4
-- Remoto nacional (BRL, CLT): mínimo 8000, máximo 12000
-- Híbrido/presencial em São Paulo e região (BRL, CLT): mínimo 10000, máximo 15000
-- Híbrido/presencial em Campinas (BRL, CLT): usar a faixa do remoto nacional
-- Híbrido/presencial em SP (BRL, CLT): mínimo 9000, máximo 13000
-- Internacional (USD): mínimo 3000
+
+- Faixa: mínimo 8000, máximo 12000
+  - Tipos: remoto
+  - Remoto: nacional
+  - CLT: sim
+- Faixa: mínimo 10000, máximo 15000
+  - Tipos: híbrido, presencial
+  - Locais: SP: São Paulo
+  - CLT: sim
+- Faixa: mínimo 9000, máximo 13000
+  - Tipos: híbrido, presencial
+  - Locais: SP: Campinas, demais cidades
+  - CLT: sim
+- Faixa: mínimo 3000
+  - Tipos: remoto
+  - Remoto: internacional
+  - Moeda: USD
 
 ## Valores aceitos
 
@@ -20,10 +32,10 @@ Maiúsculas, acentos e ponto final no fim da linha são ignorados.
 
 - **Modo:** `minimo` ou `faixa`. Sem a linha, vale `minimo`. O modo `faixa` exige `máximo` em todas as faixas usadas.
 - **Multiplicador PJ:** número maior que zero, com ponto ou vírgula (`1.4` ou `1,4`). Converte as faixas CLT para vagas PJ.
-- **Faixas:** uma linha por faixa, no formato `- <nome> (<moeda>[, CLT]): mínimo <valor>[, máximo <valor>]`.
-  - Moeda: `BRL`, `USD` ou `EUR`. Obrigatória; as moedas nunca são convertidas entre si.
-  - `CLT`: opcional. A faixa marcada com `CLT` é multiplicada pelo multiplicador em vagas PJ; sem ela, o valor vale para qualquer regime.
-  - Valores mensais, como `8000`, `8.000` ou `R$ 8.000,00`. `máximo` é opcional: é o teto da pretensão (no modo minimo, limita o valor sem excluir a vaga).
-  - Modalidade: as palavras remoto, híbrido ou presencial no nome dizem a quais modalidades a faixa vale (`Híbrido/presencial` = as duas). Sem nenhuma delas, vale para todas.
-  - Local: os locais depois de "em", separados por vírgula ou "e" (por exemplo, `em São Paulo, Campinas e Osasco`; "e região" no fim é aceito e ignorado). Cada local é uma cidade ou a sigla de um estado (`em SP`), que vale pelas demais cidades dele. A cidade da vaga é a primeira parte do local ("Campinas" em "Campinas, São Paulo, Brasil"); o nome do estado não conta como cidade. A faixa da cidade vale antes da faixa do estado, e esta antes da faixa sem "em", que vale para qualquer local. No painel, os locais de cada faixa são marcados entre os locais aceitos dos critérios de triagem, e o nome da faixa sai da seleção.
-  - No lugar dos valores, `usar a faixa do <nome de outra faixa>` copia os valores daquela faixa.
+- **Faixa:** um conjunto de vagas com um valor mensal, no formato `- Faixa: mínimo <valor>[, máximo <valor>]`, seguido dos subitens abaixo. Valores como `8000`, `8.000` ou `R$ 8.000,00`; `máximo` é opcional (no modo minimo, só limita a pretensão).
+  - **Tipos** (obrigatório): `remoto`, `híbrido` e/ou `presencial`, separados por vírgula.
+  - **Remoto** (com o tipo remoto): `nacional` (vaga paga em reais) ou `internacional` (vaga paga em dólar ou euro). Os dois não ficam na mesma faixa, porque as moedas nunca são convertidas entre si.
+  - **Moeda** (só no remoto internacional): `USD` ou `EUR`. As outras faixas são sempre em `BRL`. Remoto internacional não fica na mesma faixa que híbrido ou presencial.
+  - **Locais** (com híbrido ou presencial): no formato dos locais aceitos dos critérios de triagem, `UF: cidade, cidade` com os estados separados por ponto e vírgula. `demais cidades` vale para as cidades do estado que não estão em outra faixa da mesma modalidade (ex.: `SP: São Carlos, demais cidades; RJ: demais cidades`). A cidade da vaga é a primeira parte do local ("Campinas" em "Campinas, São Paulo, Brasil") e só vale no estado do grupo; se a vaga não informa o estado, vale só a cidade.
+  - **CLT** (opcional): `sim` marca a faixa em CLT, multiplicada pelo multiplicador em vagas PJ; sem a linha, o valor vale para qualquer regime.
+  - A mesma cidade (ou "demais cidades" do mesmo estado) numa mesma modalidade só pode estar em uma faixa; em modalidades diferentes, pode estar na mesma faixa ou em faixas diferentes.

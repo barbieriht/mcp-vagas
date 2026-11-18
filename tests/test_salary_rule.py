@@ -120,7 +120,7 @@ def test_without_data_the_ask_is_the_minimum(conn):
 
 def test_reevaluation_applies_the_current_rule_to_registered_jobs(conn, tmp_path):
     policy = tmp_path / "politica.md"
-    policy.write_text("- Remoto nacional (BRL, CLT): mínimo 10.500\n", encoding="utf-8")
+    policy.write_text("- Faixa: mínimo 10.500\n  - Tipos: remoto\n  - Remoto: nacional\n  - CLT: sim\n", encoding="utf-8")
     repo = Repo(conn)
     app = repo.add_application(company="Acme", role="Cientista de Dados Sênior", source="linkedin",
                                work_mode="remoto", seniority="senior", status="a_aplicar")["application"]
@@ -138,7 +138,7 @@ def test_reevaluation_applies_the_current_rule_to_registered_jobs(conn, tmp_path
 
 def test_reevaluation_infers_the_inputs_of_older_evaluations(conn, tmp_path):
     policy = tmp_path / "politica.md"
-    policy.write_text("- Remoto nacional (BRL, CLT): mínimo 10.500\n", encoding="utf-8")
+    policy.write_text("- Faixa: mínimo 10.500\n  - Tipos: remoto\n  - Remoto: nacional\n  - CLT: sim\n", encoding="utf-8")
     repo = Repo(conn)
     app = repo.add_application(company="Acme", role="Cientista de Dados Sênior", source="linkedin",
                                work_mode="remoto", seniority="senior", status="a_aplicar")["application"]

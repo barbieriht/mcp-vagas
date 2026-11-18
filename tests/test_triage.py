@@ -24,8 +24,14 @@ CRITERIA = """\
 POLICY = """\
 - Modo: minimo
 - Multiplicador PJ: 1.4
-- Remoto nacional (BRL, CLT): mínimo 8.000
-- Híbrido/presencial em São Paulo e região (BRL, CLT): mínimo 10.000
+- Faixa: mínimo 8.000
+  - Tipos: remoto
+  - Remoto: nacional
+  - CLT: sim
+- Faixa: mínimo 10.000
+  - Tipos: híbrido, presencial
+  - Locais: SP: São Paulo
+  - CLT: sim
 """
 GOOD = "<p>Modelos com Python, SQL e C++.</p>"
 BAD = "<p>Kafka, Airflow, Hadoop, Scala, Spark, Flink, Kubernetes.</p>"
@@ -126,7 +132,7 @@ def test_target_job_is_registered_scored_and_salary_evaluated(triage, fetcher, c
     assert app["match_score"] == 100 and app["match_terms"]["matched"] == ["Python", "SQL", "C++"]
     assert "Modelos com Python" in app["description"]
     assert (result["salary"]["decision"], result["salary"]["value_to_inform"]) == ("aplicar", 12000)
-    assert result["salary"]["policy"]["band"] == "Híbrido/presencial em São Paulo e região"
+    assert result["salary"]["policy"]["band"] == "Híbrido/presencial em São Paulo"
     assert app["salary_evaluation"]["value_to_inform"] == 12000
     assert kinds(result) == ["pesquisa_salarial"]  # mercado fresco, empresa ainda não pesquisada
     assert "description" not in result["posting"]

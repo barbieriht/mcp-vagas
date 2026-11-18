@@ -437,13 +437,39 @@ Explicação que precisa ficar.
 - Modo: minimo
   - minimo: aplicar se a mediana for maior ou igual ao mínimo
 - Multiplicador PJ: 1.4
-- Remoto nacional (BRL, CLT): mínimo 8.000, máximo 12.000
-- Híbrido/presencial em São Paulo e região (BRL, CLT): mínimo 10.500
-- Híbrido/presencial em Campinas (BRL, CLT): usar a faixa do remoto nacional
-- Internacional (USD): mínimo 3000
+
+- Faixa: mínimo 8.000, máximo 12.000
+  - Tipos: remoto
+  - Remoto: nacional
+  - CLT: sim
+- Faixa: mínimo 10.500
+  - Tipos: híbrido, presencial
+  - Locais: SP: São Paulo
+  - CLT: sim
+- Faixa: mínimo 9000
+  - Tipos: híbrido
+  - Locais: SP: Campinas, demais cidades
+  - CLT: sim
+- Faixa: mínimo 3000
+  - Tipos: remoto
+  - Remoto: internacional
+  - Moeda: USD
 
 ## Valores aceitos
 - **Modo:** `minimo` ou `faixa`.
+"""
+
+OLD_POLICY = """# Política salarial
+
+- Modo: minimo
+- Multiplicador PJ: 1.4
+- Remoto nacional (BRL, CLT): mínimo 8.500
+- Híbrido/presencial em São Paulo, Barueri e Sorocaba (BRL, CLT): mínimo 11000
+- Híbrido/presencial em São Carlos e região (BRL, CLT): usar a faixa do remoto nacional
+- Internacional (USD): mínimo 3400
+- Híbrido/presencial no Rio de Janeiro (BRL, CLT): mínimo 12000
+
+## Valores aceitos
 """
 
 
@@ -459,6 +485,11 @@ def policy_section(db_path):
     return {f["id"]: f for g in load(db_path)["sections"]["policy"]["groups"] for f in g["fields"]}
 
 
+def row(modes, *, scope="", currency="BRL", places=(), clt=True, min="", max=""):
+    return {"modes": list(modes), "scope": scope, "currency": currency, "clt": clt, "min": min, "max": max,
+            "places": [{"state": s, "cities": list(c), "rest": r} for s, c, r in places]}
+
+
 def test_policy_shows_mode_multiplier_and_one_row_per_band(db_path, policy):
     policy.write_text(POLICY_TEXT, encoding="utf-8")
 
@@ -467,113 +498,101 @@ def test_policy_shows_mode_multiplier_and_one_row_per_band(db_path, policy):
     assert fields["Modo"]["kind"] == "choice" and fields["Modo"]["value"] == "minimo"
     assert fields["Multiplicador PJ"]["value"] == "1.4"
     bands = fields["Faixas"]
-    assert bands["kind"] == "bands" and bands["currencies"] == ["BRL", "USD", "EUR"]
-    hybrid = ["hibrido", "presencial"]
-    assert [(b["label"], b["modes"], b["cities"], b["states"], b["currency"], b["clt"], b["min"], b["max"], b["alias"])
-            for b in bands["value"]] == [
-        ("Remoto nacional", ["remoto"], [], [], "BRL", True, "8000", "12000", ""),
-        ("Híbrido/presencial em São Paulo e região", hybrid, ["São Paulo"], [], "BRL", True, "10500", "", ""),
-        ("Híbrido/presencial em Campinas", hybrid, ["Campinas"], [], "BRL", True, "", "", "remoto nacional"),
-        ("Internacional", [], [], [], "USD", False, "3000", "", ""),
+    assert bands["kind"] == "bands" and not bands.get("migrated")
+    assert bands["places"] == [{"state": "SP", "cities": ["São Paulo", "Campinas"]}]  # locais aceitos dos critérios
+    keys = ("modes", "scope", "currency", "places", "clt", "min", "max")
+    assert [{k: b[k] for k in keys} for b in bands["value"]] == [
+        row(["remoto"], scope="nacional", min="8000", max="12000"),
+        row(["hibrido", "presencial"], places=[("SP", ["São Paulo"], False)], min="10500"),
+        row(["hibrido"], places=[("SP", ["Campinas"], True)], min="9000"),
+        row(["remoto"], scope="internacional", currency="USD", clt=False, min="3000"),
     ]
-    assert [m["value"] for m in bands["modes"]] == ["remoto", "hibrido", "presencial"]
-    assert bands["places"] == [{"state": "SP", "cities": ["São Paulo", "Campinas"]}]  # dos critérios
-    assert bands["value"][1]["applies"] == "Vale para vagas híbridas e presenciais em São Paulo."
-    assert bands["value"][3]["applies"] == "Vale para vagas remotas, híbridas e presenciais em qualquer local."
+    assert bands["value"][2]["applies"] == "Vale para vagas híbridas em Campinas, demais cidades de SP."
+    assert bands["value"][3]["applies"] == "Vale para vagas remotas internacionais, pagas em USD."
 
 
-def test_saving_bands_rewrites_only_the_band_lines_in_place(db_path, policy):
+def test_unchanged_bands_keep_their_text_and_changed_ones_are_rewritten(db_path, policy):
     policy.write_text(POLICY_TEXT, encoding="utf-8")
     bands = policy_section(db_path)["Faixas"]["value"]
     bands[0]["min"] = "9000"
     del bands[3]
-    bands.append({"modes": ["presencial"], "cities": ["Curitiba", "Londrina"], "currency": "BRL", "clt": False,
-                  "min": "R$ 11.000,00", "max": "14000", "alias": ""})
+    bands.append(row(["presencial"], places=[("SP", ["Campinas"], True), ("RJ", [], True)], clt=False,
+                     min="R$ 11.000,00", max="14000"))
 
     result = save({"policy": {"Faixas": bands, "Multiplicador PJ": "1,5"}}, db_path)
 
     assert result["saved"], result["errors"]
     text = policy.read_text(encoding="utf-8")
     assert text == POLICY_TEXT.replace("- Multiplicador PJ: 1.4", "- Multiplicador PJ: 1,5").replace(
-        "- Remoto nacional (BRL, CLT): mínimo 8.000, máximo 12.000\n"
-        "- Híbrido/presencial em São Paulo e região (BRL, CLT): mínimo 10.500\n"
-        "- Híbrido/presencial em Campinas (BRL, CLT): usar a faixa do remoto nacional\n"
-        "- Internacional (USD): mínimo 3000\n",
-        "- Remoto nacional (BRL, CLT): mínimo 9000, máximo 12000\n"
-        "- Híbrido/presencial em São Paulo e região (BRL, CLT): mínimo 10.500\n"  # sem mudança: linha intacta
-        "- Híbrido/presencial em Campinas (BRL, CLT): usar a faixa do remoto nacional\n"
-        "- Presencial em Curitiba, Londrina (BRL): mínimo 11000, máximo 14000\n")
-    assert len(parse_policy(text).bands) == 4
+        "- Faixa: mínimo 8.000, máximo 12.000\n", "- Faixa: mínimo 9000, máximo 12000\n").replace(
+        "- Faixa: mínimo 3000\n  - Tipos: remoto\n  - Remoto: internacional\n  - Moeda: USD\n",
+        "- Faixa: mínimo 11000, máximo 14000\n  - Tipos: presencial\n"
+        "  - Locais: SP: Campinas, demais cidades; RJ: demais cidades\n")
+    policy_now = parse_policy(text)
+    assert policy_now.band_for("presencial", "Niterói, RJ", "BRL").min == 11000
+    assert policy_now.band_for("hibrido", "Campinas, SP", "BRL").min == 9000  # mesma cidade, outra modalidade
+
+
+def test_the_users_sets_of_jobs_are_saved(db_path, policy):
+    policy.write_text(POLICY_TEXT, encoding="utf-8")
+    both = ["hibrido", "presencial"]
+    bands = [
+        row(both, places=[("SP", ["São Carlos"], False)], min="9500"),
+        row(both, places=[("SP", ["Campinas", "Jundiaí"], False)], min="10000"),
+        row(both, places=[("SP", [], True)], min="11000"),
+        row(["remoto"], scope="nacional", min="8500"),
+        row(both, places=[("RJ", [], True)], min="12000"),
+        row(["remoto"], scope="internacional", currency="USD", clt=False, min="3400"),
+    ]
+
+    result = save({"policy": {"Faixas": bands}}, db_path)
+
+    assert result["saved"], result["errors"]
+    parsed = parse_policy(policy.read_text(encoding="utf-8"))
+    cases = [("hibrido", "São Carlos, SP", "BRL"), ("presencial", "Jundiaí, SP", "BRL"),
+             ("hibrido", "Ribeirão Preto, SP", "BRL"), ("remoto", None, "BRL"), ("presencial", "Niterói, RJ", "BRL"),
+             ("remoto", None, "USD")]
+    assert [parsed.band_for(*case).min for case in cases] == [9500, 10000, 11000, 8500, 12000, 3400]
 
 
 def test_each_bad_band_comes_back_with_its_own_error(db_path, policy):
     policy.write_text(POLICY_TEXT, encoding="utf-8")
     before = policy.read_text(encoding="utf-8")
     bands = [
-        {"modes": ["remoto"], "currency": "BRL", "clt": True, "min": "", "max": "", "alias": ""},
-        {"modes": ["hibrido"], "currency": "XYZ", "clt": False, "min": "9000", "max": "", "alias": ""},
-        {"modes": ["presencial"], "currency": "BRL", "clt": False, "min": "9000", "max": "8000", "alias": ""},
-        {"modes": [], "currency": "BRL", "clt": False, "min": "", "max": "", "alias": "inexistente"},
+        row([], min="9000"),
+        row(["remoto"], min="9000"),
+        row(["remoto"], scope="internacional", currency="BRL", min="9000"),
+        row(["remoto", "hibrido"], scope="internacional", currency="USD", places=[("SP", ["Barueri"], False)],
+            min="9000"),
+        row(["hibrido"], min="9000"),
+        row(["presencial"], places=[("Narnia", ["Cair Paravel"], False)], min="9000"),
+        row(["presencial"], places=[("SP", ["Osasco"], False)], min="", max="8000"),
+        row(["presencial"], places=[("SP", ["Osasco"], False)], min="9000", max="8000"),
     ]
 
     result = save({"policy": {"Faixas": bands, "Multiplicador PJ": "zero"}}, db_path)
 
     assert not result["saved"] and policy.read_text(encoding="utf-8") == before
-    assert set(result["errors"]) == {"policy.Faixas.0.min", "policy.Faixas.1.currency", "policy.Faixas.2.max",
-                                     "policy.Faixas.3.alias", "policy.Multiplicador PJ"}
+    assert set(result["errors"]) == {
+        "policy.Faixas.0.modes", "policy.Faixas.1.scope", "policy.Faixas.2.currency", "policy.Faixas.3.scope",
+        "policy.Faixas.4.places", "policy.Faixas.5.places", "policy.Faixas.6.min", "policy.Faixas.7.max",
+        "policy.Faixas.7.places", "policy.Multiplicador PJ"}
+    assert "faixa 7" in result["errors"]["policy.Faixas.7.places"]  # Osasco (presencial) já está na faixa 7
 
 
-def test_band_cities_and_aliases_use_the_whole_label(db_path, policy):
+def test_same_place_in_the_same_work_mode_is_refused(db_path, policy):
     policy.write_text(POLICY_TEXT, encoding="utf-8")
     bands = policy_section(db_path)["Faixas"]["value"]
-    bands[1]["cities"] = ["São Paulo", "Barueri"]
-    bands[2]["alias"] = "Híbrido/presencial em São Paulo, Barueri"
-
-    result = save({"policy": {"Faixas": bands}}, db_path)
-
-    assert result["saved"], result["errors"]
-    text = policy.read_text(encoding="utf-8")
-    assert "- Híbrido/presencial em São Paulo, Barueri (BRL, CLT): mínimo 10500\n" in text
-    assert ("- Híbrido/presencial em Campinas (BRL, CLT): usar a faixa do Híbrido/presencial em São Paulo, Barueri\n"
-            in text)
-    barueri = parse_policy(text).band_for("hibrido", "Barueri, SP", "BRL")
-    assert barueri.min == 10500
-
-
-def test_bands_by_city_by_state_remote_and_currency(db_path, policy):
-    policy.write_text(POLICY_TEXT, encoding="utf-8")
-    bands = policy_section(db_path)["Faixas"]["value"]
-    hybrid = ["hibrido", "presencial"]
-    bands += [
-        {"modes": hybrid, "cities": [], "states": ["SP"], "currency": "BRL", "clt": True, "min": "9500"},
-        {"modes": ["remoto"], "cities": ["Recife"], "currency": "EUR", "min": "2500"},  # remota: sem local
-        {"modes": [], "currency": "EUR", "alias": "Remoto EUR"},
-    ]
-
-    result = save({"policy": {"Faixas": bands}}, db_path)
-
-    assert result["saved"], result["errors"]
-    text = policy.read_text(encoding="utf-8")
-    assert "- Híbrido/presencial em SP (BRL, CLT): mínimo 9500\n" in text
-    assert "- Remoto EUR (EUR): mínimo 2500\n- Qualquer vaga EUR (EUR): usar a faixa do Remoto EUR\n" in text
-    parsed = parse_policy(text)
-    assert parsed.band_for("hibrido", "Ribeirão Preto, São Paulo, Brazil", "BRL").min == 9500  # demais de SP
-    assert parsed.band_for("hibrido", "Campinas, SP", "BRL").min == 8000  # a cidade vale antes do estado
-    loaded = policy_section(db_path)["Faixas"]["value"][4]
-    assert (loaded["states"], loaded["applies"]) == (["SP"], "Vale para vagas híbridas e presenciais em demais "
-                                                            "cidades de SP.")
-
-
-def test_two_bands_for_the_same_jobs_are_refused(db_path, policy):
-    policy.write_text(POLICY_TEXT, encoding="utf-8")
-    bands = policy_section(db_path)["Faixas"]["value"]
-    bands.append(dict(bands[2], label=""))  # mesmas vagas e moeda da faixa 3
-    bands.append({"modes": ["hibrido"], "cities": ["Rio, RJ"], "currency": "BRL", "min": "9000"})
+    bands.append(row(["presencial"], places=[("SP", ["Campinas"], False)], min="9500"))  # presencial: livre
+    bands.append(row(["hibrido"], places=[("SP", [], True)], min="9500"))  # demais de SP já está na faixa 3
+    bands.append(row(["remoto"], scope="nacional", min="9500"))
 
     result = save({"policy": {"Faixas": bands}}, db_path)
 
     assert not result["saved"]
-    assert set(result["errors"]) == {"policy.Faixas.4.modes", "policy.Faixas.5.cities"}
+    assert set(result["errors"]) == {"policy.Faixas.5.places", "policy.Faixas.6.scope"}
+    assert "faixa 3" in result["errors"]["policy.Faixas.5.places"]
+    assert "faixa 1" in result["errors"]["policy.Faixas.6.scope"]
 
 
 def test_range_mode_needs_a_maximum_in_every_band(db_path, policy):
@@ -596,13 +615,37 @@ def test_at_least_one_band_is_needed(db_path, policy):
 def test_new_policy_keeps_the_example_bands_but_not_its_values(db_path, policy):
     bands = policy_section(db_path)["Faixas"]
 
-    assert [(b["label"], b["cities"]) for b in bands["value"]][:2] == [
-        ("Remoto nacional", []), ("Híbrido/presencial em São Paulo e região", ["São Paulo"])]
+    assert [(b["modes"], b["scope"]) for b in bands["value"]][:2] == [(["remoto"], "nacional"),
+                                                                        (["hibrido", "presencial"], "")]
     assert all(b["min"] == "" and b["max"] == "" for b in bands["value"])
     assert bands["value"][0]["hint_min"] == "8000"
     blocked = save({"policy": {"Faixas": bands["value"]}}, db_path)
     assert not blocked["saved"] and "policy.Faixas.0.min" in blocked["errors"]
     assert not policy.exists()
+
+
+def test_old_policy_is_converted_with_the_states_of_the_accepted_places(db_path, policy, skill):
+    criteria = (skill / "criterios-triagem.example.md").read_text(encoding="utf-8").replace(
+        "SP: São Paulo, Campinas", "SP: São Carlos, São Paulo, Barueri, Sorocaba")
+    (skill / "criterios-triagem.md").write_text(criteria, encoding="utf-8")
+    policy.write_text(OLD_POLICY, encoding="utf-8")
+
+    bands = policy_section(db_path)["Faixas"]
+    keys = ("modes", "scope", "currency", "places", "clt", "min", "max")
+    assert bands["migrated"] and [{k: b[k] for k in keys} for b in bands["value"]] == [
+        row(["remoto"], scope="nacional", min="8500"),
+        row(["hibrido", "presencial"], places=[("SP", ["São Paulo", "Barueri", "Sorocaba"], False)], min="11000"),
+        row(["hibrido", "presencial"], places=[("SP", ["São Carlos"], False)], min="8500"),  # valores da faixa citada
+        row(["remoto"], scope="internacional", currency="USD", clt=False, min="3400"),
+        row(["hibrido", "presencial"], places=[("", ["Rio de Janeiro"], False)], min="12000"),  # "no" também é local
+    ]
+
+    result = save({"policy": {"Faixas": bands["value"]}}, db_path)
+
+    assert result["saved"], result["errors"]
+    text = policy.read_text(encoding="utf-8")
+    assert "(BRL" not in text and "usar a faixa" not in text
+    assert parse_policy(text).band_for("hibrido", "São Carlos, SP", "BRL").min == 8500
 
 
 def test_changing_the_policy_reevaluates_the_open_applications(db_path, policy, monkeypatch):
