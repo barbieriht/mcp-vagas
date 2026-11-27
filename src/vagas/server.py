@@ -1350,7 +1350,8 @@ def build_server(
     def suggest_job_searches() -> dict[str, Any]:
         """Sugere as buscas de vagas a executar, sem você montar as consultas.
 
-        Combina os cargos alvo (e as "Senioridades buscadas", se houver) de criterios-triagem.md,
+        Combina os cargos alvo (e as "Senioridades buscadas", se houver, exceto nos cargos que já dizem o
+        nível, como "Estágio em Dados"; a Gupy busca pelo título) de criterios-triagem.md, sem repetir consultas,
         em português e inglês, com os locais: remoto em todo o país e híbrido/presencial em cada
         local aceito, na Gupy e no LinkedIn (no LinkedIn, uma página e só vagas da última semana,
         porque ele limita leituras seguidas); acrescenta, por cargo, uma busca remota na Gupy com a

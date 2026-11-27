@@ -179,6 +179,52 @@ def test_seniorities_from_criteria_become_query_variants(conn, tmp_path):
     assert "cientista de dados" not in queries
 
 
+def test_role_that_already_names_a_seniority_is_not_combined_with_another(conn, tmp_path):
+    # Na Gupy a busca é pelo título: "Junior AI Engineer estágio" ou "Estágio em Dados júnior" não acham nada.
+    path = tmp_path / "c.md"
+    path.write_text("- Cargos alvo: Estágio em Dados, Junior AI Engineer, Cientista de Dados\n"
+                    "- Senioridades buscadas: estagio, junior\n", encoding="utf-8")
+
+    result = board(conn, Fetcher(), path, tmp_path).suggest_job_searches()
+
+    for source in ("gupy", "linkedin"):
+        queries = {s["query"] for s in result["searches"] if s["source"] == source}
+        assert {"Estágio em Dados", "Junior AI Engineer"} <= queries
+        assert not {q for q in queries if q.startswith(("Estágio em Dados ", "Junior AI Engineer "))}
+        assert {"cientista de dados estágio", "cientista de dados júnior"} <= queries  # preset: nomes em minúsculas
+
+
+def test_gupy_also_searches_the_area_without_the_job_function(conn, tmp_path):
+    # A Gupy busca pelo título: "Engenheira de Software Júnior" só acha o título nessa forma (e nesse gênero);
+    # "software júnior" acha Engenheiro(a), Analista, Software Engineer... de software júnior.
+    path = tmp_path / "c.md"
+    path.write_text("- Cargos alvo: Engenheira de Software Júnior, Analista de Dados, Pessoa Estagiária de Dados, "
+                    "Estágio em Dados, Junior AI Engineer, Desenvolvedor Júnior\n- Senioridades buscadas: estagio, junior\n", encoding="utf-8")
+
+    result = board(conn, Fetcher(), path, tmp_path).suggest_job_searches()
+
+    gupy = {s["query"] for s in result["searches"] if s["source"] == "gupy"}
+    linkedin = {s["query"] for s in result["searches"] if s["source"] == "linkedin"}
+    assert {"Engenheira de Software Júnior", "software júnior"} <= gupy
+    assert {"analista de dados estágio", "estágio dados", "dados júnior"} <= gupy  # preset: minúsculas
+    assert "Pessoa Estagiária de Dados" in gupy  # "estágio dados" também vem dela
+    assert {"Junior AI Engineer", "AI júnior"} <= gupy  # função em inglês, no fim do nome
+    assert not {q for q in gupy if q.lower() in {"estágio", "júnior", "trainee"}}
+    assert "software júnior" not in linkedin  # o LinkedIn busca por relevância, não pelo título
+
+
+def test_same_query_from_two_roles_is_suggested_once(conn, tmp_path):
+    path = tmp_path / "c.md"
+    path.write_text("- Cargos alvo: Estagiária de Dados (Estágio em Dados), Estágio em Dados\n"
+                    "- Locais aceitos para híbrido e presencial: São Paulo\n", encoding="utf-8")
+
+    result = board(conn, Fetcher(), path, tmp_path).suggest_job_searches()
+
+    keys = [(s["source"], s["query"].lower(), s["location"]) for s in result["searches"]]
+    assert len(keys) == len(set(keys))
+    assert ("gupy", "estágio em dados", "São Paulo") in keys
+
+
 def test_suggestions_flag_recent_searches_and_work_without_resume(conn, criteria, tmp_path):
     JobSearchStore(conn).save_job_search("cientista de dados", "gupy", 4, filters={"work_modes": ["remoto"]})
 
