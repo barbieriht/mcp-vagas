@@ -48,6 +48,37 @@ def _names_seniority(term: str) -> bool:
     return any(w in roles_.SENIORITY_WORDS for w in re.findall(r"[a-z0-9]+", normalize_text(term)))
 
 
+# Palavras que dizem a função, não a área: na Gupy (busca pelo título) estreitam a busca, até pelo gênero
+# ("Engenheira de Software" não acha "Engenheiro(a) de Software"). Sem acento, como sai de normalize_text.
+_JOB_FUNCTIONS = {"engenheiro", "engenheira", "engenheiros", "analista", "desenvolvedor", "desenvolvedora",
+                  "programador", "programadora", "cientista", "pessoa", "profissional", "arquiteto", "arquiteta",
+                  "engineer", "developer", "analyst", "scientist", "programmer", "architect"}
+# Nível como ele aparece nos títulos: estágio e trainee na frente ("Estágio em Dados"), os demais no fim
+# ("Analista de Dados Júnior").
+_LEVEL_FIRST = {"estagio", "trainee"}
+_LEVEL_OF_WORD = {"estagio": "estagio", "estagiario": "estagio", "estagiaria": "estagio", "intern": "estagio",
+                  "internship": "estagio", "trainee": "trainee", "junior": "junior", "jr": "junior",
+                  "pleno": "pleno", "pl": "pleno", "senior": "senior", "sr": "senior"}
+
+
+def _area_queries(term: str, seniorities: tuple[str, ...] | list[str]) -> list[str]:
+    """Só para a Gupy: a área do cargo, sem a função, com o nível ("Engenheira de Software Júnior" ->
+    "software júnior"; "Analista de Dados" -> "estágio dados", "dados júnior"). Nome sem função: nada a mais."""
+    words = term.split()
+    plain = [normalize_text(w).strip("()[],.-/|") for w in words]
+    if not any(p in _JOB_FUNCTIONS for p in plain):
+        return []
+    area = [w for w, p in zip(words, plain)
+            if p and p not in _JOB_FUNCTIONS and p not in roles_.SENIORITY_WORDS and p not in roles_._STOP]
+    if not area:
+        return []
+    named = [_LEVEL_OF_WORD[p] for p in plain if p in _LEVEL_OF_WORD]
+    levels = list(dict.fromkeys(named)) if named else list(seniorities)
+    core = " ".join(w if w.isupper() and len(w) <= 3 else w.lower() for w in area)  # siglas (IA, BI) ficam
+    return [f"{SENIORITY_WORDS[s]} {core}" if s in _LEVEL_FIRST else f"{core} {SENIORITY_WORDS[s]}"
+            for s in levels]
+
+
 def _with_seniorities(term: str, seniorities: tuple[str, ...] | list[str]) -> list[str]:
     """Variantes de busca de um nome de cargo: uma por senioridade buscada, ou o próprio nome quando ele já diz o
     nível. A Gupy busca pelo título: "Junior AI Engineer estágio" ou "Estágio em Dados júnior" não acham nada."""
@@ -237,8 +268,9 @@ class JobBoard:
         for role in criteria.target_roles:
             terms = roles_.names(role, criteria.roles)
             queries = [q for t in terms for q in _with_seniorities(t, criteria.search_seniorities)]
+            gupy_only = [q for t in terms for q in _area_queries(t, criteria.search_seniorities)]
             for source in SEARCHABLE:
-                for query in queries:
+                for query in queries + (gupy_only if source == "gupy" else []):
                     add(source, query, None, ["remoto"])
                     for city in criteria.location_names:
                         add(source, query, city, ["hibrido", "presencial"])
