@@ -22,7 +22,7 @@ from vagas.job_posting import Fetcher, JobPostingError, http_fetch, parse_salary
 from vagas.job_search import JobSearchStore
 from vagas import roles as roles_
 from vagas.models import SENIORITY_LABELS, WORK_MODES
-from vagas.normalize import canonical_url
+from vagas.normalize import canonical_url, normalize_text
 from vagas.repo import Repo, VagasError
 from vagas.resume_repo import ResumeStore, default_draft_path
 from vagas.triage import default_criteria_path, load_criteria
@@ -41,6 +41,19 @@ _FROM_GUPY_MODE = {"remote": "remoto", "hybrid": "hibrido", "on-site": "presenci
 _GUPY_CONTRACTS = {"vacancy_type_effective": "clt", "vacancy_type_legal_entity": "pj"}
 
 SENIORITY_WORDS = SENIORITY_LABELS
+
+
+def _names_seniority(term: str) -> bool:
+    """O cargo já diz o nível ("Estágio em Dados", "Junior AI Engineer", "Engenheira de Software Júnior")."""
+    return any(w in roles_.SENIORITY_WORDS for w in re.findall(r"[a-z0-9]+", normalize_text(term)))
+
+
+def _with_seniorities(term: str, seniorities: tuple[str, ...] | list[str]) -> list[str]:
+    """Variantes de busca de um nome de cargo: uma por senioridade buscada, ou o próprio nome quando ele já diz o
+    nível. A Gupy busca pelo título: "Junior AI Engineer estágio" ou "Estágio em Dados júnior" não acham nada."""
+    if not seniorities or _names_seniority(term):
+        return [term]
+    return [f"{term} {SENIORITY_WORDS[s]}" for s in seniorities]
 
 
 # --- Gupy (funções puras) ----------------------------------------------------------------------
@@ -213,17 +226,24 @@ class JobBoard:
         criteria = load_criteria(self.criteria_path)
         skills, note = self._top_skills()
         searches: list[dict[str, Any]] = []
+        seen: set[tuple[str, str, str | None]] = set()
+
+        def add(source: str, query: str, location: str | None, modes: list[str]) -> None:
+            key = (source, normalize_text(query), normalize_text(location) if location else None)
+            if key not in seen:
+                seen.add(key)
+                searches.append(self._suggestion(source, query, location, modes))
+
         for role in criteria.target_roles:
             terms = roles_.names(role, criteria.roles)
-            queries = ([f"{t} {SENIORITY_WORDS[s]}" for t in terms for s in criteria.search_seniorities]
-                       or list(terms))
+            queries = [q for t in terms for q in _with_seniorities(t, criteria.search_seniorities)]
             for source in SEARCHABLE:
                 for query in queries:
-                    searches.append(self._suggestion(source, query, None, ["remoto"]))
-                    searches += [self._suggestion(source, query, city, ["hibrido", "presencial"])
-                                 for city in criteria.location_names]
+                    add(source, query, None, ["remoto"])
+                    for city in criteria.location_names:
+                        add(source, query, city, ["hibrido", "presencial"])
             if skills:
-                searches.append(self._suggestion("gupy", f"{terms[-1]} {skills[0].lower()}", None, ["remoto"]))
+                add("gupy", f"{terms[-1]} {skills[0].lower()}", None, ["remoto"])
         return {"searches": searches, "skills": skills, "note": note}
 
     def _suggestion(self, source: str, query: str, location: str | None, modes: list[str]) -> dict[str, Any]:
